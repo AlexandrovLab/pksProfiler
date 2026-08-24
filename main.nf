@@ -41,7 +41,6 @@ params.minimap2_env = "${projectDir}/conda_envs/minimap2_env.yml"
 params.pks_align_env = "${projectDir}/conda_envs/pks_align_env.yml"
 params.pks_hmm_env = "${projectDir}/conda_envs/pks_hmm_env.yml"
 params.krakenuniq_bracken_env = "${projectDir}/conda_envs/krakenUniq_bracken_env.yml"
-params.krakentools_pack =null
 params.scripts = "${projectDir}/scripts"
 
 // ---------------- Modules ----------------
@@ -72,10 +71,6 @@ workflow {
 
     if (params.pks_taxa && !params.kraken_db) {
         exit 1, "Taxonomic profiling requires: --kraken_db"
-    }
-
-    if (params.pks_taxa && !params.krakentools_pack) {
-        exit 1, "Taxonomic profiling requires: --krakentools_pack"
     }
 
     // ---------- STEP 1: Inputs + filtering ----------

@@ -79,7 +79,7 @@ process Bracken {
     exit 0
   fi
 
-  krakenuniq --db "${params.kraken_db}" --threads 4 \
+  krakenuniq --db "${params.kraken_db}" --threads "${task.cpus}" \
     --report-file "\$REPORT" --output "\$OUTPUT" \
     --classified-out "\$CLASSIFIED" --unclassified-out "\$UNCLASSIFIED" \
     "${sampleID}.pks.fastq"
@@ -146,13 +146,13 @@ process process_bracken {
   set -euo pipefail
 
   if [ -n "${genus_str}" ]; then
-    python "${params.scripts}/combine_mpa.py" --input ${genus_str} --output bracken.genus.mpa.report.txt
+    python combine_mpa.py" --input ${genus_str} --output bracken.genus.mpa.report.txt
   else
     echo "No genus files found." > bracken.genus.mpa.report.txt
   fi
 
   if [ -n "${species_str}" ]; then
-    python "${params.scripts}/combine_mpa.py" --input ${species_str} --output bracken.species.mpa.report.txt
+    python combine_mpa.py" --input ${species_str} --output bracken.species.mpa.report.txt
   else
     echo "No species files found." > bracken.species.mpa.report.txt
   fi

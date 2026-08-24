@@ -138,4 +138,5 @@ dependencies:
   - pytz
   - six
   - pyparsing
+  - krakentools=1.2.1
 prefix: /tscc/projects/ps-lalexandrov/amabbasi/anaconda3/envs/krakenUniq_bracken_env
