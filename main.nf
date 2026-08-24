@@ -9,6 +9,7 @@ params.pks_taxa = true   // set true to run krakenuniq/bracken on pks-island rea
 params.profiling_method = "both"    // bowtie2 | hmm | both
 params.hmm_evalue       = 1e-10
 params.hmm_model        = "${projectDir}/ref/hmm/clb_all_dna.hmm"
+params.bracken_read_length = null // Must match a read length supported by the selected Bracken database.
 
 // profile taxa that map to the pks island:
 params.pks_shift = 2193827          // island start in E. coli genome coords
@@ -72,6 +73,15 @@ workflow {
     if (params.pks_taxa && !params.kraken_db) {
         exit 1, "Taxonomic profiling requires: --kraken_db"
     }
+	if (params.pks_taxa && !params.bracken_read_length) {
+	    exit 1, "Taxonomic profiling requires: --bracken_read_length"
+	}
+	if (params.pks_taxa && (
+        !(params.bracken_read_length.toString() ==~ /^[0-9]+$/) ||
+        params.bracken_read_length.toString().toInteger() <= 0
+    )) {
+	    exit 1, "--bracken_read_length must be a positive integer"
+	}
 
     // ---------- STEP 1: Inputs + filtering ----------
     def sample_sheet = Channel

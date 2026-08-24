@@ -111,10 +111,16 @@ process Bracken {
       continue
     fi
 
-    bracken -d "\${params.kraken_db}" -i "\$REPORT" -o "\${bracken_output}" \
-    -w "\${bracken_kraken_report}" -r 50 -l "\${lvl}" -t 2
+	bracken \
+    -d "${params.kraken_db}" \
+    -i "\$REPORT" \
+    -o "\${bracken_output}" \
+    -w "\${bracken_kraken_report}" \
+    -r ${params.bracken_read_length} \
+    -l "\${lvl}" \
+    -t 2
 
-    python "\${params.scripts}/kreport2mpa.py" -r "\${bracken_kraken_report}" \
+    python kreport2mpa.py -r "\${bracken_kraken_report}" \
     -o "\${bracken_kraken_mpa_report}" --display-header
   done
 
