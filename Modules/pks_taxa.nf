@@ -120,7 +120,7 @@ process Bracken {
     -l "\${lvl}" \
     -t 2
 
-    python kreport2mpa.py -r "\${bracken_kraken_report}" \
+    kreport2mpa.py -r "\${bracken_kraken_report}" \
     -o "\${bracken_kraken_mpa_report}" --display-header
   done
 
@@ -152,13 +152,13 @@ process process_bracken {
   set -euo pipefail
 
   if [ -n "${genus_str}" ]; then
-    python combine_mpa.py" --input ${genus_str} --output bracken.genus.mpa.report.txt
+    combine_mpa.py --input ${genus_str} --output bracken.genus.mpa.report.txt
   else
     echo "No genus files found." > bracken.genus.mpa.report.txt
   fi
 
   if [ -n "${species_str}" ]; then
-    python combine_mpa.py" --input ${species_str} --output bracken.species.mpa.report.txt
+    combine_mpa.py --input ${species_str} --output bracken.species.mpa.report.txt
   else
     echo "No species files found." > bracken.species.mpa.report.txt
   fi
