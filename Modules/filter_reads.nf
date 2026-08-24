@@ -5,7 +5,6 @@ process filterReads {
     label 'filter_reads'
     publishDir("${params.unmapped_bam_dir}", mode: 'copy')
     conda "${params.fastp_env}"
-	errorStrategy 'ignore'   // do not crash the whole pipeline on this task
 	maxRetries 2
 
 
@@ -19,6 +18,8 @@ process filterReads {
 
 	script:
 	"""
+	set -euo pipefail
+
 	R1="${sampleID}.R1.UNMAPPED.FASTP.FILTERED.fastq.gz"
 	R2="${sampleID}.R2.UNMAPPED.FASTP.FILTERED.fastq.gz"
 

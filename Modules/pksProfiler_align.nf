@@ -55,16 +55,15 @@ process pksProfiler_align {
         exit 0
     fi
 
-    if ! gzip -t "${r1}" >/dev/null 2>&1 || ! gzip -t "${r2}" >/dev/null 2>&1; then
-	  echo "WARNING: Corrupt gzip input for ${sampleID}; writing empty outputs and skipping." >&2
-	  : > "${counts}"
-	  : > "${coverage}"
-	  : > "${bedtools_cov}"
-	  : > "${sam}"
-	  : > "${bam}"
-	  : > "${bai}"
-	  exit 0
-	fi
+	if ! gzip -t "${r1}" >/dev/null 2>&1; then
+        echo "ERROR: Corrupt gzip input for ${sampleID}: ${r1}" >&2
+        exit 1
+    fi
+
+    if ! gzip -t "${r2}" >/dev/null 2>&1; then
+        echo "ERROR: Corrupt gzip input for ${sampleID}: ${r2}" >&2
+        exit 1
+    fi
 
 
     # Merge gzipped FASTQs safely
