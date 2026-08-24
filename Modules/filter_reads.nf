@@ -24,10 +24,10 @@ process filterReads {
 	R2="${sampleID}.R2.UNMAPPED.FASTP.FILTERED.fastq.gz"
 
     fastp -l 45 --adapter_fasta ${params.adapters} --cut_tail \
-        -i ${fastq1} -w 4 -o "\$R1"
+        -i ${fastq1} -w "${task.cpus}" -o "\$R1"
 
     fastp -l 45 --adapter_fasta ${params.adapters} --cut_tail \
-        -i ${fastq2} -w 4 -o "\$R2"
+        -i ${fastq2} -w "${task.cpus}" -o "\$R2"
     """
 }
 

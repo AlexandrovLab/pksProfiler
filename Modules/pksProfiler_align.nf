@@ -62,10 +62,10 @@ process pksProfiler_align {
 
     echo "Bowtie2 Alignment (sample: ${sampleID})"
     bowtie2 -x "${params.pks_genome}" -q "${sampleID}.trimmed.fastq.gz" \\
-        --seed 42 --threads 1 --very-sensitive --no-unal -S "${sam}"
+        --seed 42 --threads "${task.cpus}" --very-sensitive --no-unal -S "${sam}"
 
-    samtools view -bS -q 40 "${sam}" | samtools sort -o "${bam}" -
-    samtools index "${bam}" -o "${bai}"
+    samtools view -@ "${task.cpus}" -bS -q 40 "${sam}" | samtools sort -@ "${task.cpus}" -o "${bam}" -
+    samtools index -@ "${task.cpus}" "${bam}" -o "${bai}"
 
     MAPPED_READS=\$(samtools view -c -F 4 "${bam}")
 
@@ -73,6 +73,7 @@ process pksProfiler_align {
     # processed sample with no aligned reads must remain in summaries
     # as an explicit zero rather than disappearing as an empty file.
     featureCounts \
+		-T "${task.cpus}" \
         -a "${params.pks_genome_annotation}" \
         -o "${counts}" \
         -t gene \
@@ -86,6 +87,7 @@ process pksProfiler_align {
         : > "${bedtools_cov}"
     else
         bamCoverage \
+			--numberOfProcessors "${task.cpus}" \
             -b "${bam}" \
             -o "${coverage}" \
             --normalizeUsing RPKM \

@@ -8,7 +8,6 @@ params.pks_taxa = true   // set true to run krakenuniq/bracken on pks-island rea
 
 params.profiling_method = "both"    // bowtie2 | hmm | both
 params.hmm_evalue       = 1e-10
-params.hmm_cpu          = 8
 params.hmm_model        = "${projectDir}/ref/hmm/clb_all_dna.hmm"
 
 // profile taxa that map to the pks island:

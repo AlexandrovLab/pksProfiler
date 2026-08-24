@@ -19,30 +19,30 @@ process mapReads {
 
     echo "Running host depletion on R1"
 
-    minimap2 -2 -ax sr -t 16 \
+    minimap2 -2 -ax sr -t "${task.cpus}" \
         "${params.hg38_db}" \
         "${r1_fastq}" |
-    samtools fastq -@ 16 -f 4 -F 256 |
+    samtools fastq -@ "${task.cpus}" -f 4 -F 256 |
     gzip > "${sampleID}.R1.UNMAPPED.FASTP.FILTERED.hg38.fastq.gz"
 
-    minimap2 -2 -ax sr -t 16 \
+    minimap2 -2 -ax sr -t "${task.cpus}" \
         "${params.t2t_phix_db}" \
         "${sampleID}.R1.UNMAPPED.FASTP.FILTERED.hg38.fastq.gz" |
-    samtools fastq -@ 16 -f 4 -F 256 |
+    samtools fastq -@ "${task.cpus}" -f 4 -F 256 |
     gzip > "${sampleID}.R1.UNMAPPED.FASTP.FILTERED.hg38.t2t.fastq.gz"
 
     echo "Running host depletion on R2"
 
-    minimap2 -2 -ax sr -t 16 \
+    minimap2 -2 -ax sr -t "${task.cpus}" \
         "${params.hg38_db}" \
         "${r2_fastq}" |
-    samtools fastq -@ 16 -f 4 -F 256 |
+    samtools fastq -@ "${task.cpus}" -f 4 -F 256 |
     gzip > "${sampleID}.R2.UNMAPPED.FASTP.FILTERED.hg38.fastq.gz"
 
-    minimap2 -2 -ax sr -t 16 \
+    minimap2 -2 -ax sr -t "${task.cpus}" \
         "${params.t2t_phix_db}" \
         "${sampleID}.R2.UNMAPPED.FASTP.FILTERED.hg38.fastq.gz" |
-    samtools fastq -@ 16 -f 4 -F 256 |
+    samtools fastq -@ "${task.cpus}" -f 4 -F 256 |
     gzip > "${sampleID}.R2.UNMAPPED.FASTP.FILTERED.hg38.t2t.fastq.gz"
     """
 }

@@ -46,10 +46,10 @@ process pksProfiler_hmm {
     seqtk seq -a "${sampleID}.merged.fastq.gz" > "${sampleID}.merged.fa"
 
 	ls -lh "${sampleID}.merged.fa"
-    echo "nhmmscan --cpu "${params.hmm_cpu}" --tblout "${tblout}" "${params.hmm_model}" "${sampleID}.merged.fa" > "${logfile}" 2>&1"
+    echo "nhmmscan --cpu "${task.cpus}" --tblout "${tblout}" "${params.hmm_model}" "${sampleID}.merged.fa" > "${logfile}" 2>&1"
 
     echo "Running nhmmscan on sample: ${sampleID}"
-    nhmmscan --cpu "${params.hmm_cpu}" \\
+    nhmmscan --cpu "${task.cpus}" \\
         --tblout "${tblout}" \\
         "${params.hmm_model}" \\
         "${sampleID}.merged.fa" \\
