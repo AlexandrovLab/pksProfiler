@@ -1,0 +1,29 @@
+##gff-version 3
+#!gff-spec-version 1.21
+#!processor NCBI annotwriter
+#!genome-build ASM2574v1
+#!genome-build-accession NCBI_Assembly:GCF_000025745.1
+#!annotation-date 04/24/2023 01:27:17
+#!annotation-source NCBI RefSeq 
+##sequence-region NC_017628.1 1 5108383
+##species https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=714962
+NC_017628.1	RefSeq	gene	2193827	2194339	.	-	.	ID=gene-ECOK1_RS11325;Name=clbS;gbkey=Gene;gene=clbS;gene_biotype=protein_coding;locus_tag=ECOK1_RS11325;old_locus_tag=ECOK1_2169
+NC_017628.1	RefSeq	gene	2194374	2195096	.	-	.	ID=gene-ECOK1_RS11330;Name=clbQ;gbkey=Gene;gene=clbQ;gene_biotype=protein_coding;locus_tag=ECOK1_RS11330;old_locus_tag=ECOK1_2170
+NC_017628.1	RefSeq	gene	2195089	2196603	.	-	.	ID=gene-ECOK1_RS11335;Name=clbP;gbkey=Gene;gene=clbP;gene_biotype=protein_coding;locus_tag=ECOK1_RS11335;old_locus_tag=ECOK1_2171
+NC_017628.1	RefSeq	gene	2196616	2199075	.	-	.	ID=gene-ECOK1_RS11340;Name=clbO;gbkey=Gene;gene=clbO;gene_biotype=protein_coding;locus_tag=ECOK1_RS11340;old_locus_tag=ECOK1_2172
+NC_017628.1	RefSeq	gene	2199106	2203473	.	-	.	ID=gene-ECOK1_RS11345;Name=clbN;gbkey=Gene;gene=clbN;gene_biotype=protein_coding;locus_tag=ECOK1_RS11345;old_locus_tag=ECOK1_2173
+NC_017628.1	RefSeq	gene	2203470	2204909	.	-	.	ID=gene-ECOK1_RS11350;Name=clbM;gbkey=Gene;gene=clbM;gene_biotype=protein_coding;locus_tag=ECOK1_RS11350;old_locus_tag=ECOK1_2174
+NC_017628.1	RefSeq	gene	2204971	2206434	.	-	.	ID=gene-ECOK1_RS11355;Name=clbL;gbkey=Gene;gene=clbL;gene_biotype=protein_coding;locus_tag=ECOK1_RS11355;old_locus_tag=ECOK1_2175
+NC_017628.1	RefSeq	gene	2206427	2212891	.	-	.	ID=gene-ECOK1_RS11360;Name=clbK;gbkey=Gene;gene=clbK;gene_biotype=protein_coding;locus_tag=ECOK1_RS11360;old_locus_tag=ECOK1_2176
+NC_017628.1	RefSeq	gene	2212902	2219402	.	-	.	ID=gene-ECOK1_RS11365;Name=clbJ;gbkey=Gene;gene=clbJ;gene_biotype=protein_coding;locus_tag=ECOK1_RS11365;old_locus_tag=ECOK1_2177
+NC_017628.1	RefSeq	gene	2219446	2222478	.	-	.	ID=gene-ECOK1_RS11370;Name=clbI;gbkey=Gene;gene=clbI;gene_biotype=protein_coding;locus_tag=ECOK1_RS11370;old_locus_tag=ECOK1_2178
+NC_017628.1	RefSeq	gene	2222528	2227324	.	-	.	ID=gene-ECOK1_RS11375;Name=clbH;gbkey=Gene;gene=clbH;gene_biotype=protein_coding;locus_tag=ECOK1_RS11375;old_locus_tag=ECOK1_2179
+NC_017628.1	RefSeq	gene	2227372	2228640	.	-	.	ID=gene-ECOK1_RS11380;Name=clbG;gbkey=Gene;gene=clbG;gene_biotype=protein_coding;locus_tag=ECOK1_RS11380;old_locus_tag=ECOK1_2180
+NC_017628.1	RefSeq	gene	2228637	2229767	.	-	.	ID=gene-ECOK1_RS11385;Name=clbF;gbkey=Gene;gene=clbF;gene_biotype=protein_coding;locus_tag=ECOK1_RS11385;old_locus_tag=ECOK1_2181
+NC_017628.1	RefSeq	gene	2229771	2230019	.	-	.	ID=gene-ECOK1_RS11390;Name=clbE;gbkey=Gene;gene=clbE;gene_biotype=protein_coding;locus_tag=ECOK1_RS11390;old_locus_tag=ECOK1_2182
+NC_017628.1	RefSeq	gene	2230049	2230918	.	-	.	ID=gene-ECOK1_RS11395;Name=clbD;gbkey=Gene;gene=clbD;gene_biotype=protein_coding;locus_tag=ECOK1_RS11395;old_locus_tag=ECOK1_2183
+NC_017628.1	RefSeq	gene	2230928	2233528	.	-	.	ID=gene-ECOK1_RS11400;Name=clbC;gbkey=Gene;gene=clbC;gene_biotype=protein_coding;locus_tag=ECOK1_RS11400;old_locus_tag=ECOK1_2184
+NC_017628.1	RefSeq	gene	2233569	2243189	.	-	.	ID=gene-ECOK1_RS11405;Name=clbB;gbkey=Gene;gene=clbB;gene_biotype=protein_coding;locus_tag=ECOK1_RS11405;old_locus_tag=ECOK1_2185
+NC_017628.1	RefSeq	gene	2243647	2243859	.	+	.	ID=gene-ECOK1_RS11410;Name=clbR;gbkey=Gene;gene=clbR;gene_biotype=protein_coding;locus_tag=ECOK1_RS11410
+NC_017628.1	RefSeq	gene	2243860	2244594	.	+	.	ID=gene-ECOK1_RS11415;Name=clbA;gbkey=Gene;gene=clbA;gene_biotype=protein_coding;locus_tag=ECOK1_RS11415
+###

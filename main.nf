@@ -33,7 +33,7 @@ params.kraken_db="/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs/k
 
 // PKS + E. coli annotation
 params.pks_genome            = "${projectDir}/indices/GCF_000025745.1/GCF_000025745.1_ASM2574v1_genomic"
-params.pks_genome_annotation = "${projectDir}/indices/GCF_000025745.1/genomic.gff"
+params.pks_genome_annotation = "${projectDir}/ref/annotations/IHE3034.clbA-clbS.gff"
 params.pks_cytoband          = "${projectDir}/indices/GCF_000025745.1/genomic_pks.txt"
 params.ecoli_cytoband        = "${projectDir}/indices/GCF_000025745.1/genomic_ecoli.txt"
 

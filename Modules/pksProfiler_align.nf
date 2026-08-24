@@ -29,6 +29,23 @@ process pksProfiler_align {
     """
     set -euo pipefail
 
+	# Validate the manuscript-facing clb annotation before processing samples.
+    CLB_GENE_COUNT=\$(awk -F '\t' '
+        \$0 !~ /^#/ &&
+        \$3 == "gene" &&
+        \$9 ~ /(^|;)Name=clb[A-S](;|$)/ {
+            count++
+        }
+        END {
+            print count + 0
+        }
+    ' "${params.pks_genome_annotation}")
+
+    if [[ "\$CLB_GENE_COUNT" -ne 19 ]]; then
+        echo "ERROR: Expected exactly 19 clb genes in ${params.pks_genome_annotation}; found \$CLB_GENE_COUNT." >&2
+        exit 1
+    fi
+
     # Reuse outputs if they already exist in publishDir
     if [[ -s "${params.pks_dir}/${bedtools_cov}" && -s "${params.pks_dir}/${coverage}" && -s "${params.pks_dir}/${counts}" && -s "${params.pks_dir}/${bam}" && -s "${params.pks_dir}/${bai}" && -s "${params.pks_dir}/${sam}" ]]; then
         echo "Skipping pksProfiler_align: Found required files in ${params.pks_dir}"
