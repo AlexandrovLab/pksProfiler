@@ -8,6 +8,7 @@ params.pks_taxa = true   // set true to run krakenuniq/bracken on pks-island rea
 
 params.profiling_method = "both"    // bowtie2 | hmm | both
 params.hmm_evalue       = 1e-10
+params.hmm_chunking = false
 params.hmm_model        = "${projectDir}/ref/hmm/clb_all_dna.hmm"
 params.bracken_read_length = null // Must match a read length supported by the selected Bracken database.
 
