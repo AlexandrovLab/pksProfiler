@@ -93,8 +93,10 @@ workflow {
 
     if (params.input_data_type == "bam") {
 
-        // Expect columns: patient,bam
-        sample_sheet = sample_sheet.map { row -> row.subMap('patient', 'bam') }
+		// Expect columns: patient,bam
+		sample_sheet = sample_sheet.map { row ->
+		    tuple(row.patient, file(row.bam, checkIfExists: true))
+		}
 
         extractReads(sample_sheet).set { UNMAPPED_READS }
 
