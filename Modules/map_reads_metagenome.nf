@@ -20,18 +20,6 @@ process mapReads {
     out1="${sampleID}.R1.UNMAPPED.FASTP.FILTERED.hg38.t2t.fastq.gz"
     out2="${sampleID}.R2.UNMAPPED.FASTP.FILTERED.hg38.t2t.fastq.gz"
 
-    # Skip condition
-    if [[ -f "${params.mapped_reads_dir}/\$out1" && -f "${params.mapped_reads_dir}/\$out2" ]]; then
-        echo "Skipping mapReads: Found \$out1, \$out2 in publishDir"
-
-        for f in "\$out1" "\$out2"; do
-            if [[ ! -f "\$f" ]]; then
-                ln -s "${params.mapped_reads_dir}/\$f" . 2>/dev/null || cp "${params.mapped_reads_dir}/\$f" .
-            fi
-        done
-        exit 0
-    fi
-
     # ========= Actual execution =========
     echo "Running on R1"
     # Run minimap2 on hg38 reference

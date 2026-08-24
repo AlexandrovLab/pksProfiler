@@ -46,15 +46,6 @@ process pksProfiler_align {
         exit 1
     fi
 
-    # Reuse outputs if they already exist in publishDir
-    if [[ -s "${params.pks_dir}/${bedtools_cov}" && -s "${params.pks_dir}/${coverage}" && -s "${params.pks_dir}/${counts}" && -s "${params.pks_dir}/${bam}" && -s "${params.pks_dir}/${bai}" && -s "${params.pks_dir}/${sam}" ]]; then
-        echo "Skipping pksProfiler_align: Found required files in ${params.pks_dir}"
-        for f in "${bedtools_cov}" "${coverage}" "${counts}" "${bam}" "${bai}" "${sam}"; do
-            [[ -e "\$f" ]] || (ln -s "${params.pks_dir}/\$f" . 2>/dev/null || cp "${params.pks_dir}/\$f" .)
-        done
-        exit 0
-    fi
-
 	if ! gzip -t "${r1}" >/dev/null 2>&1; then
         echo "ERROR: Corrupt gzip input for ${sampleID}: ${r1}" >&2
         exit 1

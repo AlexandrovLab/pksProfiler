@@ -27,15 +27,6 @@ process pksProfiler_hmm {
     """
     set -euo pipefail
 
-    # Reuse outputs if they already exist in publishDir
-    if [[ -s "${params.pks_dir}/${tblout}" && -s "${params.pks_dir}/${logfile}" && -s "${params.pks_dir}/${counts_tsv}" && -s "${params.pks_dir}/${read_ids}" && -f "${params.pks_dir}/${filtered_fa}" ]]; then
-        echo "Skipping pksProfiler_hmm: Found existing outputs in ${params.pks_dir}"
-        for f in "${tblout}" "${logfile}" "${counts_tsv}" "${read_ids}" "${filtered_fa}"; do
-            [[ -e "\$f" ]] || (ln -s "${params.pks_dir}/\$f" . 2>/dev/null || cp "${params.pks_dir}/\$f" .)
-        done
-        exit 0
-    fi
-
 	if ! gzip -t "${r1}" >/dev/null 2>&1; then
         echo "ERROR: Corrupt gzip input for ${sampleID}: ${r1}" >&2
         exit 1
