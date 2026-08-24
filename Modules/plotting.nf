@@ -11,13 +11,13 @@ process plotPKS {
     path coverage_file
 
     output:
-    path "*.pks.cirocs.pdf", optional: true
+    path "*.pks.circos.pdf", optional: true
 
     script:
     """
 	coverage_basename="\$(basename "${coverage_file}")"
 	sample_name="\${coverage_basename%.coverage.bedgraph}"
-	output_pdf="\${sample_name}.pks.cirocs.pdf"
+	output_pdf="\${sample_name}.pks.circos.pdf"
 
     Rscript "${params.scripts}/plotPKS.R" ${coverage_file} "${params.pks_cytoband}" "\${output_pdf}"
     """
@@ -34,13 +34,13 @@ process plotGenome {
     path coverage_file
 
     output:
-    path "*.genome.cirocs.pdf", optional: true
+    path "*.genome.circos.pdf", optional: true
 
     script:
     """
 	coverage_basename="\$(basename "${coverage_file}")"
 	sample_name="\${coverage_basename%.coverage.bedgraph}"
-	output_pdf="\${sample_name}.genome.cirocs.pdf"
+	output_pdf="\${sample_name}.genome.circos.pdf"
 
     Rscript "${params.scripts}/plotGenome.R" ${coverage_file} "${params.ecoli_cytoband}" "\${output_pdf}"
     """
