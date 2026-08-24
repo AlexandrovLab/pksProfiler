@@ -64,24 +64,37 @@ process pksProfiler_hmm {
     E="${params.hmm_evalue}"
 
     # Counts: best hit per query under E-value threshold
-    awk -v e="\$E" '
-      \$0 ~ /^#/ { next }
+    awk -v e="\\$E" '
+      \\$0 ~ /^#/ { next }
       NF < 14 { next }
       {
-        t=\$1;
-		sub(/[.]cds[.]aln/, "", t);
-		q=\$3;
-		eval=\$13+0;
-		score=\$14+0;
+        t=\\$1;
+        sub(/[.]cds[.]aln/, "", t);
+        q=\\$3;
+        eval=\\$13+0;
+        score=\\$14+0;
+
         if (eval <= e) {
           if (!(q in bestE) || eval < bestE[q] || (eval == bestE[q] && score > bestScore[q])) {
-            bestE[q]=eval; bestScore[q]=score; bestT[q]=t;
+            bestE[q]=eval;
+            bestScore[q]=score;
+            bestT[q]=t;
           }
         }
       }
       END {
-        for (q in bestT) cnt[bestT[q]]++;
-        for (g in cnt) printf "%s\\t%d\\n", g, cnt[g];
+        for (i=0; i<19; i++) {
+          gene=sprintf("clb%c", 65+i);
+          cnt[gene]=0;
+        }
+
+        for (q in bestT) {
+          cnt[bestT[q]]++;
+        }
+
+        for (g in cnt) {
+          printf "%s\\\t%d\\\n", g, cnt[g];
+        }
       }
     ' "${tblout}" | sort -k1,1 > "${counts_tsv}.tmp"
 
