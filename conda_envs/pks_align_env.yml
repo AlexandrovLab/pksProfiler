@@ -6,8 +6,14 @@ channels:
   - defaults
 
 dependencies:
+  - python=3.10
+  - pandas=2.3
   - bowtie2=2.5.4
   - samtools=1.21
   - bedtools=2.31.1
   - subread=2.1.1
   - deeptools=3.5.6
+  - r-base
+  - r-circlize
+  - r-cairo
+  - r-dplyr
