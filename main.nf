@@ -1,7 +1,7 @@
 nextflow.enable.dsl = 2
 
 // ---------------- Parameters ----------------
-params.sample = "/tscc/nfs/home/amabbasi/restricted/microbiome_pipeline/sample.csv"
+params.sample = null
 
 params.input_data_type = "bam"         // bam | fastq
 params.pks_taxa = true   // set true to run krakenuniq/bracken on pks-island reads
@@ -22,10 +22,10 @@ params.pks_dir = "${projectDir}/RESULTS/PKS_PER_SAMPLE"
 params.pks_summary_dir = "${projectDir}/RESULTS/PKS_SUMMARY"
 
 // Databases and refs [CHANGE THIS]
-params.hg38_db      = "/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs/human-GRC-db.mmi"
-params.t2t_phix_db  = "/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs/human-GCA-phix-db.mmi"
+params.hg38_db      = null
+params.t2t_phix_db  = null
 params.adapters     = "${projectDir}/ref/known_adapters.fna"
-params.kraken_db="/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs/krakenUniq_8_8_2023"
+params.kraken_db= null
 
 
 // PKS + E. coli annotation
@@ -35,14 +35,13 @@ params.pks_cytoband          = "${projectDir}/indices/GCF_000025745.1/genomic_pk
 params.ecoli_cytoband        = "${projectDir}/indices/GCF_000025745.1/genomic_ecoli.txt"
 
 // Envs
-params.samtools_env  = "./conda_envs/samtools_env.yml"
-params.fastp_env     = "./conda_envs/fastp_env.yml"
-params.minimap2_env  = "./conda_envs/minimap2_env.yml"
-params.pks_align_env = "./conda_envs/pks_align_env.yml"
-params.pks_hmm_env   = "./conda_envs/pks_hmm_env.yml"
-params.krakenuniq_bracken_env = "./conda_envs/krakenUniq_bracken_env.yml"
-params.krakentools_pack ="/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/packages/KrakenTools"
-
+params.samtools_env = "${projectDir}/conda_envs/samtools_env.yml"
+params.fastp_env = "${projectDir}/conda_envs/fastp_env.yml"
+params.minimap2_env = "${projectDir}/conda_envs/minimap2_env.yml"
+params.pks_align_env = "${projectDir}/conda_envs/pks_align_env.yml"
+params.pks_hmm_env = "${projectDir}/conda_envs/pks_hmm_env.yml"
+params.krakenuniq_bracken_env = "${projectDir}/conda_envs/krakenUniq_bracken_env.yml"
+params.krakentools_pack =null
 params.scripts = "${projectDir}/scripts"
 
 // ---------------- Modules ----------------
@@ -58,9 +57,30 @@ include { plotBrackenTaxa as plotPKSTaxa } from './Modules/plot_bracken_taxa.nf'
 // ---------------- Workflow ----------------
 workflow {
 
+	// ---------- Required input validation ----------
+    if (!params.sample) {
+        exit 1, "Missing required parameter: --sample"
+    }
+
+    if (!params.hg38_db) {
+        exit 1, "Missing required parameter: --hg38_db"
+    }
+
+    if (!params.t2t_phix_db) {
+        exit 1, "Missing required parameter: --t2t_phix_db"
+    }
+
+    if (params.pks_taxa && !params.kraken_db) {
+        exit 1, "Taxonomic profiling requires: --kraken_db"
+    }
+
+    if (params.pks_taxa && !params.krakentools_pack) {
+        exit 1, "Taxonomic profiling requires: --krakentools_pack"
+    }
+
     // ---------- STEP 1: Inputs + filtering ----------
     def sample_sheet = Channel
-        .fromPath(params.sample)
+        .fromPath(params.sample, checkIfExists: true)
         .splitCsv(header: true)
 
     if (params.input_data_type == "bam") {
