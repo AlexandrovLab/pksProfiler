@@ -15,7 +15,7 @@ process extractPksIslandReads {
   set -euo pipefail
 
   CHR="${params.pks_contig}"
-  START=${params.pks_shift}
+  START=\$(( ${params.pks_shift} - 1 ))
   END=\$(( ${params.pks_shift} + ${params.pks_island_len} ))
 
   printf "%s\\t%s\\t%s\\n" "\$CHR" "\$START" "\$END" > pks_island.bed
