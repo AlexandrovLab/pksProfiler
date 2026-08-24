@@ -16,6 +16,8 @@ process extractReads {
     
 	script:
 	"""
+	set -euo pipefail
+
 	R1="${sampleID}.R1.UNMAPPED.fastq.gz"
 	R2="${sampleID}.R2.UNMAPPED.fastq.gz"
 
