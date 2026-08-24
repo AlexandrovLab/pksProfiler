@@ -45,6 +45,22 @@ process pksProfiler_hmm {
     # FASTQ -> FASTA
     seqtk seq -a "${sampleID}.merged.fastq.gz" > "${sampleID}.merged.fa"
 
+	# A valid sample may contain no reads after upstream filtering
+    if [[ ! -s "${sampleID}.merged.fa" ]]; then
+        echo "No reads available for ${sampleID}; recording zero HMM counts." > "${logfile}"
+
+        : > "${tblout}"
+        : > "${read_ids}"
+        : > "${filtered_fa}"
+
+        printf "Gene\\tCount\\n" > "${counts_tsv}"
+        for gene in {A..S}; do
+            printf "clb%s\\t0\\n" "\\$gene" >> "${counts_tsv}"
+        done
+
+        exit 0
+    fi
+
 	ls -lh "${sampleID}.merged.fa"
     echo "nhmmscan --cpu "${task.cpus}" --tblout "${tblout}" "${params.hmm_model}" "${sampleID}.merged.fa" > "${logfile}" 2>&1"
 
