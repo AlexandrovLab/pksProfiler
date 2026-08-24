@@ -1,7 +1,7 @@
 process mapReads {
 
     scratch true
-    label 'mapBothReads'
+    label 'map_reads'
     publishDir("${params.mapped_reads_dir}", mode: 'copy')
     conda "${params.minimap2_env}"
 
