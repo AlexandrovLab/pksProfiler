@@ -24,15 +24,14 @@ process extractPksIslandReads {
     "\$CHR" "\$START" "\$END" \
     > pks_island.bed
 
-  # Pull alignments overlapping the complete pks island
+  # Extract alignments overlapping the complete pks island
   samtools view \
     -b \
     -L pks_island.bed \
     "${bam}" \
     > "${sampleID}.pks.bam"
 
-  # Convert the clb gene annotation from 1-based GFF coordinates
-  # to 0-based, half-open BED coordinates
+  # Convert clb gene coordinates from GFF to BED
   awk -F '\\t' '
     BEGIN {
       OFS="\\t"
@@ -55,8 +54,8 @@ process extractPksIslandReads {
     }
   ' "${params.pks_genome_annotation}" > clb_genes.bed
 
-  # Calculate the aligned-base overlap between each read and clb gene.
-  # Each read is assigned to the gene with the largest total overlap.
+  # Assign each read/template to the clb gene with the greatest
+  # total aligned-base overlap
   bedtools bamtobed \
     -i "${sampleID}.pks.bam" |
     bedtools intersect \
@@ -106,7 +105,7 @@ process extractPksIslandReads {
 
   rm -f "${sampleID}.read_clb_gene.tmp.tsv"
 
-  # Convert all overlapping alignments into one FASTQ stream
+  # Convert overlapping alignments to a single FASTQ stream
   samtools fastq "${sampleID}.pks.bam" |
     gzip -c > "${sampleID}.pks.fastq.gz"
   """
@@ -145,7 +144,7 @@ process Bracken {
   UNCLASSIFIED="${sampleID}.unclassified.fasta"
   SPECIES_MATRIX="${sampleID}.clb_species_counts.tsv"
 
-  # Decompress the PKS reads for KrakenUniq
+  # Decompress PKS reads for KrakenUniq
   zcat "${fastq_gz}" > "${sampleID}.pks.fastq"
 
   # A valid sample can contain no PKS reads
@@ -190,7 +189,7 @@ process Bracken {
   python "${params.scripts}/build_clb_species_matrix.py" \
     --read-gene "${read_gene_tsv}" \
     --kraken-output "\$OUTPUT" \
-    --taxonomy-dir "${params.kraken_db}/taxonomy" \
+    --kraken-db "${params.kraken_db}" \
     --output "\$SPECIES_MATRIX"
 
   # Count reads reported at genus and species levels

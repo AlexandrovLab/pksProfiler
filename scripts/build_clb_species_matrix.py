@@ -7,51 +7,127 @@ from collections import defaultdict
 from pathlib import Path
 
 
-CLB_GENES = tuple(f"clb{letter}" for letter in "ABCDEFGHIJKLMNOPQRS")
+CLB_GENES = tuple(
+    f"clb{letter}" for letter in "ABCDEFGHIJKLMNOPQRS"
+)
 
 
 def normalize_read_id(read_id):
-    """Remove FASTA/FASTQ prefix and an optional mate suffix."""
+    """Normalize FASTA/FASTQ read identifiers for joining."""
     read_id = read_id.strip().split()[0]
     read_id = read_id.lstrip("@>")
-    return re.sub(r"(?:/|\.)[12]$", "", read_id)
+
+    return re.sub(
+        r"(?:/|\.)[12]$",
+        "",
+        read_id,
+    )
 
 
-def parse_taxonomy(nodes_path, names_path):
+def parse_ncbi_taxonomy(nodes_path, names_path):
+    """Parse NCBI nodes.dmp and names.dmp files."""
     parents = {}
     ranks = {}
     scientific_names = {}
 
     with nodes_path.open() as handle:
         for line in handle:
-            fields = [field.strip() for field in line.split("|")]
+            fields = [
+                field.strip()
+                for field in line.split("|")
+            ]
 
             if len(fields) < 3:
                 continue
 
             taxid = fields[0]
-            parents[taxid] = fields[1]
-            ranks[taxid] = fields[2]
+            parent_taxid = fields[1]
+            rank = fields[2]
+
+            parents[taxid] = parent_taxid
+            ranks[taxid] = rank
 
     with names_path.open() as handle:
         for line in handle:
-            fields = [field.strip() for field in line.split("|")]
+            fields = [
+                field.strip()
+                for field in line.split("|")
+            ]
 
             if len(fields) < 4:
                 continue
 
             taxid = fields[0]
-            name = fields[1]
+            scientific_name = fields[1]
             name_class = fields[3]
 
             if name_class == "scientific name":
-                scientific_names[taxid] = name
+                scientific_names[taxid] = scientific_name
 
     return parents, ranks, scientific_names
 
 
-def find_species_taxid(taxid, parents, ranks, cache):
-    """Return the species ancestor for a taxonomy ID, if one exists."""
+def parse_krakenuniq_taxdb(taxdb_path):
+    """
+    Parse KrakenUniq taxDB.
+
+    Expected columns:
+      taxid, parent taxid, scientific name, rank
+    """
+    parents = {}
+    ranks = {}
+    scientific_names = {}
+
+    with taxdb_path.open() as handle:
+        for line in handle:
+            fields = line.rstrip("\n").split("\t")
+
+            if len(fields) < 4:
+                continue
+
+            taxid = fields[0].strip()
+            parent_taxid = fields[1].strip()
+            scientific_name = fields[2].strip()
+            rank = fields[3].strip()
+
+            parents[taxid] = parent_taxid
+            ranks[taxid] = rank
+            scientific_names[taxid] = scientific_name
+
+    return parents, ranks, scientific_names
+
+
+def load_taxonomy(kraken_db):
+    """
+    Load either an NCBI-style taxonomy directory or KrakenUniq taxDB.
+    """
+    taxonomy_dir = kraken_db / "taxonomy"
+    nodes_path = taxonomy_dir / "nodes.dmp"
+    names_path = taxonomy_dir / "names.dmp"
+    taxdb_path = kraken_db / "taxDB"
+
+    if nodes_path.is_file() and names_path.is_file():
+        return parse_ncbi_taxonomy(
+            nodes_path,
+            names_path,
+        )
+
+    if taxdb_path.is_file():
+        return parse_krakenuniq_taxdb(taxdb_path)
+
+    raise FileNotFoundError(
+        "No supported taxonomy files were found. Expected either "
+        f"{nodes_path} and {names_path}, or {taxdb_path}."
+    )
+
+
+def find_species_taxid(
+    taxid,
+    parents,
+    ranks,
+    cache,
+):
+    """Find the species ancestor of a taxonomy ID."""
     if taxid in cache:
         return cache[taxid]
 
@@ -61,16 +137,16 @@ def find_species_taxid(taxid, parents, ranks, cache):
     while taxid and taxid not in visited:
         visited.add(taxid)
 
-        if ranks.get(taxid) == "species":
+        if ranks.get(taxid, "").lower() == "species":
             cache[original_taxid] = taxid
             return taxid
 
-        parent = parents.get(taxid)
+        parent_taxid = parents.get(taxid)
 
-        if not parent or parent == taxid:
+        if not parent_taxid or parent_taxid == taxid:
             break
 
-        taxid = parent
+        taxid = parent_taxid
 
     cache[original_taxid] = None
     return None
@@ -84,8 +160,10 @@ def read_kraken_classifications(
     """
     Collect direct KrakenUniq classifications by read/template ID.
 
-    If both mates are present, their classifications are collected under
-    the same normalized read ID.
+    KrakenUniq output uses:
+      column 1: classification status
+      column 2: read identifier
+      column 3: assigned taxonomy ID
     """
     species_by_read = defaultdict(set)
     classified_reads = set()
@@ -103,7 +181,7 @@ def read_kraken_classifications(
             if len(fields) < 3:
                 continue
 
-            status = fields[0]
+            status = fields[0].strip()
             read_id = normalize_read_id(fields[1])
             taxid = fields[2].strip()
 
@@ -120,7 +198,9 @@ def read_kraken_classifications(
             )
 
             if species_taxid is not None:
-                species_by_read[read_id].add(species_taxid)
+                species_by_read[read_id].add(
+                    species_taxid
+                )
 
     return species_by_read, classified_reads
 
@@ -131,48 +211,85 @@ def build_matrix(
     classified_reads,
     scientific_names,
 ):
-    matrix = defaultdict(lambda: defaultdict(int))
+    """
+    Build a species-by-clb-gene count matrix.
+
+    A read/template contributes once to the clb gene selected by
+    the read-to-gene mapping.
+    """
+    matrix = defaultdict(
+        lambda: defaultdict(int)
+    )
 
     with read_gene_path.open() as handle:
-        reader = csv.DictReader(handle, delimiter="\t")
+        reader = csv.DictReader(
+            handle,
+            delimiter="\t",
+        )
 
-        required_columns = {"read_id", "Gene"}
-        observed_columns = set(reader.fieldnames or [])
+        expected_columns = {
+            "read_id",
+            "Gene",
+        }
 
-        if not required_columns.issubset(observed_columns):
+        observed_columns = set(
+            reader.fieldnames or []
+        )
+
+        if not expected_columns.issubset(
+            observed_columns
+        ):
             raise ValueError(
-                f"{read_gene_path} must contain columns: "
-                "read_id and Gene"
+                f"{read_gene_path} must contain columns "
+                "named read_id and Gene."
             )
 
         for row in reader:
-            read_id = normalize_read_id(row["read_id"])
+            read_id = normalize_read_id(
+                row["read_id"]
+            )
             gene = row["Gene"].strip()
 
             if gene not in CLB_GENES:
                 continue
 
-            species_taxids = species_by_read.get(read_id, set())
+            species_taxids = species_by_read.get(
+                read_id,
+                set(),
+            )
 
             if len(species_taxids) == 1:
-                species_taxid = next(iter(species_taxids))
+                species_taxid = next(
+                    iter(species_taxids)
+                )
+
                 species_name = scientific_names.get(
                     species_taxid,
                     f"taxid_{species_taxid}",
                 )
-                row_key = (species_name, species_taxid)
+
+                row_key = (
+                    species_name,
+                    species_taxid,
+                )
 
             elif len(species_taxids) > 1:
-                # Conflicting species calls between records or mates
-                row_key = ("Conflicting_species", "-1")
+                row_key = (
+                    "Conflicting_species",
+                    "-1",
+                )
 
             elif read_id in classified_reads:
-                # Classified by KrakenUniq, but not specifically enough
-                # to resolve a species ancestor
-                row_key = ("Unresolved_at_species", "-1")
+                row_key = (
+                    "Unresolved_at_species",
+                    "-1",
+                )
 
             else:
-                row_key = ("Unclassified", "0")
+                row_key = (
+                    "Unclassified",
+                    "0",
+                )
 
             matrix[row_key][gene] += 1
 
@@ -180,16 +297,42 @@ def build_matrix(
 
 
 def write_matrix(matrix, output_path):
-    with output_path.open("w", newline="") as handle:
-        writer = csv.writer(handle, delimiter="\t")
-        writer.writerow(["Species", "TaxID", *CLB_GENES, "Total"])
+    """Write the species-by-clb-gene matrix."""
+    with output_path.open(
+        "w",
+        newline="",
+    ) as handle:
+        writer = csv.writer(
+            handle,
+            delimiter="\t",
+        )
 
-        for species_name, taxid in sorted(
+        writer.writerow(
+            [
+                "Species",
+                "TaxID",
+                *CLB_GENES,
+                "Total",
+            ]
+        )
+
+        sorted_rows = sorted(
             matrix,
-            key=lambda value: (value[0].lower(), value[1]),
-        ):
-            counts = matrix[(species_name, taxid)]
-            gene_counts = [counts.get(gene, 0) for gene in CLB_GENES]
+            key=lambda value: (
+                value[0].lower(),
+                value[1],
+            ),
+        )
+
+        for species_name, taxid in sorted_rows:
+            counts = matrix[
+                (species_name, taxid)
+            ]
+
+            gene_counts = [
+                counts.get(gene, 0)
+                for gene in CLB_GENES
+            ]
 
             writer.writerow(
                 [
@@ -204,8 +347,9 @@ def write_matrix(matrix, output_path):
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Join read-to-clb-gene assignments with direct KrakenUniq "
-            "classifications and create a species-by-clb-gene matrix."
+            "Join read-to-clb-gene assignments with direct "
+            "KrakenUniq classifications and produce a "
+            "species-by-clb-gene count matrix."
         )
     )
 
@@ -213,7 +357,9 @@ def parse_args():
         "--read-gene",
         required=True,
         type=Path,
-        help="TSV containing read_id and Gene columns.",
+        help=(
+            "TSV containing read_id and Gene columns."
+        ),
     )
 
     parser.add_argument(
@@ -224,17 +370,22 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--taxonomy-dir",
+        "--kraken-db",
         required=True,
         type=Path,
-        help="Kraken database taxonomy directory.",
+        help=(
+            "KrakenUniq database containing either taxDB "
+            "or taxonomy/nodes.dmp and taxonomy/names.dmp."
+        ),
     )
 
     parser.add_argument(
         "--output",
         required=True,
         type=Path,
-        help="Output species-by-clb-gene TSV.",
+        help=(
+            "Output species-by-clb-gene TSV file."
+        ),
     )
 
     return parser.parse_args()
@@ -243,38 +394,34 @@ def parse_args():
 def main():
     args = parse_args()
 
-    nodes_path = args.taxonomy_dir / "nodes.dmp"
-    names_path = args.taxonomy_dir / "names.dmp"
-
     if not args.read_gene.is_file():
         raise FileNotFoundError(
-            f"Read-to-gene table not found: {args.read_gene}"
+            "Read-to-gene table not found: "
+            f"{args.read_gene}"
         )
 
     if not args.kraken_output.is_file():
         raise FileNotFoundError(
-            f"KrakenUniq output not found: {args.kraken_output}"
+            "KrakenUniq output not found: "
+            f"{args.kraken_output}"
         )
 
-    if not nodes_path.is_file():
-        raise FileNotFoundError(
-            f"Taxonomy nodes file not found: {nodes_path}"
+    if not args.kraken_db.is_dir():
+        raise NotADirectoryError(
+            "KrakenUniq database directory not found: "
+            f"{args.kraken_db}"
         )
 
-    if not names_path.is_file():
-        raise FileNotFoundError(
-            f"Taxonomy names file not found: {names_path}"
-        )
-
-    parents, ranks, scientific_names = parse_taxonomy(
-        nodes_path,
-        names_path,
+    parents, ranks, scientific_names = load_taxonomy(
+        args.kraken_db
     )
 
-    species_by_read, classified_reads = read_kraken_classifications(
-        args.kraken_output,
-        parents,
-        ranks,
+    species_by_read, classified_reads = (
+        read_kraken_classifications(
+            args.kraken_output,
+            parents,
+            ranks,
+        )
     )
 
     matrix = build_matrix(
@@ -284,7 +431,10 @@ def main():
         scientific_names,
     )
 
-    write_matrix(matrix, args.output)
+    write_matrix(
+        matrix,
+        args.output,
+    )
 
 
 if __name__ == "__main__":
