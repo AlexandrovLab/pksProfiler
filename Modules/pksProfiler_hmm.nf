@@ -68,7 +68,11 @@ process pksProfiler_hmm {
       \$0 ~ /^#/ { next }
       NF < 14 { next }
       {
-        t=\$1; q=\$3; eval=\$13+0; score=\$14+0;
+        t=\$1;
+		sub(/[.]cds[.]aln/, "", t);
+		q=\$3;
+		eval=\$13+0;
+		score=\$14+0;
         if (eval <= e) {
           if (!(q in bestE) || eval < bestE[q] || (eval == bestE[q] && score > bestScore[q])) {
             bestE[q]=eval; bestScore[q]=score; bestT[q]=t;
