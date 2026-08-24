@@ -176,18 +176,18 @@ workflow {
 		Bracken(PKS_ISLAND_FASTQ).set { BRACKEN_PER_SAMPLE }
 
 		BRACKEN_PER_SAMPLE
-		  .map { sampleID, _kreport, _classified, _unclassified, brG, brS, _gk, _sk, _gmpa, _smpa ->
-		    tuple(sampleID, brG, brS)
-		  }
+		.map { sampleID, _kreport, _classified, _unclassified, brG, brS, _gk, _sk, _gmpa, _smpa, _speciesMatrix ->
+			    tuple(sampleID, brG, brS)
+		}
 	    .set { BRACKEN_GS_REPORTS }
 
 		plotPKSTaxa(BRACKEN_GS_REPORTS)
 
 	
 		BRACKEN_PER_SAMPLE
-			.map { _sampleID, _report, _classified, _unclassified, _brG, _brS, _gk, _sk, gmpa, smpa ->
-			    [gmpa, smpa]
-			}
+		.map { _sampleID, _report, _classified, _unclassified, _brG, _brS, _gk, _sk, gmpa, smpa, _speciesMatrix ->
+		    [gmpa, smpa]
+		}
 	   .flatten()
        .collect()
        .set { BRACKEN_MPA_FILES }
