@@ -3,7 +3,6 @@ nextflow.enable.dsl = 2
 // ---------------- Parameters ----------------
 params.sample = "/tscc/nfs/home/amabbasi/restricted/microbiome_pipeline/sample.csv"
 
-params.input_context   = "host"  // metagenome | host
 params.input_data_type = "bam"         // bam | fastq
 params.pks_taxa = true   // set true to run krakenuniq/bracken on pks-island reads
 
@@ -26,7 +25,6 @@ params.pks_summary_dir = "${projectDir}/RESULTS/PKS_SUMMARY"
 // Databases and refs [CHANGE THIS]
 params.hg38_db      = "/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs/human-GRC-db.mmi"
 params.t2t_phix_db  = "/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs/human-GCA-phix-db.mmi"
-params.pangenome_db = "/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs/pangenome_mmi"
 params.adapters     = "${projectDir}/ref/known_adapters.fna"
 params.kraken_db="/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs/krakenUniq_8_8_2023"
 
@@ -52,7 +50,6 @@ params.scripts = "${projectDir}/scripts"
 include { extractReads } from './Modules/extract_reads.nf'
 include { filterReads } from './Modules/filter_reads.nf'
 include { mapReads } from './Modules/map_reads.nf'
-include { mapReads as mapReads_metagenome } from './Modules/map_reads_metagenome.nf'
 include { pksProfiler_align as pksProfilerAlign } from './Modules/pksProfiler_align.nf'
 include { pksProfiler_hmm as pksProfilerHMM } from './Modules/pksProfiler_hmm.nf'
 include { plotPKS; plotGenome; masterTableAlign; masterTableHMM } from './Modules/plotting.nf'
@@ -104,35 +101,11 @@ workflow {
         }
         .set { FILTERED_UNMAPPED_READS_MULTI }
 
-    // ---------- STEP 1b: Mapping ----------
-   // gather the list of pangenome .mmi files
-    def mmiFiles = []
-    def dir = new File("${params.pangenome_db}")
-    dir.eachFileRecurse (groovy.io.FileType.FILES) { file ->
-        if (file.name.endsWith('.mmi')) {
-            mmiFiles << file
-        }
-    }
+	// ---------- STEP 1b: Host read depletion ----------
+	mapReads(FILTERED_UNMAPPED_READS_MULTI.whole)
+	    .set { MAPPED_READS }
 
-    if (params.input_context == "metagenome") {
-        mapReads_metagenome(FILTERED_UNMAPPED_READS_MULTI.whole)
-            .set { MAPPED_READS }
-
-    } else if (params.input_context == "host") {
-        mapReads(FILTERED_UNMAPPED_READS_MULTI.whole, mmiFiles)
-            .set { MAPPED_READS }
-
-    } else {
-        exit 1, "Unknown --input_context: ${params.input_context}. Supported: metagenome, host"
-    }
-
-    MAPPED_READS
-        .multiMap { sampleID, r1Pan, r2Pan ->
-            PAN: tuple(sampleID, r1Pan, r2Pan)
-        }
-        .set { MAPPED_READS_MULTI }
-
-    // ---------- STEP 2: Profiling ----------
+	// ---------- STEP 2: Profiling ----------
     def valid_methods = ["bowtie2", "hmm", "both"]
     if (!(params.profiling_method in valid_methods)) {
         exit 1, "Unknown --profiling_method: ${params.profiling_method}. Supported: bowtie2, hmm, both"
@@ -142,11 +115,11 @@ workflow {
     def do_hmm   = params.profiling_method in ["hmm", "both"]
 
     if (do_align) {
-        pksProfilerAlign(MAPPED_READS_MULTI.PAN)
+        pksProfilerAlign(MAPPED_READS)
             .set { PKS_ALIGN_OUT }
     }
     if (do_hmm) {
-        pksProfilerHMM(MAPPED_READS_MULTI.PAN)
+        pksProfilerHMM(MAPPED_READS)
             .set { PKS_HMM_OUT }
     }
 
