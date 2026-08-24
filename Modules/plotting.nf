@@ -15,8 +15,9 @@ process plotPKS {
 
     script:
     """
-    sample_name="\$(basename ${coverage_file} | cut -d '.' -f1)"
-    output_pdf="\${sample_name}.pks.cirocs.pdf"
+	coverage_basename="\$(basename "${coverage_file}")"
+	sample_name="\${coverage_basename%.coverage.bedgraph}"
+	output_pdf="\${sample_name}.pks.cirocs.pdf"
 
     Rscript "${params.scripts}/plotPKS.R" ${coverage_file} "${params.pks_cytoband}" "\${output_pdf}"
     """
@@ -37,8 +38,9 @@ process plotGenome {
 
     script:
     """
-    sample_name="\$(basename ${coverage_file} | cut -d '.' -f1)"
-    output_pdf="\${sample_name}.genome.cirocs.pdf"
+	coverage_basename="\$(basename "${coverage_file}")"
+	sample_name="\${coverage_basename%.coverage.bedgraph}"
+	output_pdf="\${sample_name}.genome.cirocs.pdf"
 
     Rscript "${params.scripts}/plotGenome.R" ${coverage_file} "${params.ecoli_cytoband}" "\${output_pdf}"
     """
