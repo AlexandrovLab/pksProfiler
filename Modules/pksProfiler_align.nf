@@ -77,18 +77,33 @@ process pksProfiler_align {
     samtools index "${bam}" -o "${bai}"
 
     MAPPED_READS=\$(samtools view -c -F 4 "${bam}")
+
+    # Always create a valid 19-gene count table. A successfully
+    # processed sample with no aligned reads must remain in summaries
+    # as an explicit zero rather than disappearing as an empty file.
+    featureCounts \
+        -a "${params.pks_genome_annotation}" \
+        -o "${counts}" \
+        -t gene \
+        -F GFF \
+        -g Name \
+        "${bam}"
+
     if [[ "\$MAPPED_READS" -eq 0 ]]; then
-        echo "No mapped reads in BAM file: writing empty outputs"
-        : > "${counts}"
+        echo "No confidently mapped reads for ${sampleID}; recording zero clb counts."
         : > "${coverage}"
         : > "${bedtools_cov}"
     else
-        # NOTE: your annotation is .gff; do NOT use -F GTF
-        featureCounts -a "${params.pks_genome_annotation}" -o "${counts}" "${bam}" \\
-            -t gene -F GFF -g Name
+        bamCoverage \
+            -b "${bam}" \
+            -o "${coverage}" \
+            --normalizeUsing RPKM \
+            --outFileFormat bedgraph
 
-        bamCoverage -b "${bam}" -o "${coverage}" --normalizeUsing RPKM --outFileFormat bedgraph
-        bedtools genomecov -ibam "${bam}" -d > "${bedtools_cov}"
+        bedtools genomecov \
+            -ibam "${bam}" \
+            -d \
+            > "${bedtools_cov}"
     fi
     """
 }
