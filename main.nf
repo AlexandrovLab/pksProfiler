@@ -17,10 +17,12 @@ params.pks_island_len = 50767       // island length (0..50767 in your file)
 params.pks_contig = 'NC_017628.1'   // contig name in BAM
 
 // Output directories
-params.unmapped_bam_dir = "${projectDir}/RESULTS/UNMAPPED_BAM"
-params.mapped_reads_dir = "${projectDir}/RESULTS/MAPPED_READS"
-params.pks_dir = "${projectDir}/RESULTS/PKS_PER_SAMPLE"
-params.pks_summary_dir = "${projectDir}/RESULTS/PKS_SUMMARY"
+params.outdir = "${launchDir}/results"
+
+params.unmapped_bam_dir = "${params.outdir}/unmapped_reads"
+params.mapped_reads_dir = "${params.outdir}/host_depleted_reads"
+params.pks_dir = "${params.outdir}/pks_per_sample"
+params.pks_summary_dir = "${params.outdir}/pks_summary"
 
 // Databases and refs [CHANGE THIS]
 params.hg38_db      = null

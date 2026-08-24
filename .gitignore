@@ -15,6 +15,7 @@
 
 # Ignore RESULTS folder anywhere
 **/RESULTS/
+results/
 
 # Ignore Nextflow temporary and config files
 **/.nextflow.*
