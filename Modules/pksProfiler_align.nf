@@ -1,7 +1,7 @@
 nextflow.enable.dsl = 2
 
 process pksProfiler_align {
-    label 'process_medium'
+    label 'pks_align'
     scratch true
     publishDir "${params.pks_dir}", mode: 'copy'
     conda "${params.pks_align_env}"

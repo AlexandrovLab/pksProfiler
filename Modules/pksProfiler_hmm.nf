@@ -1,7 +1,7 @@
 nextflow.enable.dsl = 2
 
 process pksProfiler_hmm {
-    label 'process_medium'
+    label 'pks_hmm'
     scratch true
     publishDir "${params.pks_dir}", mode: 'copy'
     conda "${params.pks_hmm_env}"
