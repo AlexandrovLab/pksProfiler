@@ -8,7 +8,9 @@ process extractPksIslandReads {
   tuple val(sampleID), path(bam), path(bai)
 
   output:
-  tuple val(sampleID), path("${sampleID}.pks.fastq.gz")
+  tuple val(sampleID),
+      path("${sampleID}.pks.fastq.gz"),
+      path("${sampleID}.read_clb_gene.tsv")
 
   script:
   """
@@ -22,6 +24,77 @@ process extractPksIslandReads {
 
   # Pull alignments overlapping the island
   samtools view -b -L pks_island.bed "${bam}" > "${sampleID}.pks.bam"
+
+  # Convert the clb gene annotation from GFF to BED
+  awk -F '\\t' '
+    BEGIN {
+      OFS="\\t"
+    }
+
+    \$0 !~ /^#/ && \$3 == "gene" {
+      gene=""
+      n=split(\$9, attributes, ";")
+
+      for (i=1; i<=n; i++) {
+        if (attributes[i] ~ /^Name=/) {
+          sub(/^Name=/, "", attributes[i])
+          gene=attributes[i]
+        }
+      }
+
+      if (gene != "") {
+        print \$1, \$4-1, \$5, gene
+      }
+    }
+  ' "${params.pks_genome_annotation}" > clb_genes.bed
+
+  # Calculate the number of aligned bases between every read and clb gene
+  bedtools bamtobed -i "${sampleID}.pks.bam" |
+    bedtools intersect \
+      -a - \
+      -b clb_genes.bed \
+      -wo |
+    awk '
+      BEGIN {
+        OFS="\\t"
+      }
+
+      {
+        read_id=\$4
+        gene=\$10
+        overlap=\$11+0
+        total[read_id SUBSEP gene] += overlap
+      }
+
+      END {
+        for (key in total) {
+          split(key, fields, SUBSEP)
+          read_id=fields[1]
+          gene=fields[2]
+          overlap=total[key]
+
+          if (!(read_id in best_overlap) ||
+              overlap > best_overlap[read_id] ||
+              (overlap == best_overlap[read_id] &&
+               gene < best_gene[read_id])) {
+            best_overlap[read_id]=overlap
+            best_gene[read_id]=gene
+          }
+        }
+
+        for (read_id in best_gene) {
+          print read_id, best_gene[read_id], best_overlap[read_id]
+        }
+      }
+    ' > "${sampleID}.read_clb_gene.tmp.tsv"
+
+  printf "read_id\\tGene\\toverlap_bp\\n" \
+    > "${sampleID}.read_clb_gene.tsv"
+
+  sort -k1,1 "${sampleID}.read_clb_gene.tmp.tsv" \
+    >> "${sampleID}.read_clb_gene.tsv"
+
+  rm -f "${sampleID}.read_clb_gene.tmp.tsv"
 
   # Convert to a single FASTQ stream (mates/singletons all included)
   samtools fastq "${sampleID}.pks.bam" | gzip -c > "${sampleID}.pks.fastq.gz"
@@ -38,7 +111,7 @@ process Bracken {
   conda "${params.krakenuniq_bracken_env}"
 
   input:
-  tuple val(sampleID), path(fastq_gz)
+  tuple val(sampleID), path(fastq_gz), path(read_gene_tsv)
 
   output:
   tuple val(sampleID),
