@@ -87,7 +87,7 @@ workflow {
 	}
 
     // ---------- STEP 1: Inputs + filtering ----------
-    def sample_sheet = Channel
+    def sample_sheet = channel
         .fromPath(params.sample, checkIfExists: true)
         .splitCsv(header: true)
 
@@ -155,7 +155,7 @@ workflow {
     // ---------- STEP 3: Plotting (align only) ----------
     if (do_align) {
         PKS_ALIGN_OUT
-            .map { it[2] }   // bedgraph
+            .map { output -> output[2]  }   // bedgraph
             .set { COVERAGE_BEDGRAPH }
 
         plotPKS(COVERAGE_BEDGRAPH)
@@ -165,9 +165,9 @@ workflow {
 	// ---------- STEP 3b: Optional PKS-island taxa profiling (align only) ----------
     if (do_align && params.pks_taxa) {
         PKS_ALIGN_OUT
-            .map { sampleID, covtxt, bedgraph, counts, bam, bai, sam ->
-                tuple(sampleID, bam, bai)
-            }
+			.map { sampleID, _covtxt, _bedgraph, _counts, bam, bai, _sam ->
+			    tuple(sampleID, bam, bai)
+			}
             .set { PKS_BAM_FOR_TAXA }
 
         extractPksIslandReads(PKS_BAM_FOR_TAXA)
@@ -176,18 +176,18 @@ workflow {
 		Bracken(PKS_ISLAND_FASTQ).set { BRACKEN_PER_SAMPLE }
 
 		BRACKEN_PER_SAMPLE
-		  .map { sampleID, kreport, classified, unclassified, brG, brS, gk, sk, gmpa, smpa ->
-	      tuple(sampleID, brG, brS)
-		}
+		  .map { sampleID, _kreport, _classified, _unclassified, brG, brS, _gk, _sk, _gmpa, _smpa ->
+		    tuple(sampleID, brG, brS)
+		  }
 	    .set { BRACKEN_GS_REPORTS }
 
 		plotPKSTaxa(BRACKEN_GS_REPORTS)
 
 	
 		BRACKEN_PER_SAMPLE
-		  .map { sampleID, report, classified, unclassified, brG, brS, gk, sk, gmpa, smpa ->
-	      [ gmpa, smpa ]
-		}
+			.map { _sampleID, _report, _classified, _unclassified, _brG, _brS, _gk, _sk, gmpa, smpa ->
+			    [gmpa, smpa]
+			}
 	   .flatten()
        .collect()
        .set { BRACKEN_MPA_FILES }
@@ -200,7 +200,7 @@ workflow {
     // ---------- STEP 4: Master tables ----------
     if (do_align) {
         PKS_ALIGN_OUT
-            .map { it[3] }   // counts.txt
+            .map { output -> output[3] }    // counts.txt
             .collect()
             .set { ALIGN_COUNT_FILES }
 
@@ -209,7 +209,7 @@ workflow {
 
     if (do_hmm) {
         PKS_HMM_OUT
-            .map { it[3] }   // hmm_counts.tsv
+            .map { output -> output[3] }    // hmm_counts.tsv
             .collect()
             .set { HMM_COUNT_FILES }
 

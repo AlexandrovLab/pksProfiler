@@ -142,11 +142,11 @@ process process_bracken {
         path("bracken.species.mpa.report.txt")
 
   script:
-  def genus_files   = bracken_files.findAll { it.name.endsWith('.G.mpa.krakenreport.txt') }
-  def species_files = bracken_files.findAll { it.name.endsWith('.S.mpa.krakenreport.txt') }
+  def genus_files = bracken_files.findAll { file -> file.name.endsWith('.G.mpa.krakenreport.txt') }
+  def species_files = bracken_files.findAll { file -> file.name.endsWith('.S.mpa.krakenreport.txt') }
 
-  def genus_str   = genus_files.collect { "\"${it}\"" }.join(' ')
-  def species_str = species_files.collect { "\"${it}\"" }.join(' ')
+  def genus_str = genus_files.collect { file -> "\"${file}\"" }.join(' ')
+  def species_str = species_files.collect { file -> "\"${file}\"" }.join(' ')
 
   """
   set -euo pipefail

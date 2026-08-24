@@ -59,7 +59,8 @@ process masterTableAlign {
     path "pks.gene.counts.align.txt"
 
 	script:
-    def inputs = count_files.collect { it.toString() }.join(' ')
+    def inputs = count_files.collect { file -> file.toString() }.join(' ')
+
 
     """
     python "${params.scripts}/mergeGeneCounts.py" ${inputs} pks.gene.counts.align.txt
@@ -81,7 +82,7 @@ process masterTableHMM {
     path "pks.gene.counts.hmm.txt"
 
     script:
-    def inputs = count_files.collect { it.toString() }.join(' ')
+    def inputs = count_files.collect { file -> file.toString() }.join(' ')
 
     """
     python3 "${params.scripts}/build_hmm_matrix.py" \
