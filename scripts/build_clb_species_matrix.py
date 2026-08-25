@@ -69,17 +69,51 @@ def parse_ncbi_taxonomy(nodes_path, names_path):
 
 def parse_krakenuniq_taxdb(taxdb_path):
     """
-    Parse KrakenUniq taxDB.
+    Parse either supported KrakenUniq taxDB column order:
 
-    Expected columns:
       taxid, parent taxid, scientific name, rank
+      taxid, parent taxid, rank, scientific name
     """
     parents = {}
     ranks = {}
     scientific_names = {}
 
+    known_ranks = {
+        "no rank",
+        "superkingdom",
+        "kingdom",
+        "subkingdom",
+        "phylum",
+        "subphylum",
+        "class",
+        "subclass",
+        "infraclass",
+        "cohort",
+        "superorder",
+        "order",
+        "suborder",
+        "infraorder",
+        "parvorder",
+        "superfamily",
+        "family",
+        "subfamily",
+        "tribe",
+        "subtribe",
+        "genus",
+        "subgenus",
+        "species group",
+        "species subgroup",
+        "species",
+        "subspecies",
+        "varietas",
+        "forma",
+        "strain",
+        "isolate",
+        "clade",
+    }
+
     with taxdb_path.open() as handle:
-        for line in handle:
+        for line_number, line in enumerate(handle, start=1):
             fields = line.rstrip("\n").split("\t")
 
             if len(fields) < 4:
@@ -87,8 +121,29 @@ def parse_krakenuniq_taxdb(taxdb_path):
 
             taxid = fields[0].strip()
             parent_taxid = fields[1].strip()
-            scientific_name = fields[2].strip()
-            rank = fields[3].strip()
+            third_field = fields[2].strip()
+            fourth_field = fields[3].strip()
+
+            third_is_rank = third_field.lower() in known_ranks
+            fourth_is_rank = fourth_field.lower() in known_ranks
+
+            if fourth_is_rank and not third_is_rank:
+                # TSCC layout: taxid, parent, scientific name, rank
+                scientific_name = third_field
+                rank = fourth_field
+            elif third_is_rank and not fourth_is_rank:
+                # Alternate layout: taxid, parent, rank, scientific name
+                rank = third_field
+                scientific_name = fourth_field
+            elif fourth_is_rank:
+                # Preserve the TSCC layout if both fields are ambiguous.
+                scientific_name = third_field
+                rank = fourth_field
+            else:
+                raise ValueError(
+                    f"Cannot determine taxDB column order at "
+                    f"{taxdb_path}:{line_number}: {line.rstrip()}"
+                )
 
             parents[taxid] = parent_taxid
             ranks[taxid] = rank
