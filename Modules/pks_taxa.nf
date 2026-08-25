@@ -194,7 +194,7 @@ process Bracken {
 
   # Count reads reported at genus and species levels
   GENUS_READS=\$(awk -F '\\t' '
-    \$8 == "genus" && \$2 ~ /^[0-9]+$/ {
+    \$8 == "genus" && \$2 ~ /^[0-9]+\$/ {
       sum += \$2
     }
 
@@ -204,7 +204,7 @@ process Bracken {
   ' "\$REPORT")
 
   SPECIES_READS=\$(awk -F '\\t' '
-    \$8 == "species" && \$2 ~ /^[0-9]+$/ {
+    \$8 == "species" && \$2 ~ /^[0-9]+\$/ {
       sum += \$2
     }
 
