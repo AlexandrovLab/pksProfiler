@@ -126,7 +126,6 @@ nextflow run main.nf \
     -profile tscc \
     --sample samples.csv \
     --input_data_type fastq \
-    --input_context metagenome \
     --profiling_method both \
     --hg38_db /path/to/grch38/index \
     --t2t_phix_db /path/to/t2t_phix/index \
@@ -149,15 +148,6 @@ Example:
 --profiling_method hmm
 ```
 
-### Input contexts
-
-The `--input_context` parameter accepts:
-
-- `metagenome`
-- `host`
-
-Select the value that matches the origin and expected host content of the sequencing data.
-
 ### Optional HMM chunking
 
 HMM chunking is disabled by default.
@@ -177,7 +167,6 @@ nextflow run main.nf \
     -profile tscc \
     --sample samples.csv \
     --input_data_type fastq \
-    --input_context metagenome \
     --profiling_method hmm \
     --hmm_chunking true \
     --hg38_db /path/to/grch38/index \
@@ -204,7 +193,6 @@ nextflow run main.nf \
     -profile tscc \
     --sample samples.csv \
     --input_data_type fastq \
-    --input_context metagenome \
     --profiling_method bowtie2 \
     --pks_taxa true \
     --kraken_db /path/to/kraken_bracken_database \
@@ -226,7 +214,6 @@ nextflow run main.nf \
     -profile tscc \
     --sample samples.csv \
     --input_data_type fastq \
-    --input_context metagenome \
     --profiling_method both \
     --hg38_db /path/to/grch38/index \
     --t2t_phix_db /path/to/t2t_phix/index \
