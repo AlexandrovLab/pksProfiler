@@ -42,17 +42,13 @@ coverage <- coverage[
   (coverage$end <= max(cytoband.df$end)),
 ]
 
-# Shift coordinates
-coverage$start <- as.integer(coverage$start) - 2193827
-coverage$end <- as.integer(coverage$end) - 2193827
-print(coverage)
  
 
 if (nrow(coverage) < 1) {
   coverage <- data.frame(
     chr   = cytoband.df$chrom,
-    start = as.integer(cytoband.df$start) + 2193827,
-    end   = as.integer(cytoband.df$end)   + 2193827,
+    start = as.integer(cytoband.df$start),
+    end   = as.integer(cytoband.df$end),
     value = rep(0, nrow(cytoband.df)),
     stringsAsFactors = FALSE
   )
