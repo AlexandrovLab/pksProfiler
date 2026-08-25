@@ -33,7 +33,7 @@ process pksProfiler_align {
     CLB_GENE_COUNT=\$(awk -F '\t' '
         \$0 !~ /^#/ &&
         \$3 == "gene" &&
-        \$9 ~ /(^|;)Name=clb[A-S](;|$)/ {
+        \$9 ~ /(^|;)Name=clb[A-S](;|\$)/ {
             count++
         }
         END {
@@ -61,11 +61,11 @@ process pksProfiler_align {
     zcat "${r1}" "${r2}" | gzip -c > "${sampleID}.trimmed.fastq.gz"
 
     echo "Bowtie2 Alignment (sample: ${sampleID})"
-    bowtie2 -x "${params.pks_genome}" -q "${sampleID}.trimmed.fastq.gz" \\
+    bowtie2 -x "${params.pks_genome}" -q -U "${sampleID}.trimmed.fastq.gz" \
         --seed 42 --threads "${task.cpus}" --very-sensitive --no-unal -S "${sam}"
 
     samtools view -@ "${task.cpus}" -bS -q 40 "${sam}" | samtools sort -@ "${task.cpus}" -o "${bam}" -
-    samtools index -@ "${task.cpus}" "${bam}" -o "${bai}"
+    samtools index -@ "${task.cpus}" "${bam}" "${bai}"
 
     MAPPED_READS=\$(samtools view -c -F 4 "${bam}")
 
