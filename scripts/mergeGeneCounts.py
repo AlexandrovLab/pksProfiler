@@ -93,8 +93,10 @@ if not all_counts:
 merged_counts = pd.concat(all_counts, axis=1, join="outer")
 
 # Attach annotation from the first valid file
-merged = ann_ref.join(merged_counts, how="right").reset_index()
-
+merged_counts.index.name = "Gene"
+merged = merged_counts.reset_index()
 merged.to_csv(output_file, sep="\t", index=False)
+
+
 sys.stderr.write(f"[INFO] Merged {len(used)} samples -> {output_file}\n")
 
