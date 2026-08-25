@@ -86,6 +86,19 @@ workflow {
 	    exit 1, "--bracken_read_length must be a positive integer"
 	}
 
+    def hmm_evalue_text = params.hmm_evalue.toString()
+
+    if (!(
+        hmm_evalue_text ==~
+        /^(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$/
+    )) {
+        exit 1, "--hmm_evalue must be a positive number, for example 1e-10"
+    }
+
+    if (hmm_evalue_text.toDouble() <= 0) {
+        exit 1, "--hmm_evalue must be greater than zero"
+    }
+
     // ---------- STEP 1: Inputs + filtering ----------
     def sample_sheet = channel
         .fromPath(params.sample, checkIfExists: true)
