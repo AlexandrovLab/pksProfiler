@@ -21,8 +21,13 @@ process extractReads {
 	R1="${sampleID}.R1.UNMAPPED.fastq.gz"
 	R2="${sampleID}.R2.UNMAPPED.fastq.gz"
 
-	samtools view -f 4 -O BAM "${bam}" | samtools bam2fq \
-	-1 "\$R1" \
-	-2 "\$R2"
+    samtools view -f 4 -O BAM "${bam}" |
+    samtools bam2fq \
+        -1 "\$R1" \
+        -2 "\$R2" \
+        -0 /dev/null \
+        -s /dev/null \
+        -n \
+        -
 	"""
 }
