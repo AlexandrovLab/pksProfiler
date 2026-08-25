@@ -27,7 +27,7 @@ process extractReads {
         -2 "\$R2" \
         -0 /dev/null \
         -s /dev/null \
-        -n \
+        -N \
         -
 	"""
 }
