@@ -136,8 +136,13 @@ workflow {
 
 	// ---------- STEP 2: Profiling ----------
     def valid_methods = ["bowtie2", "hmm", "both"]
+
     if (!(params.profiling_method in valid_methods)) {
         exit 1, "Unknown --profiling_method: ${params.profiling_method}. Supported: bowtie2, hmm, both"
+    }
+
+    if (params.pks_taxa && params.profiling_method == "hmm") {
+        exit 1, "--pks_taxa requires alignment profiling. Use --profiling_method bowtie2 or both."
     }
 
     def do_align = params.profiling_method in ["bowtie2", "both"]
