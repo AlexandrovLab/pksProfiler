@@ -40,6 +40,7 @@ process masterTableAlign {
 
 
     """
+	echo "Building Gene-by-Sample alignment summary"
     python "${params.scripts}/mergeGeneCounts.py" ${inputs} pks.gene.counts.align.txt
     """
 }
