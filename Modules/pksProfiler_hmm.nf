@@ -67,7 +67,7 @@ process pksProfiler_hmm {
 
         # Split into at most one chunk per allocated CPU
         seqkit split2 \\
-            --parts "${task.cpus}" \\
+            --by-part "${task.cpus}" \\
             --out-dir hmm_chunks \\
             "${sampleID}.merged.fa"
 
