@@ -36,7 +36,6 @@ params.kraken_db= null
 params.pks_genome            = "${projectDir}/indices/GCF_000025745.1/GCF_000025745.1_ASM2574v1_genomic"
 params.pks_genome_annotation = "${projectDir}/ref/annotations/IHE3034.clbA-clbS.gff"
 params.pks_cytoband          = "${projectDir}/indices/GCF_000025745.1/genomic_pks.txt"
-params.ecoli_cytoband        = "${projectDir}/indices/GCF_000025745.1/genomic_ecoli.txt"
 
 // Envs
 params.samtools_env = "${projectDir}/conda_envs/samtools_env.yml"
@@ -53,7 +52,7 @@ include { filterReads } from './Modules/filter_reads.nf'
 include { mapReads } from './Modules/map_reads.nf'
 include { pksProfiler_align as pksProfilerAlign } from './Modules/pksProfiler_align.nf'
 include { pksProfiler_hmm as pksProfilerHMM } from './Modules/pksProfiler_hmm.nf'
-include { plotPKS; plotGenome; masterTableAlign; masterTableHMM } from './Modules/plotting.nf'
+include { plotPKS; masterTableAlign; masterTableHMM } from './Modules/plotting.nf'
 include { extractPksIslandReads; Bracken; process_bracken as combinePKSTaxa } from './Modules/pks_taxa.nf'
 include { plotBrackenTaxa as plotPKSTaxa } from './Modules/plot_bracken_taxa.nf'
 
@@ -177,7 +176,6 @@ workflow {
             .set { COVERAGE_BEDGRAPH }
 
         plotPKS(COVERAGE_BEDGRAPH)
-        plotGenome(COVERAGE_BEDGRAPH)
     }
 
 	// ---------- STEP 3b: Optional PKS-island taxa profiling (align only) ----------

@@ -23,29 +23,6 @@ process plotPKS {
     """
 }
 
-process plotGenome {
-
-    label 'process_low'
-    scratch true
-    publishDir "${params.pks_summary_dir}", mode: 'copy'
-    conda "${params.pks_align_env}"
-
-    input:
-    path coverage_file
-
-    output:
-    path "*.genome.circos.pdf", optional: true
-
-    script:
-    """
-	coverage_basename="\$(basename "${coverage_file}")"
-	sample_name="\${coverage_basename%.coverage.bedgraph}"
-	output_pdf="\${sample_name}.genome.circos.pdf"
-
-    Rscript "${params.scripts}/plotGenome.R" ${coverage_file} "${params.ecoli_cytoband}" "\${output_pdf}"
-    """
-}
-
 process masterTableAlign {
     label 'process_low'
     scratch true
