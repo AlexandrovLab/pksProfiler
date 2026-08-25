@@ -19,7 +19,7 @@ process filterReads {
 	script:
 	"""
 	set -euo pipefail
-	
+
 	R1="${sampleID}.R1.UNMAPPED.FASTP.FILTERED.fastq.gz"
 	R2="${sampleID}.R2.UNMAPPED.FASTP.FILTERED.fastq.gz"
 

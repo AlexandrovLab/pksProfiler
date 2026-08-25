@@ -4,7 +4,7 @@
 #!genome-build ASM2574v1
 #!genome-build-accession NCBI_Assembly:GCF_000025745.1
 #!annotation-date 04/24/2023 01:27:17
-#!annotation-source NCBI RefSeq 
+#!annotation-source NCBI RefSeq
 ##sequence-region NC_017628.1 1 5108383
 ##species https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=714962
 NC_017628.1	RefSeq	gene	2193827	2194339	.	-	.	ID=gene-ECOK1_RS11325;Name=clbS;gbkey=Gene;gene=clbS;gene_biotype=protein_coding;locus_tag=ECOK1_RS11325;old_locus_tag=ECOK1_2169
