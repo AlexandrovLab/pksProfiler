@@ -59,6 +59,46 @@ Validate the pipeline source:
 nextflow lint main.nf
 ```
 
+## Choose an execution environment
+
+pksProfiler separates workflow resources from scheduler-specific settings. The
+included profiles are:
+
+| Profile | Executor | Intended environment |
+|---|---|---|
+| `conda` | local | Workstation or a single allocated compute node |
+| `mamba` | local | Local execution using Mamba for environments |
+| `tscc` | Slurm | UC San Diego TSCC with the configured project account |
+| `slurm` | Slurm | Generic Slurm cluster |
+| `biowulf` | Slurm | NIH Biowulf (`norm` partition and local scratch) |
+| `pbspro` | PBS Pro | Generic PBS Pro cluster |
+| `lsf` | LSF | Generic IBM Spectrum LSF cluster |
+| `sge` | SGE | Generic Sun/Oracle Grid Engine cluster |
+
+Generic profiles intentionally omit site-specific accounts, projects, queues,
+and QOS values. Add those settings in a small local configuration file rather
+than editing the pipeline. For example:
+
+```groovy
+// site.config
+process {
+    queue = 'my_partition'
+    clusterOptions = '--account=my_account'
+}
+```
+
+Then run:
+
+```bash
+nextflow run main.nf \
+    -profile slurm \
+    -c site.config \
+    [pipeline options]
+```
+
+See [`docs/hpc.md`](docs/hpc.md) for scheduler examples, driver-job guidance,
+Biowulf notes, and resource monitoring commands.
+
 ## Reference inputs
 
 The pipeline includes the *pks*-positive *Escherichia coli* reference indexes, the 19-gene annotation, and the DNA HMM database used for *clb* profiling.
@@ -183,7 +223,7 @@ Taxonomic profiling is disabled by default.
 Enable it with:
 
 ```bash
---pks_taxa true
+--pks_taxa
 ```
 
 A complete example is:
@@ -194,7 +234,7 @@ nextflow run main.nf \
     --sample samples.csv \
     --input_data_type fastq \
     --profiling_method bowtie2 \
-    --pks_taxa true \
+    --pks_taxa \
     --kraken_db /path/to/kraken_bracken_database \
     --bracken_read_length 150 \
     --hg38_db /path/to/grch38/index \
@@ -203,6 +243,8 @@ nextflow run main.nf \
 ```
 
 The Bracken read length must be supported by the selected database.
+
+To disable taxonomy, omit `--pks_taxa`. Do not pass `--pks_taxa false`.
 
 ### Resuming a run
 
@@ -281,6 +323,24 @@ Before a large run, test the pipeline on a small sample and verify:
 - corrupt inputs terminate with an error;
 - `-resume` reuses completed tasks;
 - chunked and non-chunked HMM results are equivalent.
+
+## Runtime and resource reports
+
+For benchmarking or production runs, record a trace, execution report, and
+timeline:
+
+```bash
+RUN_TAG=$(date +%Y%m%d_%H%M%S)
+
+nextflow run main.nf \
+    [pipeline options] \
+    -with-trace "run.${RUN_TAG}.trace.txt" \
+    -with-report "run.${RUN_TAG}.report.html" \
+    -with-timeline "run.${RUN_TAG}.timeline.html"
+```
+
+The trace records task duration, CPU utilization, peak resident memory, virtual
+memory, and I/O. Queue waiting time is separate from task runtime.
 
 ## License
 
