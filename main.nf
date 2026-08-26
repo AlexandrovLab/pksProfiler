@@ -103,9 +103,66 @@ workflow {
     }
 
     // ---------- STEP 1: Inputs + filtering ----------
+    if (!(params.input_data_type in ["bam", "fastq"])) {
+        exit 1, "Unknown --input_data_type: ${params.input_data_type}. Supported: bam, fastq"
+    }
+
+    def required_sample_columns = params.input_data_type == "bam" ?
+        ["patient", "bam"] :
+        ["patient", "fastq1", "fastq2"]
+
     def sample_sheet = channel
         .fromPath(params.sample, checkIfExists: true)
         .splitCsv(header: true)
+        .collect()
+        .flatMap { rows ->
+            if (!rows) {
+                error "Sample sheet contains no samples: ${params.sample}"
+            }
+
+            def observed_columns = rows[0].keySet()
+            def missing_columns = required_sample_columns.findAll { column ->
+                !(column in observed_columns)
+            }
+
+            if (missing_columns) {
+                error "Sample sheet is missing required column(s) for ${params.input_data_type} input: ${missing_columns.join(', ')}"
+            }
+
+            def observed_ids = new HashSet()
+            def duplicate_ids = new TreeSet()
+
+            rows.eachWithIndex { row, index ->
+                def row_number = index + 2
+                def sample_id = row.patient?.toString()?.trim()
+
+                if (!sample_id) {
+                    error "Sample sheet row ${row_number} has an empty patient value"
+                }
+
+                if (!(sample_id ==~ /^[A-Za-z0-9][A-Za-z0-9._-]*$/)) {
+                    error "Invalid patient value '${sample_id}' on row ${row_number}. Use only letters, numbers, periods, underscores, and hyphens; the first character must be alphanumeric."
+                }
+
+                if (!observed_ids.add(sample_id)) {
+                    duplicate_ids.add(sample_id)
+                }
+
+                required_sample_columns
+                    .findAll { column -> column != "patient" }
+                    .each { column ->
+                        if (!row[column]?.toString()?.trim()) {
+                            error "Sample sheet row ${row_number} has an empty ${column} value"
+                        }
+                    }
+            }
+
+            if (duplicate_ids) {
+                error "Sample identifiers must be unique. Duplicate patient value(s): ${duplicate_ids.join(', ')}"
+            }
+
+            rows
+        }
 
     if (params.input_data_type == "bam") {
 
@@ -134,8 +191,6 @@ workflow {
 
         sample_sheet_fastq.set { READS_TO_FILTER }
 
-    } else {
-        exit 1, "Unknown --input_data_type: ${params.input_data_type}. Supported: bam, fastq"
     }
 
     filterReads(READS_TO_FILTER)

@@ -113,7 +113,7 @@ Bowtie2 alignment is the default, so `--profiling_method bowtie2` does not need 
 | `--kraken_db` | directory | With taxonomy | KrakenUniq/Bracken database directory |
 | `--bracken_read_length` | positive integer | With taxonomy | Read length supported by the Bracken database |
 
-The input sample sheet must contain `patient,bam` for BAM mode or `patient,fastq1,fastq2` for paired FASTQ mode. Sample identifiers must be unique, and file paths should be absolute when running on a cluster.
+The input sample sheet must contain `patient,bam` for BAM mode or `patient,fastq1,fastq2` for paired FASTQ mode. Sample identifiers must be unique and may contain letters, numbers, periods, underscores, and hyphens; the first character must be alphanumeric. File paths should be absolute when running on a cluster.
 
 ### Choose a run mode
 

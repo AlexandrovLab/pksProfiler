@@ -12,7 +12,7 @@ sample1,/absolute/path/to/sample1_R1.fastq.gz,/absolute/path/to/sample1_R2.fastq
 sample2,/absolute/path/to/sample2_R1.fastq.gz,/absolute/path/to/sample2_R2.fastq.gz
 ```
 
-Sample identifiers must be unique, and paths should be absolute on a cluster. An editable template is available at [`examples/sample_sheets/fastq.csv`](../../examples/sample_sheets/fastq.csv).
+Sample identifiers must be unique and may contain letters, numbers, periods, underscores, and hyphens; the first character must be alphanumeric. Paths should be absolute on a cluster. An editable template is available at [`examples/sample_sheets/fastq.csv`](../../examples/sample_sheets/fastq.csv).
 
 ## Run alignment profiling
 

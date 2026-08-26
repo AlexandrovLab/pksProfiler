@@ -12,7 +12,7 @@ sample1,/absolute/path/to/sample1.bam
 sample2,/absolute/path/to/sample2.bam
 ```
 
-Sample identifiers must be unique, and paths should be absolute on a cluster. An editable template is available at [`examples/sample_sheets/bam.csv`](../../examples/sample_sheets/bam.csv).
+Sample identifiers must be unique and may contain letters, numbers, periods, underscores, and hyphens; the first character must be alphanumeric. Paths should be absolute on a cluster. An editable template is available at [`examples/sample_sheets/bam.csv`](../../examples/sample_sheets/bam.csv).
 
 ## Run alignment profiling
 
