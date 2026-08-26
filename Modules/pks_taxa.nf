@@ -295,7 +295,7 @@ process Bracken {
 
 process process_bracken {
   scratch true
-  publishDir "${params.pks_dir}", mode: 'copy'
+  publishDir "${params.pks_summary_dir}", mode: 'copy'
   conda "${params.krakenuniq_bracken_env}"
 
   input:
@@ -342,5 +342,40 @@ process process_bracken {
     echo "No species files found." \
       > bracken.species.mpa.report.txt
   fi
+  """
+}
+
+
+process combineClbTaxonomySupport {
+  scratch true
+  publishDir "${params.pks_summary_dir}", mode: 'copy'
+  conda "${params.krakenuniq_bracken_env}"
+
+  input:
+  path gene_support_files
+  path species_support_files
+  path combine_script
+
+  output:
+  tuple path("pks.clb_gene_support.tsv"),
+        path("pks.clb_species_support.tsv")
+
+  script:
+  def gene_inputs = gene_support_files
+    .collect { file -> "\"${file}\"" }
+    .join(' ')
+
+  def species_inputs = species_support_files
+    .collect { file -> "\"${file}\"" }
+    .join(' ')
+
+  """
+  set -euo pipefail
+
+  python "${combine_script}" \
+    --gene-files ${gene_inputs} \
+    --species-files ${species_inputs} \
+    --gene-output pks.clb_gene_support.tsv \
+    --species-output pks.clb_species_support.tsv
   """
 }
