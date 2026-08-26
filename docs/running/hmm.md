@@ -55,6 +55,6 @@ nextflow run main.nf \
     --outdir results_hmm_chunked
 ```
 
-The default HMM E-value threshold is `1e-10`. See the [parameter reference](parameters.md) before changing it.
+The default HMM E-value threshold is `1e-10`. See the parameter table in the [main README](../../README.md#parameters) before changing it.
 
 [Return to the main README](../../README.md)
