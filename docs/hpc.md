@@ -14,6 +14,59 @@ reference indexes, Conda environments, work directory, and output directory.
 - Store site accounts, queues, projects, and QOS values in a private local config.
 - Start with one representative sample before scaling to a cohort.
 
+## Resource expectations
+
+The bundled resource defaults are intentionally conservative and target
+large-memory HPC systems processing cancer BAMs or large metagenomes. They
+favor avoiding out-of-memory failures over minimizing queue time.
+
+| Process or label | CPUs | Initial memory | Initial time |
+|---|---:|---:|---:|
+| BAM extraction | 4 | 64 GB | 8 h |
+| FASTQ filtering | 4 | 128 GB | 10 h |
+| Host depletion | 16 | 64 GB | 50 h |
+| Bowtie2/*clb* alignment | 4 | 128 GB | 30 h |
+| HMM profiling | 8 | 128 GB | 30 h |
+| Low-resource summaries/plots | 4 | 100 GB | 10 h |
+| Medium-resource tasks | 4 | 128 GB | 30 h |
+| KrakenUniq/Bracken high-disk tasks | 4 | 256 GB | 50 h |
+
+Some memory and time requests increase on retry, subject to the global limits
+in `nextflow.config`. These defaults may wait a long time or exceed the limits
+of smaller clusters, but changing them is not required for biological
+correctness.
+
+To use smaller requests without modifying the repository, create a local
+configuration file. For example:
+
+```groovy
+// resources.config
+process {
+    withLabel:filter_reads {
+        memory = 16.GB
+    }
+    withLabel:pks_align {
+        memory = 32.GB
+    }
+    withLabel:pks_hmm {
+        memory = 32.GB
+    }
+}
+```
+
+Add it to the run command after the selected profile:
+
+```bash
+nextflow run main.nf \
+    -profile slurm \
+    -c site.config \
+    -c resources.config \
+    [pipeline options]
+```
+
+Site administrators or experienced users should choose overrides appropriate
+for their scheduler and data size.
+
 ## Generic Slurm
 
 Create `site.config`:

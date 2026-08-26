@@ -128,6 +128,8 @@ Open only the guide that matches your data and analysis:
 | Run on TSCC, Slurm, Biowulf, PBS Pro, LSF, or SGE | [HPC guide](docs/hpc.md) |
 
 Editable sample sheets are available in [`examples/sample_sheets/`](examples/sample_sheets).
+The bundled resource requests target large-memory HPC systems; the HPC guide
+shows how to override them for smaller clusters without editing the pipeline.
 
 ## Example results
 
