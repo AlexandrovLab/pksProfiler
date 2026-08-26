@@ -4,267 +4,141 @@
 
 **pksProfiler** is a Nextflow pipeline for detecting, quantifying, and visualizing the *pks* (polyketide synthase) pathogenicity island in BAM or paired-end FASTQ data. It reports counts for each of the 19 *clbA–clbS* genes and can optionally identify species supported by *pks*-aligned reads and summarize their *clb* gene support.
 
-## Quick start
+## How it works
 
-```bash
-git clone https://github.com/ammalabbasi/pksProfiler.git
-cd pksProfiler
+<img src="workflow_logo/v1.png" width="800" alt="pksProfiler workflow">
 
-nextflow run main.nf \
-    -profile conda \
-    --sample examples/sample_sheets/fastq.csv \
-    --input_data_type fastq \
-    --profiling_method bowtie2 \
-    --hg38_db /path/to/human-GRC-db.mmi \
-    --t2t_phix_db /path/to/human-GCA-phix-db.mmi \
-    --outdir results
-```
+The workflow has five modules:
 
-The example sheet shows the required format, but its placeholder FASTQ paths must be replaced. See [Running pksProfiler](#running-pksprofiler) for complete BAM, FASTQ, HMM-chunked, and taxonomy-enabled examples.
+1. **Read preparation** extracts primary unmapped reads from BAM input or accepts paired FASTQ input, then filters the reads with fastp.
+2. **Host depletion** removes reads matching the supplied GRCh38 and T2T/phiX Minimap2 indexes.
+3. **pks profiling** quantifies the island with Bowtie2 alignment by default. DNA HMM profiling can be selected instead or run alongside alignment.
+4. **Summarization** produces 19-gene count matrices and a circular island-coverage plot for samples with aligned *pks* reads.
+5. **Optional taxonomy** runs KrakenUniq and Bracken on *pks*-aligned reads and reports species-by-*clb*-gene support.
+
+Alignment and HMM profiling are complementary and are not expected to produce identical counts. Alignment provides stringent reference-based evidence; HMM profiling can recover more divergent or fragmented matches.
 
 ## Installation
 
-### Requirements
+### 1. Install the requirements
 
 - Linux
 - [Nextflow](https://www.nextflow.io/docs/latest/install.html) 24.10 or newer
-- Java 17 or newer, as required by Nextflow
+- Java 17 or newer
 - Conda or Mamba
 - Git
-- Storage for the input data, Nextflow work directory, and references
 
-Pipeline tools are installed from the specifications in [`conda_envs/`](conda_envs). After installing Nextflow, clone and check the pipeline:
+The remaining bioinformatics tools are installed from the environment files in [`conda_envs/`](conda_envs).
+
+### 2. Clone pksProfiler
 
 ```bash
 git clone https://github.com/ammalabbasi/pksProfiler.git
 cd pksProfiler
+
 nextflow -version
 nextflow lint main.nf
 ```
 
-### Reference inputs
+### 3. Download the host-depletion indexes
 
-The repository contains the *pks*-positive *E. coli* Bowtie2 index, the *clbA–clbS* annotation, and the DNA HMM database.
+Download these two files from the [pksProfiler reference-index folder on Google Drive](https://drive.google.com/drive/folders/10np5NSeAPRpHz1a22drGybs4enTP-OdR?usp=share_link):
 
-Two Minimap2 indexes are required for host/reference depletion:
+- `human-GRC-db.mmi`
+- `human-GCA-phix-db.mmi`
 
-| Parameter | Required index | Download |
-|---|---|---|
-| `--hg38_db` | GRCh38 (`human-GRC-db.mmi`) | [pksProfiler reference indexes (Google Drive)](https://drive.google.com/drive/folders/10np5NSeAPRpHz1a22drGybs4enTP-OdR?usp=share_link) |
-| `--t2t_phix_db` | T2T-CHM13 plus phiX (`human-GCA-phix-db.mmi`) | [pksProfiler reference indexes (Google Drive)](https://drive.google.com/drive/folders/10np5NSeAPRpHz1a22drGybs4enTP-OdR?usp=share_link) |
+Place them together in a permanent directory that is readable from every compute node. For example:
 
-Download both `.mmi` files from the shared folder, place them in a stable reference directory, and pass their full paths to the pipeline. For example:
-
-```bash
---hg38_db /path/to/pksProfiler_reference_indexes/human-GRC-db.mmi \
---t2t_phix_db /path/to/pksProfiler_reference_indexes/human-GCA-phix-db.mmi
+```text
+/references/pksProfiler/
+├── human-GRC-db.mmi
+└── human-GCA-phix-db.mmi
 ```
 
-Files must be readable from every compute node.
+The *pks*-positive *E. coli* Bowtie2 index, *clbA–clbS* annotation, and DNA HMM database are already included in this repository.
 
-Taxonomic profiling additionally requires a KrakenUniq-compatible database with Bracken files. The pipeline was validated with the 8 August 2023 Microbial database. It is very large: `database.kdb` is approximately 535 GB, in addition to the companion archive and extracted files.
+### 4. Optional: install the taxonomy database
 
-Download both required files into one directory:
+This step is needed only when running the [taxonomy mode](docs/running/taxonomy.md). The pipeline was validated with the 8 August 2023 KrakenUniq Microbial database.
 
 ```bash
-mkdir -p /path/to/krakenuniq_2023
-cd /path/to/krakenuniq_2023
+mkdir -p /references/krakenuniq_2023
+cd /references/krakenuniq_2023
 
 wget https://genome-idx.s3.amazonaws.com/kraken/uniq/krakendb-2023-08-08-MICROBIAL/database.kdb
 wget https://genome-idx.s3.amazonaws.com/kraken/uniq/krakendb-2023-08-08-MICROBIAL/kuniq_microbialdb_minus_kdb.20230808.tgz
 tar -xzf kuniq_microbialdb_minus_kdb.20230808.tgz
 ```
 
-The directory should contain files such as `database.kdb`, `database.idx`, `taxDB`, `seqid2taxid.map`, and `database150mers.kmer_distrib`. Pass the **directory**, not one of its files:
-
-```bash
---kraken_db /path/to/krakenuniq_2023 \
---bracken_read_length 150
-```
-
-Other KrakenUniq collections and their direct AWS links are listed in the [KrakenUniq section of the AWS index collection](https://benlangmead.github.io/aws-indexes/k2/#krakenuniq). Download both the `.kdb` and `.tar.gz` links for the same collection. Do **not** use a Kraken 2-only database.
-
-## What the workflow does
-
-<img src="workflow_logo/v1.png" width="800" alt="pksProfiler workflow">
-
-1. **Prepare reads:** extract primary unmapped reads from BAM input or accept paired FASTQs, then filter reads with fastp.
-2. **Deplete host/reference reads:** remove reads matching the supplied GRCh38 and T2T/phiX Minimap2 indexes.
-3. **Profile the island:** quantify *clb* genes with Bowtie2, DNA HMMs, or both.
-4. **Summarize results:** generate 19-gene count matrices and an island coverage plot for samples with aligned *pks* reads.
-5. **Optionally assign taxonomy:** run KrakenUniq and Bracken only on reads aligned to the *pks* island, producing species-by-*clb*-gene support and taxonomic summaries.
-
-Alignment and HMM profiling are complementary and are not expected to produce identical counts. Alignment provides stringent reference-based evidence; HMM profiling can recover more divergent or fragmented matches.
+This database is very large: `database.kdb` alone is approximately 535 GB. Download both files into the same directory. The [AWS KrakenUniq index page](https://benlangmead.github.io/aws-indexes/k2/#krakenuniq) lists other compatible collections.
 
 ## Running pksProfiler
 
-### Main parameters
+### Quick start
 
-| Parameter | Values/default | Required | Description |
-|---|---|---:|---|
-| `--sample` | CSV path | Yes | Sample sheet described below |
-| `--input_data_type` | `bam` (default), `fastq` | Yes | Selects the sample-sheet format |
-| `--profiling_method` | `bowtie2` (default), `hmm`, `both` | No | Profiling method(s) to run |
-| `--hg38_db` | `.mmi` path | Yes | GRCh38 Minimap2 index |
-| `--t2t_phix_db` | `.mmi` path | Yes | T2T/phiX Minimap2 index |
-| `--outdir` | `results` | No | Output directory |
-| `--hmm_evalue` | `1e-10` | No | Positive HMM E-value threshold |
-| `--hmm_chunking` | `false` | No | Parallelize HMM scanning across chunks |
-| `--pks_taxa` | off | No | Enable taxonomy; specify the flag without a value |
-| `--kraken_db` | directory | With taxonomy | KrakenUniq/Bracken database directory |
-| `--bracken_read_length` | positive integer | With taxonomy | Read length supported by the Bracken database |
-
-Advanced reference and output parameters are defined near the top of [`main.nf`](main.nf).
-
-### BAM input
-
-The CSV must contain `patient` and `bam`. Each BAM may contain aligned and unmapped records; pksProfiler extracts primary records flagged as unmapped.
+Create a BAM sample sheet named `samples.csv`:
 
 ```csv
 patient,bam
-sample1,/data/sample1.bam
-sample2,/data/sample2.bam
+sample1,/absolute/path/to/sample1.bam
 ```
 
-An editable example is available at [`examples/sample_sheets/bam.csv`](examples/sample_sheets/bam.csv).
+Run the default alignment workflow:
 
 ```bash
 nextflow run main.nf \
     -profile conda \
-    --sample samples.bam.csv \
+    --sample samples.csv \
     --input_data_type bam \
-    --profiling_method bowtie2 \
-    --hg38_db /references/human-GRC-db.mmi \
-    --t2t_phix_db /references/human-GCA-phix-db.mmi \
-    --outdir results_bam
+    --hg38_db /references/pksProfiler/human-GRC-db.mmi \
+    --t2t_phix_db /references/pksProfiler/human-GCA-phix-db.mmi \
+    --outdir results
 ```
 
-### Paired-end FASTQ input
+Bowtie2 alignment is the default, so `--profiling_method bowtie2` does not need to be written.
 
-The CSV must contain `patient`, `fastq1`, and `fastq2`.
+### Choose a run mode
 
-```csv
-patient,fastq1,fastq2
-sample1,/data/sample1_R1.fastq.gz,/data/sample1_R2.fastq.gz
-sample2,/data/sample2_R1.fastq.gz,/data/sample2_R2.fastq.gz
-```
+Open only the guide that matches your data and analysis:
 
-An editable example is available at [`examples/sample_sheets/fastq.csv`](examples/sample_sheets/fastq.csv).
+| I want to... | Guide |
+|---|---|
+| Run alignment profiling from BAM files | [BAM mode](docs/running/bam.md) |
+| Run alignment profiling from paired FASTQ files | [FASTQ mode](docs/running/fastq.md) |
+| Run HMM profiling alone or together with alignment | [HMM and combined modes](docs/running/hmm.md) |
+| Identify taxa associated with *pks*-aligned reads | [Taxonomy mode](docs/running/taxonomy.md) |
+| Review every command-line option | [Parameter reference](docs/running/parameters.md) |
+| Run on TSCC, Slurm, Biowulf, PBS Pro, LSF, or SGE | [HPC guide](docs/hpc.md) |
 
-```bash
-nextflow run main.nf \
-    -profile conda \
-    --sample samples.fastq.csv \
-    --input_data_type fastq \
-    --profiling_method bowtie2 \
-    --hg38_db /references/human-GRC-db.mmi \
-    --t2t_phix_db /references/human-GCA-phix-db.mmi \
-    --outdir results_fastq
-```
-
-Sample identifiers must be unique. Input paths should be absolute on a cluster.
-
-### HMM chunking
-
-For large inputs, enable chunked HMM execution:
-
-```bash
-nextflow run main.nf \
-    -profile conda \
-    --sample samples.fastq.csv \
-    --input_data_type fastq \
-    --profiling_method hmm \
-    --hmm_chunking true \
-    --hg38_db /references/human-GRC-db.mmi \
-    --t2t_phix_db /references/human-GCA-phix-db.mmi \
-    --outdir results_hmm
-```
-
-### Taxonomic profiling
-
-Taxonomy is optional and depends on alignment profiling, so use `bowtie2` or `both`. KrakenUniq is run only on reads that overlap the *pks* island.
-
-```bash
-nextflow run main.nf \
-    -profile conda \
-    --sample samples.fastq.csv \
-    --input_data_type fastq \
-    --profiling_method both \
-    --pks_taxa \
-    --kraken_db /references/krakenuniq_database \
-    --bracken_read_length 150 \
-    --hg38_db /references/human-GRC-db.mmi \
-    --t2t_phix_db /references/human-GCA-phix-db.mmi \
-    --outdir results_taxonomy
-```
-
-Omit `--pks_taxa` to disable taxonomy; do not write `--pks_taxa false`.
-
-### Resume an interrupted run
-
-Repeat the same command with `-resume`, keeping the same work directory and parameters:
-
-```bash
-nextflow run main.nf -resume [the same pipeline options]
-```
+Editable sample sheets are available in [`examples/sample_sheets/`](examples/sample_sheets).
 
 ## Example results
 
-Small synthetic examples illustrate the expected count-table format:
+The repository includes small positive and negative output examples:
 
-- [positive alignment result](examples/results/synthetic_positive/pks.gene.counts.align.txt)
-- [positive HMM result](examples/results/synthetic_positive/pks.gene.counts.hmm.txt)
-- [negative alignment result](examples/results/synthetic_negative/pks.gene.counts.align.txt)
-- [negative HMM result](examples/results/synthetic_negative/pks.gene.counts.hmm.txt)
+| Sample | Alignment counts | HMM counts |
+|---|---|---|
+| Synthetic positive | [view table](examples/results/synthetic_positive/pks.gene.counts.align.txt) | [view table](examples/results/synthetic_positive/pks.gene.counts.hmm.txt) |
+| Synthetic negative | [view table](examples/results/synthetic_negative/pks.gene.counts.align.txt) | [view table](examples/results/synthetic_negative/pks.gene.counts.hmm.txt) |
 
-A positive sample contains one row per *clb* gene and one count column per sample. For example:
+Each table contains one row for every gene from `clbA` through `clbS`. A valid negative sample remains in the matrix with zero counts.
 
 ```text
 Gene    synthetic_pks_positive
 clbA    1
 clbB    38
 clbC    10
-clbD    3
-clbE    1
-clbF    4
-clbG    5
-clbH    19
-clbI    12
-clbJ    20
-clbK    20
-clbL    5
-clbM    5
-clbN    16
-clbO    9
-clbP    5
-clbQ    2
-clbR    1
+...     ...
 clbS    2
 ```
 
-A successfully processed negative sample is retained with explicit zeros:
-
-```text
-Gene    synthetic_pks_negative
-clbA    0
-clbB    0
-...     ...
-clbS    0
-```
-
-These are output-format demonstrations, not a bundled end-to-end test dataset.
-
 ### Example coverage plot
-
-The alignment workflow produces a circular view of coverage across the 19-gene island for a positive sample:
 
 ![Synthetic pks-positive coverage plot](examples/plots/synthetic_positive/synthetic_pks_positive.pks.circos.png)
 
-[Download the example PDF](examples/plots/synthetic_positive/synthetic_pks_positive.pks.circos.pdf).
+[Download the example PDF](examples/plots/synthetic_positive/synthetic_pks_positive.pks.circos.pdf). A negative sample has zero counts but does not produce an empty coverage PDF.
 
-A sample with no aligned *pks* reads is retained in the count matrix with zero values, but no empty coverage PDF is generated.
-
-## Output files
+## Main output folders
 
 ```text
 results/
@@ -273,65 +147,11 @@ results/
 ├── pks_per_sample/
 └── pks_summary/
     ├── gene_counts/
-    │   ├── pks.gene.counts.align.txt
-    │   └── pks.gene.counts.hmm.txt
     ├── coverage_plots/
-    │   └── <sample>.pks.circos.pdf
-    └── taxonomy/                    # only with --pks_taxa
-        ├── pks.clb_species_support.tsv
-        ├── bracken.genus.mpa.report.txt
-        ├── bracken.species.mpa.report.txt
-        └── plots/
-            └── <sample>.pks_island_taxa_barplots.pdf
+    └── taxonomy/          # only when taxonomy is selected
 ```
 
-Combined count matrices always contain all 19 genes. Valid samples without qualifying signal receive zero counts. Coverage plots are produced only for samples with aligned *pks* reads.
-
-The optional `pks.clb_species_support.tsv` contains species as rows and *clb* genes as columns. It is based on direct KrakenUniq classifications of *pks*-aligned reads. Bracken reports contain re-estimated genus/species abundances and may be empty when support is below the conservative threshold.
-
-## Running on HPC systems
-
-| Profile | Scheduler/use |
-|---|---|
-| `conda` | Workstation or one allocated compute node |
-| `mamba` | Local execution with Mamba |
-| `tscc` | UC San Diego TSCC (Slurm) |
-| `slurm` | Generic Slurm cluster |
-| `biowulf` | NIH Biowulf |
-| `pbspro` | PBS Pro cluster |
-| `lsf` | IBM Spectrum LSF cluster |
-| `sge` | Sun/Oracle Grid Engine cluster |
-
-For a generic cluster, keep site accounts, partitions, and QOS settings in a local file:
-
-```groovy
-// site.config
-process {
-    queue = 'my_partition'
-    clusterOptions = '--account=my_account'
-}
-```
-
-```bash
-nextflow run main.nf \
-    -profile slurm \
-    -c site.config \
-    [pipeline options]
-```
-
-See the [HPC execution guide](docs/hpc.md) for scheduler examples, Biowulf notes, driver-job guidance, and resource monitoring.
-
-### Runtime and resource reports
-
-```bash
-RUN_TAG=$(date +%Y%m%d_%H%M%S)
-
-nextflow run main.nf \
-    [pipeline options] \
-    -with-trace "run.${RUN_TAG}.trace.txt" \
-    -with-report "run.${RUN_TAG}.report.html" \
-    -with-timeline "run.${RUN_TAG}.timeline.html"
-```
+See the relevant [run-mode guide](#choose-a-run-mode) for the files produced by that mode.
 
 ## License
 
