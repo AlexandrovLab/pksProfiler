@@ -233,7 +233,7 @@ process Bracken {
       -w "\$bracken_kraken_report" \
       -r ${params.bracken_read_length} \
       -l "\$lvl" \
-      -t 2
+      -t 1
 
     kreport2mpa.py \
       -r "\$bracken_kraken_report" \
