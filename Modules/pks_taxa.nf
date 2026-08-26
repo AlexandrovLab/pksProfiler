@@ -194,30 +194,42 @@ process Bracken {
     --kraken-db "${params.kraken_db}" \
     --output "\$SPECIES_MATRIX"
 
-  # Bracken can redistribute classifications made above the requested
-  # genus or species rank. Gate it using every classified PKS read,
-  # rather than only reads already reported at the exact target rank.
-  CLASSIFIED_READS=\$(awk -F '\\t' '
-    \$1 == "C" {
-      count++
+  # Apply the same conservative support threshold used by Bracken.
+  # Reads classified only above the requested rank do not satisfy this
+  # requirement until at least two reads support a target-rank node.
+  GENUS_READS=\$(awk -F '\\t' '
+    \$8 == "genus" && \$2 ~ /^[0-9]+\$/ {
+      sum += \$2
     }
 
     END {
-      print count+0
+      print sum+0
     }
-  ' "\$OUTPUT")
+  ' "\$REPORT")
 
-  echo "KrakenUniq classified PKS reads for ${sampleID}: \$CLASSIFIED_READS"
+  SPECIES_READS=\$(awk -F '\\t' '
+    \$8 == "species" && \$2 ~ /^[0-9]+\$/ {
+      sum += \$2
+    }
+
+    END {
+      print sum+0
+    }
+  ' "\$REPORT")
 
   for lvl in G S; do
     bracken_output="${sampleID}.bracken.\${lvl}.report.txt"
     bracken_kraken_report="${sampleID}.bracken.\${lvl}.krakenreport.txt"
     bracken_kraken_mpa_report="${sampleID}.bracken.\${lvl}.mpa.krakenreport.txt"
 
-    # Avoid invoking Bracken only when fewer than two PKS reads received
-    # any KrakenUniq taxonomic classification.
-    if [[ "\$CLASSIFIED_READS" -lt 2 ]]; then
-      echo "Skipping Bracken level \$lvl: classified PKS reads=\$CLASSIFIED_READS"
+    if [[ "\$lvl" == "G" ]]; then
+      LVL_READS="\$GENUS_READS"
+    else
+      LVL_READS="\$SPECIES_READS"
+    fi
+
+    if [[ "\$LVL_READS" -lt 2 ]]; then
+      echo "Skipping Bracken level \$lvl: exact-rank reads=\$LVL_READS; threshold=2"
 
       : > "\$bracken_output"
       : > "\$bracken_kraken_report"
@@ -233,7 +245,7 @@ process Bracken {
       -w "\$bracken_kraken_report" \
       -r ${params.bracken_read_length} \
       -l "\$lvl" \
-      -t 1
+      -t 2
 
     kreport2mpa.py \
       -r "\$bracken_kraken_report" \
