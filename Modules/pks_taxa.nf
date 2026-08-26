@@ -10,7 +10,8 @@ process extractPksIslandReads {
   output:
   tuple val(sampleID),
         path("${sampleID}.pks.fastq.gz"),
-        path("${sampleID}.read_clb_gene.tsv")
+        path("${sampleID}.read_clb_gene.tsv"),
+        path("${sampleID}.clb_gene_support.tsv")
 
   script:
   """
@@ -105,6 +106,38 @@ process extractPksIslandReads {
 
   rm -f "${sampleID}.read_clb_gene.tmp.tsv"
 
+  # Overall clb support irrespective of taxonomy. These values are
+  # derived from the same read-to-gene assignments used to construct
+  # the species-by-gene support matrix, so the column totals reconcile.
+  awk -F '\t' -v sample="${sampleID}" '
+    BEGIN {
+      OFS="\t"
+    }
+
+    NR > 1 && \$2 ~ /^clb[A-S]$/ {
+      count[\$2]++
+      total++
+    }
+
+    END {
+      printf "Sample"
+
+      for (i=65; i<=83; i++) {
+        printf "%sclb%c", OFS, i
+      }
+
+      printf "%sTotal\n%s", OFS, sample
+
+      for (i=65; i<=83; i++) {
+        gene=sprintf("clb%c", i)
+        printf "%s%d", OFS, count[gene]+0
+      }
+
+      printf "%s%d\n", OFS, total+0
+    }
+  ' "${sampleID}.read_clb_gene.tsv" \
+    > "${sampleID}.clb_gene_support.tsv"
+
   # Convert overlapping alignments to a single FASTQ stream
   samtools fastq "${sampleID}.pks.bam" |
     gzip -c > "${sampleID}.pks.fastq.gz"
@@ -119,7 +152,7 @@ process Bracken {
   conda "${params.krakenuniq_bracken_env}"
 
   input:
-  tuple val(sampleID), path(fastq_gz), path(read_gene_tsv)
+  tuple val(sampleID), path(fastq_gz), path(read_gene_tsv), path(gene_support_tsv)
 
   output:
   tuple val(sampleID),
@@ -132,7 +165,7 @@ process Bracken {
         path("${sampleID}.bracken.S.krakenreport.txt"),
         path("${sampleID}.bracken.G.mpa.krakenreport.txt"),
         path("${sampleID}.bracken.S.mpa.krakenreport.txt"),
-        path("${sampleID}.clb_species_counts.tsv")
+        path("${sampleID}.clb_species_support.tsv")
 
   script:
   """
@@ -142,7 +175,9 @@ process Bracken {
   OUTPUT="${sampleID}.krakenuniq.output.txt"
   CLASSIFIED="${sampleID}.classified.fasta"
   UNCLASSIFIED="${sampleID}.unclassified.fasta"
-  SPECIES_MATRIX="${sampleID}.clb_species_counts.tsv"
+  SPECIES_MATRIX="${sampleID}.clb_species_support.tsv"
+
+  test -s "${gene_support_tsv}"
 
   # Decompress PKS reads for KrakenUniq
   zcat "${fastq_gz}" > "${sampleID}.pks.fastq"
@@ -185,7 +220,9 @@ process Bracken {
     --unclassified-out "\$UNCLASSIFIED" \
     "${sampleID}.pks.fastq"
 
-  # Join direct KrakenUniq classifications to read-to-clb assignments
+  # Direct per-read KrakenUniq assignments retain the connection
+  # between taxon and clb gene. Bracken outputs remain separate because
+  # Bracken estimates aggregate abundance and has no per-read identity.
   python "${params.scripts}/build_clb_species_matrix.py" \
     --read-gene "${read_gene_tsv}" \
     --kraken-output "\$OUTPUT" \
