@@ -6,7 +6,7 @@ params.sample = null
 params.input_data_type = "bam"         // bam | fastq
 params.pks_taxa = false   // set true to run krakenuniq/bracken on pks-island reads
 
-params.profiling_method = "both"    // bowtie2 | hmm | both
+params.profiling_method = "bowtie2" // bowtie2 | hmm | both
 params.hmm_evalue       = 1e-10
 params.hmm_chunking = false
 params.hmm_model        = "${projectDir}/ref/hmm/clb_all_dna.hmm"
