@@ -74,24 +74,6 @@ This database is very large: `database.kdb` alone is approximately 535 GB. Downl
 
 ## Running pksProfiler
 
-### Parameters
-
-| Parameter | Values/default | Required | Description |
-|---|---|---:|---|
-| `--sample` | CSV path | Yes | BAM or FASTQ sample sheet |
-| `--input_data_type` | `bam` (default), `fastq` | No | Selects the sample-sheet format |
-| `--profiling_method` | `bowtie2` (default), `hmm`, `both` | No | Profiling method(s) to run |
-| `--hg38_db` | `.mmi` path | Yes | GRCh38 Minimap2 index |
-| `--t2t_phix_db` | `.mmi` path | Yes | T2T/phiX Minimap2 index |
-| `--outdir` | `results` | No | Output directory |
-| `--hmm_evalue` | `1e-10` | No | Positive HMM E-value threshold |
-| `--hmm_chunking` | `false` | No | Parallelize HMM scanning across chunks |
-| `--pks_taxa` | off | No | Enable taxonomy by including this flag |
-| `--kraken_db` | directory | With taxonomy | KrakenUniq/Bracken database directory |
-| `--bracken_read_length` | positive integer | With taxonomy | Read length supported by the Bracken database |
-
-The input sample sheet must contain `patient,bam` for BAM mode or `patient,fastq1,fastq2` for paired FASTQ mode. Sample identifiers must be unique, and file paths should be absolute when running on a cluster.
-
 ### Quick start
 
 Create a BAM sample sheet named `samples.csv`:
@@ -114,6 +96,24 @@ nextflow run main.nf \
 ```
 
 Bowtie2 alignment is the default, so `--profiling_method bowtie2` does not need to be written.
+
+### Parameters
+
+| Parameter | Values/default | Required | Description |
+|---|---|---:|---|
+| `--sample` | CSV path | Yes | BAM or FASTQ sample sheet |
+| `--input_data_type` | `bam` (default), `fastq` | No | Selects the sample-sheet format |
+| `--profiling_method` | `bowtie2` (default), `hmm`, `both` | No | Profiling method(s) to run |
+| `--hg38_db` | `.mmi` path | Yes | GRCh38 Minimap2 index |
+| `--t2t_phix_db` | `.mmi` path | Yes | T2T/phiX Minimap2 index |
+| `--outdir` | `results` | No | Output directory |
+| `--hmm_evalue` | `1e-10` | No | Positive HMM E-value threshold |
+| `--hmm_chunking` | `false` | No | Parallelize HMM scanning across chunks |
+| `--pks_taxa` | off | No | Enable taxonomy by including this flag |
+| `--kraken_db` | directory | With taxonomy | KrakenUniq/Bracken database directory |
+| `--bracken_read_length` | positive integer | With taxonomy | Read length supported by the Bracken database |
+
+The input sample sheet must contain `patient,bam` for BAM mode or `patient,fastq1,fastq2` for paired FASTQ mode. Sample identifiers must be unique, and file paths should be absolute when running on a cluster.
 
 ### Choose a run mode
 
