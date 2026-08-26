@@ -194,41 +194,30 @@ process Bracken {
     --kraken-db "${params.kraken_db}" \
     --output "\$SPECIES_MATRIX"
 
-  # Count reads reported at genus and species levels
-  GENUS_READS=\$(awk -F '\\t' '
-    \$8 == "genus" && \$2 ~ /^[0-9]+\$/ {
-      sum += \$2
+  # Bracken can redistribute classifications made above the requested
+  # genus or species rank. Gate it using every classified PKS read,
+  # rather than only reads already reported at the exact target rank.
+  CLASSIFIED_READS=\$(awk -F '\\t' '
+    \$1 == "C" {
+      count++
     }
 
     END {
-      print sum+0
+      print count+0
     }
-  ' "\$REPORT")
+  ' "\$OUTPUT")
 
-  SPECIES_READS=\$(awk -F '\\t' '
-    \$8 == "species" && \$2 ~ /^[0-9]+\$/ {
-      sum += \$2
-    }
-
-    END {
-      print sum+0
-    }
-  ' "\$REPORT")
+  echo "KrakenUniq classified PKS reads for ${sampleID}: \$CLASSIFIED_READS"
 
   for lvl in G S; do
     bracken_output="${sampleID}.bracken.\${lvl}.report.txt"
     bracken_kraken_report="${sampleID}.bracken.\${lvl}.krakenreport.txt"
     bracken_kraken_mpa_report="${sampleID}.bracken.\${lvl}.mpa.krakenreport.txt"
 
-    if [[ "\$lvl" == "G" ]]; then
-      LVL_READS="\$GENUS_READS"
-    else
-      LVL_READS="\$SPECIES_READS"
-    fi
-
-    # Bracken requires at least two reads at the requested level
-    if [[ "\$LVL_READS" -lt 2 ]]; then
-      echo "Skipping Bracken level \$lvl: reads=\$LVL_READS"
+    # Avoid invoking Bracken only when fewer than two PKS reads received
+    # any KrakenUniq taxonomic classification.
+    if [[ "\$CLASSIFIED_READS" -lt 2 ]]; then
+      echo "Skipping Bracken level \$lvl: classified PKS reads=\$CLASSIFIED_READS"
 
       : > "\$bracken_output"
       : > "\$bracken_kraken_report"
