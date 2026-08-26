@@ -24,6 +24,10 @@ params.unmapped_bam_dir = "${params.outdir}/unmapped_reads"
 params.mapped_reads_dir = "${params.outdir}/host_depleted_reads"
 params.pks_dir = "${params.outdir}/pks_per_sample"
 params.pks_summary_dir = "${params.outdir}/pks_summary"
+params.pks_counts_dir = "${params.pks_summary_dir}/gene_counts"
+params.pks_coverage_plots_dir = "${params.pks_summary_dir}/coverage_plots"
+params.pks_taxonomy_dir = "${params.pks_summary_dir}/taxonomy"
+params.pks_taxonomy_plots_dir = "${params.pks_taxonomy_dir}/plots"
 
 // Databases and refs [CHANGE THIS]
 params.hg38_db      = null

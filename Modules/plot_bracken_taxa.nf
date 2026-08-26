@@ -3,7 +3,7 @@ nextflow.enable.dsl = 2
 process plotBrackenTaxa {
   label 'process_medium'
   scratch true
-  publishDir "${params.pks_summary_dir}", mode: 'copy'
+  publishDir "${params.pks_taxonomy_plots_dir}", mode: 'copy'
   conda "${params.krakenuniq_bracken_env}"   // must include python + pandas + matplotlib
 
   input:
@@ -24,4 +24,3 @@ process plotBrackenTaxa {
     --top 20
   """
 }
-

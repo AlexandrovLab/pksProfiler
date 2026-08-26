@@ -234,6 +234,17 @@ results/
 ├── host_depleted_reads/
 ├── pks_per_sample/
 └── pks_summary/
+    ├── gene_counts/
+    │   ├── pks.gene.counts.align.txt
+    │   └── pks.gene.counts.hmm.txt
+    ├── coverage_plots/
+    │   └── <sample>.pks.circos.pdf
+    └── taxonomy/                    # present when --pks_taxa is enabled
+        ├── pks.clb_species_support.tsv
+        ├── bracken.genus.mpa.report.txt
+        ├── bracken.species.mpa.report.txt
+        └── plots/
+            └── <sample>.pks_island_taxa_barplots.pdf
 ```
 
 Outputs include:

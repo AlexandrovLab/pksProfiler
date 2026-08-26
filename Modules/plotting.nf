@@ -4,7 +4,7 @@ process plotPKS {
 
     label 'process_low'
     scratch true
-    publishDir "${params.pks_summary_dir}", mode: 'copy'
+    publishDir "${params.pks_coverage_plots_dir}", mode: 'copy'
     conda "${params.pks_align_env}"
 
     input:
@@ -26,7 +26,7 @@ process plotPKS {
 process masterTableAlign {
     label 'process_low'
     scratch true
-    publishDir "${params.pks_summary_dir}", mode: 'copy'
+    publishDir "${params.pks_counts_dir}", mode: 'copy'
     conda "${params.pks_align_env}"
 
     input:
@@ -50,7 +50,7 @@ process masterTableAlign {
 process masterTableHMM {
     label 'process_medium'
     scratch true
-    publishDir "${params.pks_summary_dir}", mode: 'copy'
+    publishDir "${params.pks_counts_dir}", mode: 'copy'
     conda "${params.pks_hmm_env}"
 
     input:

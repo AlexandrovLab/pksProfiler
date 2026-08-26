@@ -258,7 +258,7 @@ process Bracken {
 
 process process_bracken {
   scratch true
-  publishDir "${params.pks_summary_dir}", mode: 'copy'
+  publishDir "${params.pks_taxonomy_dir}", mode: 'copy'
   conda "${params.krakenuniq_bracken_env}"
 
   input:
@@ -311,7 +311,7 @@ process process_bracken {
 
 process combineClbTaxonomySupport {
   scratch true
-  publishDir "${params.pks_summary_dir}", mode: 'copy'
+  publishDir "${params.pks_taxonomy_dir}", mode: 'copy'
   conda "${params.krakenuniq_bracken_env}"
 
   input:
