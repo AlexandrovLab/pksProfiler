@@ -10,12 +10,12 @@ params.profiling_method = "both"    // bowtie2 | hmm | both
 params.hmm_evalue       = 1e-10
 params.hmm_chunking = false
 params.hmm_model        = "${projectDir}/ref/hmm/clb_all_dna.hmm"
-params.bracken_read_length = null
+params.bracken_read_length = null // Must match a read length supported by the selected Bracken database.
 
 // profile taxa that map to the pks island:
 params.pks_shift = 2193827          // island start in E. coli genome coords
-params.pks_island_len = 50767
-params.pks_contig = 'NC_017628.1'
+params.pks_island_len = 50767       // island length (0..50767 in your file)
+params.pks_contig = 'NC_017628.1'   // contig name in BAM
 
 // Output directories
 params.outdir = "${launchDir}/results"
@@ -191,23 +191,17 @@ workflow {
 
 		Bracken(PKS_ISLAND_FASTQ).set { BRACKEN_PER_SAMPLE }
 
-		PKS_ISLAND_FASTQ
-		.map { _sampleID, _fastq, _readGene, geneSupport -> geneSupport }
-		.collect()
-		.set { CLB_GENE_SUPPORT_FILES }
-
 		BRACKEN_PER_SAMPLE
 		.map { _sampleID, _report, _classified, _unclassified, _brG, _brS, _gk, _sk, _gmpa, _smpa, speciesSupport -> speciesSupport }
 		.collect()
 		.set { CLB_SPECIES_SUPPORT_FILES }
 
 		def combine_clb_support_script = file(
-		    "${params.scripts}/combine_clb_support.py",
+		    "${params.scripts}/combine_clb_species_support.py",
 		    checkIfExists: true
 		)
 
 		combineClbTaxonomySupport(
-		    CLB_GENE_SUPPORT_FILES,
 		    CLB_SPECIES_SUPPORT_FILES,
 		    combine_clb_support_script
 		)

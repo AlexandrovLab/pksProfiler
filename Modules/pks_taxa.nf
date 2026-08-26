@@ -10,8 +10,7 @@ process extractPksIslandReads {
   output:
   tuple val(sampleID),
         path("${sampleID}.pks.fastq.gz"),
-        path("${sampleID}.read_clb_gene.tsv"),
-        path("${sampleID}.clb_gene_support.tsv")
+        path("${sampleID}.read_clb_gene.tsv")
 
   script:
   """
@@ -106,41 +105,6 @@ process extractPksIslandReads {
 
   rm -f "${sampleID}.read_clb_gene.tmp.tsv"
 
-  # Overall clb support irrespective of taxonomy. These values are
-  # derived from the same read-to-gene assignments used to construct
-  # the species-by-gene support matrix, so the column totals reconcile.
-  awk -F '\t' -v sample="${sampleID}" '
-    BEGIN {
-      OFS="\t"
-    }
-
-    NR > 1 &&
-    length(\$2) == 4 &&
-    substr(\$2, 1, 3) == "clb" &&
-    index("ABCDEFGHIJKLMNOPQRS", substr(\$2, 4, 1)) > 0 {
-      count[\$2]++
-      total++
-    }
-
-    END {
-      printf "Sample"
-
-      for (i=65; i<=83; i++) {
-        printf "%sclb%c", OFS, i
-      }
-
-      printf "%sTotal\\n%s", OFS, sample
-
-      for (i=65; i<=83; i++) {
-        gene=sprintf("clb%c", i)
-        printf "%s%d", OFS, count[gene]+0
-      }
-
-      printf "%s%d\\n", OFS, total+0
-    }
-  ' "${sampleID}.read_clb_gene.tsv" \
-    > "${sampleID}.clb_gene_support.tsv"
-
   # Convert overlapping alignments to a single FASTQ stream
   samtools fastq "${sampleID}.pks.bam" |
     gzip -c > "${sampleID}.pks.fastq.gz"
@@ -155,7 +119,7 @@ process Bracken {
   conda "${params.krakenuniq_bracken_env}"
 
   input:
-  tuple val(sampleID), path(fastq_gz), path(read_gene_tsv), path(gene_support_tsv)
+  tuple val(sampleID), path(fastq_gz), path(read_gene_tsv)
 
   output:
   tuple val(sampleID),
@@ -179,8 +143,6 @@ process Bracken {
   CLASSIFIED="${sampleID}.classified.fasta"
   UNCLASSIFIED="${sampleID}.unclassified.fasta"
   SPECIES_MATRIX="${sampleID}.clb_species_support.tsv"
-
-  test -s "${gene_support_tsv}"
 
   # Decompress PKS reads for KrakenUniq
   zcat "${fastq_gz}" > "${sampleID}.pks.fastq"
@@ -352,19 +314,13 @@ process combineClbTaxonomySupport {
   conda "${params.krakenuniq_bracken_env}"
 
   input:
-  path gene_support_files
   path species_support_files
   path combine_script
 
   output:
-  tuple path("pks.clb_gene_support.tsv"),
-        path("pks.clb_species_support.tsv")
+  path("pks.clb_species_support.tsv")
 
   script:
-  def gene_inputs = gene_support_files
-    .collect { file -> "\"${file}\"" }
-    .join(' ')
-
   def species_inputs = species_support_files
     .collect { file -> "\"${file}\"" }
     .join(' ')
@@ -373,9 +329,7 @@ process combineClbTaxonomySupport {
   set -euo pipefail
 
   python "${combine_script}" \
-    --gene-files ${gene_inputs} \
     --species-files ${species_inputs} \
-    --gene-output pks.clb_gene_support.tsv \
     --species-output pks.clb_species_support.tsv
   """
 }
