@@ -172,6 +172,18 @@ results/
 
 See the relevant [run-mode guide](#choose-a-run-mode) for the files produced by that mode.
 
+## Repository checks
+
+Reviewers and developers can run the lightweight reference, output-contract,
+taxonomy-join, sample-validation, and Nextflow lint checks with:
+
+```bash
+bash tests/run_checks.sh
+```
+
+See [`tests/README.md`](tests/README.md) for the scope and limitations of these
+checks.
+
 ## License
 
 This project is distributed under the [BSD 2-Clause License](LICENSE).
