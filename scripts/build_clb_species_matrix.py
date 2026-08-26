@@ -2,7 +2,6 @@
 
 import argparse
 import csv
-import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -13,15 +12,9 @@ CLB_GENES = tuple(
 
 
 def normalize_read_id(read_id):
-    """Normalize FASTA/FASTQ read identifiers for joining."""
+    """Return the exact sequence identifier used for cross-file joins."""
     read_id = read_id.strip().split()[0]
-    read_id = read_id.lstrip("@>")
-
-    return re.sub(
-        r"(?:/|\.)[12]$",
-        "",
-        read_id,
-    )
+    return read_id.lstrip("@>")
 
 
 def parse_ncbi_taxonomy(nodes_path, names_path):
