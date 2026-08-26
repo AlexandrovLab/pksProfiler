@@ -7,7 +7,7 @@ process pksProfiler_hmm {
     conda "${params.pks_hmm_env}"
 
     input:
-    tuple val(sampleID), path(r1), path(r2)
+    tuple val(sampleID), path(reads)
 
     output:
     tuple val(sampleID),
@@ -27,21 +27,13 @@ process pksProfiler_hmm {
     """
     set -euo pipefail
 
-    if ! gzip -t "${r1}" >/dev/null 2>&1; then
-        echo "ERROR: Corrupt gzip input for ${sampleID}: ${r1}" >&2
+    if ! gzip -t "${reads}" >/dev/null 2>&1; then
+        echo "ERROR: Corrupt gzip input for ${sampleID}: ${reads}" >&2
         exit 1
     fi
-
-    if ! gzip -t "${r2}" >/dev/null 2>&1; then
-        echo "ERROR: Corrupt gzip input for ${sampleID}: ${r2}" >&2
-        exit 1
-    fi
-
-    # Merge the paired gzipped FASTQ files
-    zcat "${r1}" "${r2}" | gzip -c > "${sampleID}.merged.fastq.gz"
 
     # Convert FASTQ to FASTA
-    seqtk seq -a "${sampleID}.merged.fastq.gz" > "${sampleID}.merged.fa"
+    seqtk seq -a "${reads}" > "${sampleID}.merged.fa"
 
     # A valid sample may contain no reads after upstream filtering
     if [[ ! -s "${sampleID}.merged.fa" ]]; then

@@ -110,40 +110,35 @@ workflow {
 		    tuple(row.patient, file(row.bam, checkIfExists: true))
 		}
 
-        extractReads(sample_sheet).set { UNMAPPED_READS }
-
-        UNMAPPED_READS
-            .multiMap { sampleID, r1, r2 ->
-                whole:     tuple(sampleID, r1, r2)
-                path_only: tuple(r1, r2)
-            }
-            .set { UNMAPPED_READS_MULTI }
-
-        filterReads(UNMAPPED_READS_MULTI.whole)
-            .set { FILTERED_UNMAPPED_READS }
+        extractReads(sample_sheet)
+            .map { sampleID, reads -> tuple(sampleID, [reads]) }
+            .set { READS_TO_FILTER }
 
     } else if (params.input_data_type == "fastq") {
 
         def sample_sheet_fastq = sample_sheet
             .map { row -> row.subMap('patient', 'fastq1', 'fastq2') }
-            .map { row -> tuple(row.patient, file(row.fastq1), file(row.fastq2)) }
+            .map { row ->
+                tuple(
+                    row.patient,
+                    [
+                        file(row.fastq1, checkIfExists: true),
+                        file(row.fastq2, checkIfExists: true)
+                    ]
+                )
+            }
 
-        filterReads(sample_sheet_fastq)
-            .set { FILTERED_UNMAPPED_READS }
+        sample_sheet_fastq.set { READS_TO_FILTER }
 
     } else {
         exit 1, "Unknown --input_data_type: ${params.input_data_type}. Supported: bam, fastq"
     }
 
-    FILTERED_UNMAPPED_READS
-        .multiMap { sampleID, r1, r2 ->
-            whole:     tuple(sampleID, r1, r2)
-            path_only: tuple(r1, r2)
-        }
-        .set { FILTERED_UNMAPPED_READS_MULTI }
+    filterReads(READS_TO_FILTER)
+        .set { FILTERED_UNMAPPED_READS }
 
 	// ---------- STEP 1b: Host read depletion ----------
-	mapReads(FILTERED_UNMAPPED_READS_MULTI.whole)
+	mapReads(FILTERED_UNMAPPED_READS)
 	    .set { MAPPED_READS }
 
 	// ---------- STEP 2: Profiling ----------

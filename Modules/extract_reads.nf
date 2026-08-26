@@ -10,24 +10,26 @@ process extractReads {
 	tuple val(sampleID), path(bam)
 
     output:
-	tuple val(sampleID),
-      path("${sampleID}.R1.UNMAPPED.fastq.gz"),
-      path("${sampleID}.R2.UNMAPPED.fastq.gz")
+	tuple val(sampleID), path("${sampleID}.UNMAPPED.fastq.gz")
     
 	script:
 	"""
 	set -euo pipefail
 
-	R1="${sampleID}.R1.UNMAPPED.fastq.gz"
-	R2="${sampleID}.R2.UNMAPPED.fastq.gz"
+	READS="${sampleID}.UNMAPPED.fastq.gz"
 
-    samtools view -f 4 -O BAM "${bam}" |
-    samtools bam2fq \
-        -1 "\$R1" \
-        -2 "\$R2" \
-        -0 /dev/null \
-        -s /dev/null \
+    # Retain every primary unmapped alignment record, regardless of
+    # whether its mate is mapped, unmapped, or absent from the BAM.
+    samtools view \
+        -@ "${task.cpus}" \
+        -f 4 \
+        -F 2304 \
+        -u \
+        "${bam}" |
+    samtools fastq \
+        -@ "${task.cpus}" \
         -N \
-        -
+        - |
+    gzip -c > "\$READS"
 	"""
 }

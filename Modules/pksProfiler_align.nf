@@ -7,7 +7,7 @@ process pksProfiler_align {
     conda "${params.pks_align_env}"
 
     input:
-    tuple val(sampleID), path(r1), path(r2)
+    tuple val(sampleID), path(reads)
 
     output:
     tuple val(sampleID),
@@ -46,22 +46,13 @@ process pksProfiler_align {
         exit 1
     fi
 
-	if ! gzip -t "${r1}" >/dev/null 2>&1; then
-        echo "ERROR: Corrupt gzip input for ${sampleID}: ${r1}" >&2
+	if ! gzip -t "${reads}" >/dev/null 2>&1; then
+        echo "ERROR: Corrupt gzip input for ${sampleID}: ${reads}" >&2
         exit 1
     fi
-
-    if ! gzip -t "${r2}" >/dev/null 2>&1; then
-        echo "ERROR: Corrupt gzip input for ${sampleID}: ${r2}" >&2
-        exit 1
-    fi
-
-
-    # Merge gzipped FASTQs safely
-    zcat "${r1}" "${r2}" | gzip -c > "${sampleID}.trimmed.fastq.gz"
 
     echo "Bowtie2 Alignment (sample: ${sampleID})"
-    bowtie2 -x "${params.pks_genome}" -q -U "${sampleID}.trimmed.fastq.gz" \
+    bowtie2 -x "${params.pks_genome}" -q -U "${reads}" \
         --seed 42 --threads "${task.cpus}" --very-sensitive --no-unal -S "${sam}"
 
     samtools view -@ "${task.cpus}" -bS -q 40 "${sam}" | samtools sort -@ "${task.cpus}" -o "${bam}" -
