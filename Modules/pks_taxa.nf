@@ -114,7 +114,10 @@ process extractPksIslandReads {
       OFS="\t"
     }
 
-    NR > 1 && \$2 ~ /^clb[A-S]$/ {
+    NR > 1 &&
+    length(\$2) == 4 &&
+    substr(\$2, 1, 3) == "clb" &&
+    index("ABCDEFGHIJKLMNOPQRS", substr(\$2, 4, 1)) > 0 {
       count[\$2]++
       total++
     }
@@ -126,14 +129,14 @@ process extractPksIslandReads {
         printf "%sclb%c", OFS, i
       }
 
-      printf "%sTotal\n%s", OFS, sample
+      printf "%sTotal\\n%s", OFS, sample
 
       for (i=65; i<=83; i++) {
         gene=sprintf("clb%c", i)
         printf "%s%d", OFS, count[gene]+0
       }
 
-      printf "%s%d\n", OFS, total+0
+      printf "%s%d\\n", OFS, total+0
     }
   ' "${sampleID}.read_clb_gene.tsv" \
     > "${sampleID}.clb_gene_support.tsv"
