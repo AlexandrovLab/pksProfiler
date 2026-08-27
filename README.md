@@ -28,8 +28,6 @@ Alignment and HMM profiling are complementary and are not expected to produce id
 - Conda or Mamba
 - Git
 
-The remaining bioinformatics tools are installed from the environment files in [`conda_envs/`](conda_envs).
-
 ### 2. Clone pksProfiler
 
 ```bash
@@ -42,7 +40,7 @@ nextflow lint main.nf
 
 ### 3. Download the host-depletion indexes
 
-Download these two files from the [pksProfiler reference-index folder on Google Drive](https://drive.google.com/drive/folders/10np5NSeAPRpHz1a22drGybs4enTP-OdR?usp=share_link):
+Download these two files from the [pksProfiler reference-index folder on Google Drive](https://drive.google.com/drive/folders/1HounCjQE8pyve8hGBvhUVkvWHrWbpO35?usp=share_link):
 
 - `human-GRC-db.mmi`
 - `human-GCA-phix-db.mmi`
@@ -70,7 +68,7 @@ wget https://genome-idx.s3.amazonaws.com/kraken/uniq/krakendb-2023-08-08-MICROBI
 tar -xzf kuniq_microbialdb_minus_kdb.20230808.tgz
 ```
 
-This database is very large: `database.kdb` alone is approximately 535 GB. Download both files into the same directory. The [AWS KrakenUniq index page](https://benlangmead.github.io/aws-indexes/k2/#krakenuniq) lists other compatible collections.
+This database is very large: `database.kdb` alone is approximately 535 GB. Download both files into the same directory. Additional databases are available under **KrakenUniq** on the [AWS Kraken 2 indexes page](https://benlangmead.github.io/aws-indexes/k2).
 
 ## Running pksProfiler
 
@@ -128,8 +126,6 @@ Open only the guide that matches your data and analysis:
 | Run on TSCC, Slurm, Biowulf, PBS Pro, LSF, or SGE | [HPC guide](docs/hpc.md) |
 
 Editable sample sheets are available in [`examples/sample_sheets/`](examples/sample_sheets).
-The bundled resource requests target large-memory HPC systems; the HPC guide
-shows how to override them for smaller clusters without editing the pipeline.
 
 ## Example results
 
@@ -171,18 +167,6 @@ results/
 ```
 
 See the relevant [run-mode guide](#choose-a-run-mode) for the files produced by that mode.
-
-## Repository checks
-
-Reviewers and developers can run the lightweight reference, output-contract,
-taxonomy-join, sample-validation, and Nextflow lint checks with:
-
-```bash
-bash tests/run_checks.sh
-```
-
-See [`tests/README.md`](tests/README.md) for the scope and limitations of these
-checks.
 
 ## License
 

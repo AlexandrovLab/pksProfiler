@@ -129,10 +129,6 @@ Increase `--biowulf_lscratch_gb` for very large FASTQ or BAM inputs. Submit the
 Nextflow driver as a Biowulf batch job and follow current NIH guidance for
 scheduler polling and local scratch.
 
-This repository currently uses Conda environments. A fully containerized
-Biowulf profile requires tested per-process Apptainer/Singularity images and is
-future work; enabling Singularity alone does not replace the Conda directives.
-
 Biowulf guidance: <https://hpc.nih.gov/apps/nextflow.html>
 
 ## PBS Pro
