@@ -170,7 +170,7 @@ results/
     └── taxonomy/          # only when taxonomy is selected
 ```
 
-`pks_summary/qc/pks.qc.summary.tsv` contains one row per sample and records attrition through FASTP and both host-depletion passes. Alignment runs add *clb*-overlapping reads and alignment-detected *clb* genes. HMM runs add reads passing `--hmm_evalue` after best-hit assignment and HMM-detected *clb* genes. Method-specific fields are reported as `NA` when that method is not selected. When `--save_intermediates true` is used, `unmapped_reads/` and `host_depleted_reads/` are also published.
+`pks_summary/qc/pks.qc.summary.tsv` contains one row per sample and records attrition through FASTP and both host-depletion passes. Alignment runs add *clb*-overlapping reads and alignment-detected *clb* genes. HMM runs add the number of *clb* genes detected after applying `--hmm_evalue` and best-hit assignment. Method-specific fields are reported as `NA` when that method is not selected. When `--save_intermediates true` is used, `unmapped_reads/` and `host_depleted_reads/` are also published.
 
 For BAM input, `input_reads` is the number of primary alignment records in the supplied BAM and `unmapped_reads` is the subset extracted for profiling. For paired FASTQ input, `input_reads` is the combined number of R1 and R2 records and `unmapped_reads` has the same value because the supplied FASTQs enter FASTP directly. All subsequent columns count individual reads, not read pairs.
 

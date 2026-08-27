@@ -180,7 +180,6 @@ class QCSummaryTests(unittest.TestCase):
         self.assertEqual(row["reads_after_t2t_phix"], "110")
         self.assertEqual(row["reads_mapping_clb"], "18")
         self.assertEqual(row["clb_genes_detected"], "12")
-        self.assertEqual(row["reads_passing_hmm_threshold"], "NA")
         self.assertEqual(row["clb_genes_detected_hmm"], "NA")
 
     def test_fastq_hmm_only_summary_uses_input_count_and_na_alignment_metrics(self):
@@ -206,7 +205,6 @@ class QCSummaryTests(unittest.TestCase):
                 hmm_fragment,
                 sample,
                 [
-                    ("reads_passing_hmm_threshold", 17),
                     ("clb_genes_detected_hmm", 8),
                 ],
             )
@@ -223,7 +221,6 @@ class QCSummaryTests(unittest.TestCase):
         self.assertEqual(row["unmapped_reads"], "400")
         self.assertEqual(row["reads_mapping_clb"], "NA")
         self.assertEqual(row["clb_genes_detected"], "NA")
-        self.assertEqual(row["reads_passing_hmm_threshold"], "17")
         self.assertEqual(row["clb_genes_detected_hmm"], "8")
 
     def test_qc_summary_rejects_increasing_downstream_read_count(self):

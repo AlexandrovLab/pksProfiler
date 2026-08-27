@@ -16,7 +16,6 @@ OUTPUT_COLUMNS = [
     "reads_after_t2t_phix",
     "reads_mapping_clb",
     "clb_genes_detected",
-    "reads_passing_hmm_threshold",
     "clb_genes_detected_hmm",
 ]
 
@@ -76,9 +75,6 @@ def output_row(sample, values):
         "reads_after_t2t_phix": values.get("reads_after_t2t_phix"),
         "reads_mapping_clb": values.get("reads_mapping_clb"),
         "clb_genes_detected": values.get("clb_genes_detected"),
-        "reads_passing_hmm_threshold": values.get(
-            "reads_passing_hmm_threshold"
-        ),
         "clb_genes_detected_hmm": values.get("clb_genes_detected_hmm"),
     }
 
@@ -95,31 +91,27 @@ def output_row(sample, values):
             f"Missing required QC metric(s) for {sample}: {', '.join(missing)}"
         )
 
-    count_chains = [
-        [
-            "input_reads",
-            "unmapped_reads",
-            "reads_after_fastp",
-            "reads_after_hg38",
-            "reads_after_t2t_phix",
-            "reads_mapping_clb",
-        ],
-        ["reads_after_t2t_phix", "reads_passing_hmm_threshold"],
+    count_order = [
+        "input_reads",
+        "unmapped_reads",
+        "reads_after_fastp",
+        "reads_after_hg38",
+        "reads_after_t2t_phix",
+        "reads_mapping_clb",
     ]
-    for count_order in count_chains:
-        observed = [
-            (column, mapped[column])
-            for column in count_order
-            if mapped[column] is not None
-        ]
-        for (upstream_name, upstream), (downstream_name, downstream) in zip(
-            observed, observed[1:]
-        ):
-            if downstream > upstream:
-                raise ValueError(
-                    f"Impossible QC counts for {sample}: {downstream_name} "
-                    f"({downstream}) exceeds {upstream_name} ({upstream})"
-                )
+    observed = [
+        (column, mapped[column])
+        for column in count_order
+        if mapped[column] is not None
+    ]
+    for (upstream_name, upstream), (downstream_name, downstream) in zip(
+        observed, observed[1:]
+    ):
+        if downstream > upstream:
+            raise ValueError(
+                f"Impossible QC counts for {sample}: {downstream_name} "
+                f"({downstream}) exceeds {upstream_name} ({upstream})"
+            )
 
     for field in ("clb_genes_detected", "clb_genes_detected_hmm"):
         genes_detected = mapped[field]
