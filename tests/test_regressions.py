@@ -156,7 +156,6 @@ class QCSummaryTests(unittest.TestCase):
                 [("filter_input_reads", 200), ("reads_after_fastp", 180)],
                 [("reads_after_hg38", 120), ("reads_after_t2t_phix", 110)],
                 [
-                    ("reads_mapping_ihe3034", 20),
                     ("reads_mapping_clb", 18),
                     ("clb_genes_detected", 12),
                 ],
@@ -179,7 +178,6 @@ class QCSummaryTests(unittest.TestCase):
         self.assertEqual(row["reads_after_fastp"], "180")
         self.assertEqual(row["reads_after_hg38"], "120")
         self.assertEqual(row["reads_after_t2t_phix"], "110")
-        self.assertEqual(row["reads_mapping_ihe3034"], "20")
         self.assertEqual(row["reads_mapping_clb"], "18")
         self.assertEqual(row["clb_genes_detected"], "12")
         self.assertEqual(row["reads_passing_hmm_threshold"], "NA")
@@ -223,7 +221,6 @@ class QCSummaryTests(unittest.TestCase):
 
         self.assertEqual(row["input_reads"], "400")
         self.assertEqual(row["unmapped_reads"], "400")
-        self.assertEqual(row["reads_mapping_ihe3034"], "NA")
         self.assertEqual(row["reads_mapping_clb"], "NA")
         self.assertEqual(row["clb_genes_detected"], "NA")
         self.assertEqual(row["reads_passing_hmm_threshold"], "17")

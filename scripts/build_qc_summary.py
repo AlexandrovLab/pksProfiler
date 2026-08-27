@@ -14,7 +14,6 @@ OUTPUT_COLUMNS = [
     "reads_after_fastp",
     "reads_after_hg38",
     "reads_after_t2t_phix",
-    "reads_mapping_ihe3034",
     "reads_mapping_clb",
     "clb_genes_detected",
     "reads_passing_hmm_threshold",
@@ -75,7 +74,6 @@ def output_row(sample, values):
         "reads_after_fastp": values.get("reads_after_fastp"),
         "reads_after_hg38": values.get("reads_after_hg38"),
         "reads_after_t2t_phix": values.get("reads_after_t2t_phix"),
-        "reads_mapping_ihe3034": values.get("reads_mapping_ihe3034"),
         "reads_mapping_clb": values.get("reads_mapping_clb"),
         "clb_genes_detected": values.get("clb_genes_detected"),
         "reads_passing_hmm_threshold": values.get(
@@ -104,7 +102,6 @@ def output_row(sample, values):
             "reads_after_fastp",
             "reads_after_hg38",
             "reads_after_t2t_phix",
-            "reads_mapping_ihe3034",
             "reads_mapping_clb",
         ],
         ["reads_after_t2t_phix", "reads_passing_hmm_threshold"],

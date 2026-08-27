@@ -104,7 +104,6 @@ process pksProfiler_align {
     ' "${counts}")
 
     printf "Sample\tMetric\tValue\n" > "${qc}"
-    printf "%s\treads_mapping_ihe3034\t%s\n" "${sampleID}" "\$MAPPED_READS" >> "${qc}"
     printf "%s\treads_mapping_clb\t%s\n" "${sampleID}" "\$CLB_READS" >> "${qc}"
     printf "%s\tclb_genes_detected\t%s\n" "${sampleID}" "\$CLB_GENES_DETECTED" >> "${qc}"
 
