@@ -52,7 +52,8 @@ process pksProfiler_hmm {
         done
 
         printf "Sample\\tMetric\\tValue\\n" > "${qc}"
-        printf "%s\\tclb_genes_detected_hmm\\t0\\n" "${sampleID}" >> "${qc}"
+        printf "%s\\treads_clb_genes_hmm\\t0\\n" "${sampleID}" >> "${qc}"
+        printf "%s\\tnum_clb_genes_hmm\\t0\\n" "${sampleID}" >> "${qc}"
 
         exit 0
     fi
@@ -193,12 +194,14 @@ process pksProfiler_hmm {
         : > "${filtered_fa}"
     fi
 
+    HMM_READS=\$(wc -l < "${read_ids}")
     HMM_GENES_DETECTED=\$(awk -F '\t' '
         \$1 ~ /^clb[A-S]\$/ && (\$2 + 0) > 0 { count++ }
         END { print count + 0 }
     ' "${counts_tsv}")
 
     printf "Sample\\tMetric\\tValue\\n" > "${qc}"
-    printf "%s\\tclb_genes_detected_hmm\\t%s\\n" "${sampleID}" "\$HMM_GENES_DETECTED" >> "${qc}"
+    printf "%s\\treads_clb_genes_hmm\\t%s\\n" "${sampleID}" "\$HMM_READS" >> "${qc}"
+    printf "%s\\tnum_clb_genes_hmm\\t%s\\n" "${sampleID}" "\$HMM_GENES_DETECTED" >> "${qc}"
     """
 }

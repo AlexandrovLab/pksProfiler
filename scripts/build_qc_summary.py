@@ -14,9 +14,10 @@ OUTPUT_COLUMNS = [
     "reads_after_fastp",
     "reads_after_hg38",
     "reads_after_t2t_phix",
-    "reads_mapping_clb",
-    "clb_genes_detected",
-    "clb_genes_detected_hmm",
+    "num_clb_genes_align",
+    "reads_clb_genes_align",
+    "num_clb_genes_hmm",
+    "reads_clb_genes_hmm",
 ]
 
 
@@ -73,9 +74,10 @@ def output_row(sample, values):
         "reads_after_fastp": values.get("reads_after_fastp"),
         "reads_after_hg38": values.get("reads_after_hg38"),
         "reads_after_t2t_phix": values.get("reads_after_t2t_phix"),
-        "reads_mapping_clb": values.get("reads_mapping_clb"),
-        "clb_genes_detected": values.get("clb_genes_detected"),
-        "clb_genes_detected_hmm": values.get("clb_genes_detected_hmm"),
+        "num_clb_genes_align": values.get("num_clb_genes_align"),
+        "reads_clb_genes_align": values.get("reads_clb_genes_align"),
+        "num_clb_genes_hmm": values.get("num_clb_genes_hmm"),
+        "reads_clb_genes_hmm": values.get("reads_clb_genes_hmm"),
     }
 
     required = [
@@ -97,7 +99,7 @@ def output_row(sample, values):
         "reads_after_fastp",
         "reads_after_hg38",
         "reads_after_t2t_phix",
-        "reads_mapping_clb",
+        "reads_clb_genes_align",
     ]
     observed = [
         (column, mapped[column])
@@ -113,7 +115,15 @@ def output_row(sample, values):
                 f"({downstream}) exceeds {upstream_name} ({upstream})"
             )
 
-    for field in ("clb_genes_detected", "clb_genes_detected_hmm"):
+    hmm_reads = mapped["reads_clb_genes_hmm"]
+    depleted_reads = mapped["reads_after_t2t_phix"]
+    if hmm_reads is not None and hmm_reads > depleted_reads:
+        raise ValueError(
+            f"Impossible QC counts for {sample}: reads_clb_genes_hmm "
+            f"({hmm_reads}) exceeds reads_after_t2t_phix ({depleted_reads})"
+        )
+
+    for field in ("num_clb_genes_align", "num_clb_genes_hmm"):
         genes_detected = mapped[field]
         if genes_detected is not None and not 0 <= genes_detected <= 19:
             raise ValueError(f"Invalid {field} for {sample}: {genes_detected}")

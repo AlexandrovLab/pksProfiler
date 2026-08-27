@@ -104,8 +104,8 @@ process pksProfiler_align {
     ' "${counts}")
 
     printf "Sample\tMetric\tValue\n" > "${qc}"
-    printf "%s\treads_mapping_clb\t%s\n" "${sampleID}" "\$CLB_READS" >> "${qc}"
-    printf "%s\tclb_genes_detected\t%s\n" "${sampleID}" "\$CLB_GENES_DETECTED" >> "${qc}"
+    printf "%s\treads_clb_genes_align\t%s\n" "${sampleID}" "\$CLB_READS" >> "${qc}"
+    printf "%s\tnum_clb_genes_align\t%s\n" "${sampleID}" "\$CLB_GENES_DETECTED" >> "${qc}"
 
     if [[ "\$MAPPED_READS" -eq 0 ]]; then
         echo "No confidently mapped reads for ${sampleID}; recording zero clb counts."

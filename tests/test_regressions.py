@@ -156,8 +156,8 @@ class QCSummaryTests(unittest.TestCase):
                 [("filter_input_reads", 200), ("reads_after_fastp", 180)],
                 [("reads_after_hg38", 120), ("reads_after_t2t_phix", 110)],
                 [
-                    ("reads_mapping_clb", 18),
-                    ("clb_genes_detected", 12),
+                    ("reads_clb_genes_align", 18),
+                    ("num_clb_genes_align", 12),
                 ],
             ]
 
@@ -178,9 +178,10 @@ class QCSummaryTests(unittest.TestCase):
         self.assertEqual(row["reads_after_fastp"], "180")
         self.assertEqual(row["reads_after_hg38"], "120")
         self.assertEqual(row["reads_after_t2t_phix"], "110")
-        self.assertEqual(row["reads_mapping_clb"], "18")
-        self.assertEqual(row["clb_genes_detected"], "12")
-        self.assertEqual(row["clb_genes_detected_hmm"], "NA")
+        self.assertEqual(row["reads_clb_genes_align"], "18")
+        self.assertEqual(row["num_clb_genes_align"], "12")
+        self.assertEqual(row["reads_clb_genes_hmm"], "NA")
+        self.assertEqual(row["num_clb_genes_hmm"], "NA")
 
     def test_fastq_hmm_only_summary_uses_input_count_and_na_alignment_metrics(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -205,7 +206,8 @@ class QCSummaryTests(unittest.TestCase):
                 hmm_fragment,
                 sample,
                 [
-                    ("clb_genes_detected_hmm", 8),
+                    ("reads_clb_genes_hmm", 17),
+                    ("num_clb_genes_hmm", 8),
                 ],
             )
 
@@ -219,9 +221,10 @@ class QCSummaryTests(unittest.TestCase):
 
         self.assertEqual(row["input_reads"], "400")
         self.assertEqual(row["unmapped_reads"], "400")
-        self.assertEqual(row["reads_mapping_clb"], "NA")
-        self.assertEqual(row["clb_genes_detected"], "NA")
-        self.assertEqual(row["clb_genes_detected_hmm"], "8")
+        self.assertEqual(row["reads_clb_genes_align"], "NA")
+        self.assertEqual(row["num_clb_genes_align"], "NA")
+        self.assertEqual(row["reads_clb_genes_hmm"], "17")
+        self.assertEqual(row["num_clb_genes_hmm"], "8")
 
     def test_qc_summary_rejects_increasing_downstream_read_count(self):
         values = {
