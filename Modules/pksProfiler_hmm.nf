@@ -15,7 +15,9 @@ process pksProfiler_hmm {
           path("${sampleID}.nhmmscan.log"),
           path("${sampleID}.hmm_counts.tsv"),
           path("${sampleID}.hits.read_ids.txt"),
-          path("${sampleID}.hmm.filtered.fa")
+          path("${sampleID}.hmm.filtered.fa"),
+          emit: profile
+    tuple val(sampleID), path("${sampleID}.hmm.qc.tsv"), emit: qc
 
     script:
     def tblout      = "${sampleID}.nhmmscan.tblout"
@@ -23,6 +25,7 @@ process pksProfiler_hmm {
     def counts_tsv  = "${sampleID}.hmm_counts.tsv"
     def read_ids    = "${sampleID}.hits.read_ids.txt"
     def filtered_fa = "${sampleID}.hmm.filtered.fa"
+    def qc           = "${sampleID}.hmm.qc.tsv"
 
     """
     set -euo pipefail
@@ -47,6 +50,10 @@ process pksProfiler_hmm {
         for gene in {A..S}; do
             printf "clb%s\\t0\\n" "\$gene" >> "${counts_tsv}"
         done
+
+        printf "Sample\\tMetric\\tValue\\n" > "${qc}"
+        printf "%s\\treads_passing_hmm_threshold\\t0\\n" "${sampleID}" >> "${qc}"
+        printf "%s\\tclb_genes_detected_hmm\\t0\\n" "${sampleID}" >> "${qc}"
 
         exit 0
     fi
@@ -186,5 +193,15 @@ process pksProfiler_hmm {
     else
         : > "${filtered_fa}"
     fi
+
+    HMM_READS=\$(wc -l < "${read_ids}")
+    HMM_GENES_DETECTED=\$(awk -F '\t' '
+        \$1 ~ /^clb[A-S]\$/ && (\$2 + 0) > 0 { count++ }
+        END { print count + 0 }
+    ' "${counts_tsv}")
+
+    printf "Sample\\tMetric\\tValue\\n" > "${qc}"
+    printf "%s\\treads_passing_hmm_threshold\\t%s\\n" "${sampleID}" "\$HMM_READS" >> "${qc}"
+    printf "%s\\tclb_genes_detected_hmm\\t%s\\n" "${sampleID}" "\$HMM_GENES_DETECTED" >> "${qc}"
     """
 }

@@ -247,8 +247,14 @@ workflow {
         )
     }
     if (do_hmm) {
-        pksProfilerHMM(MAPPED_READS)
+        HMM_OUT = pksProfilerHMM(MAPPED_READS)
+
+        HMM_OUT.profile
             .set { PKS_HMM_OUT }
+
+        QC_FRAGMENTS = QC_FRAGMENTS.mix(
+            HMM_OUT.qc.map { _sampleID, qc_file -> qc_file }
+        )
     }
 
     // ---------- STEP 3: Plotting (align only) ----------

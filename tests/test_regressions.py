@@ -182,6 +182,8 @@ class QCSummaryTests(unittest.TestCase):
         self.assertEqual(row["reads_mapping_ihe3034"], "20")
         self.assertEqual(row["reads_mapping_clb"], "18")
         self.assertEqual(row["clb_genes_detected"], "12")
+        self.assertEqual(row["reads_passing_hmm_threshold"], "NA")
+        self.assertEqual(row["clb_genes_detected_hmm"], "NA")
 
     def test_fastq_hmm_only_summary_uses_input_count_and_na_alignment_metrics(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -189,6 +191,7 @@ class QCSummaryTests(unittest.TestCase):
             sample = "fastq_sample"
             filter_fragment = directory / "filter.tsv"
             depletion_fragment = directory / "depletion.tsv"
+            hmm_fragment = directory / "hmm.tsv"
             output = directory / "summary.tsv"
 
             self.write_fragment(
@@ -201,9 +204,17 @@ class QCSummaryTests(unittest.TestCase):
                 sample,
                 [("reads_after_hg38", 250), ("reads_after_t2t_phix", 230)],
             )
+            self.write_fragment(
+                hmm_fragment,
+                sample,
+                [
+                    ("reads_passing_hmm_threshold", 17),
+                    ("clb_genes_detected_hmm", 8),
+                ],
+            )
 
             metrics = self.qc_module.load_fragments(
-                [filter_fragment, depletion_fragment]
+                [filter_fragment, depletion_fragment, hmm_fragment]
             )
             self.qc_module.write_summary(metrics, output)
 
@@ -215,6 +226,8 @@ class QCSummaryTests(unittest.TestCase):
         self.assertEqual(row["reads_mapping_ihe3034"], "NA")
         self.assertEqual(row["reads_mapping_clb"], "NA")
         self.assertEqual(row["clb_genes_detected"], "NA")
+        self.assertEqual(row["reads_passing_hmm_threshold"], "17")
+        self.assertEqual(row["clb_genes_detected_hmm"], "8")
 
     def test_qc_summary_rejects_increasing_downstream_read_count(self):
         values = {
