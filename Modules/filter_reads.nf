@@ -3,7 +3,11 @@ nextflow.enable.dsl=2
 process filterReads {
     scratch true
     label 'filter_reads'
-    publishDir("${params.unmapped_bam_dir}", mode: 'copy')
+	publishDir(
+	    "${params.unmapped_bam_dir}",
+	    mode: 'copy',
+	    enabled: params.save_intermediates
+	)
     conda "${params.fastp_env}"
 	maxRetries 2
 
@@ -12,7 +16,8 @@ process filterReads {
 	tuple val(sampleID), path(fastq_files)
 
 	output:
-	tuple val(sampleID), path("${sampleID}.UNMAPPED.FASTP.FILTERED.fastq.gz")
+	tuple val(sampleID), path("${sampleID}.UNMAPPED.FASTP.FILTERED.fastq.gz"), emit: reads
+	tuple val(sampleID), path("${sampleID}.filter.qc.tsv"), emit: qc
 
 	script:
 	def input_list = fastq_files instanceof Collection ? fastq_files : [fastq_files]
@@ -43,6 +48,7 @@ process filterReads {
 
 	MERGED="${sampleID}.UNMAPPED.merged.fastq.gz"
 	FILTERED="${sampleID}.UNMAPPED.FASTP.FILTERED.fastq.gz"
+	QC="${sampleID}.filter.qc.tsv"
 
 	for input_fastq in ${inputs}; do
 	    if ! gzip -t "\$input_fastq" >/dev/null 2>&1; then
@@ -54,6 +60,7 @@ process filterReads {
 	# BAM input contributes one stream. For paired FASTQ input, append /1 and
 	# /2 when needed so downstream HMM queries retain distinct mate IDs.
 	${merge_reads}
+	FILTER_INPUT_READS=\$(gzip -dc "\$MERGED" | awk 'END { print int(NR / 4) }')
 
     fastp \
         -l 45 \
@@ -62,5 +69,10 @@ process filterReads {
         -i "\$MERGED" \
         -w "${task.cpus}" \
         -o "\$FILTERED"
+
+	FILTERED_READS=\$(gzip -dc "\$FILTERED" | awk 'END { print int(NR / 4) }')
+	printf "Sample\tMetric\tValue\n" > "\$QC"
+	printf "%s\tfilter_input_reads\t%s\n" "${sampleID}" "\$FILTER_INPUT_READS" >> "\$QC"
+	printf "%s\treads_after_fastp\t%s\n" "${sampleID}" "\$FILTERED_READS" >> "\$QC"
     """
 }

@@ -32,9 +32,11 @@ nextflow run main.nf \
 
 - `results_bam/pks_summary/gene_counts/pks.gene.counts.align.txt`
 - `results_bam/pks_summary/coverage_plots/<sample>.pks.circos.pdf` for samples with aligned *pks* reads
+- `results_bam/pks_summary/qc/pks.qc.summary.tsv` for per-sample read attrition and *pks* QC
 - per-sample alignment, count, and coverage files under `results_bam/pks_per_sample/`
 
 Valid samples without qualifying reads remain in the combined count matrix with zeros.
+Extracted and host-depleted FASTQs are not copied to the results directory by default. Add `--save_intermediates true` if they need to be retained outside the Nextflow work directory.
 
 ## Resume
 

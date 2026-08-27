@@ -16,7 +16,9 @@ process pksProfiler_align {
           path("${sampleID}.counts.txt"),
 	      path("${sampleID}.sorted.bam"),
 	      path("${sampleID}.sorted.bam.bai"),
-	      path("${sampleID}.sam")
+	      path("${sampleID}.sam"),
+          emit: profile
+    tuple val(sampleID), path("${sampleID}.alignment.qc.tsv"), emit: qc
 
     script:
     def bedtools_cov = "${sampleID}.coverage.txt"
@@ -25,6 +27,7 @@ process pksProfiler_align {
     def bam          = "${sampleID}.sorted.bam"
 	def bai          = "${sampleID}.sorted.bam.bai"
     def sam          = "${sampleID}.sam"
+    def qc           = "${sampleID}.alignment.qc.tsv"
 
     """
     set -euo pipefail
@@ -71,6 +74,39 @@ process pksProfiler_align {
         -F GFF \
         -g Name \
         "${bam}"
+
+    awk -F '\t' '
+        BEGIN { OFS="\t" }
+        \$0 !~ /^#/ && \$3 == "gene" && \$9 ~ /(^|;)Name=clb[A-S](;|\$)/ {
+            gene=""
+            n=split(\$9, attributes, ";")
+            for (i=1; i<=n; i++) {
+                if (attributes[i] ~ /^Name=/) {
+                    sub(/^Name=/, "", attributes[i])
+                    gene=attributes[i]
+                }
+            }
+            if (gene != "") print \$1, \$4-1, \$5, gene
+        }
+    ' "${params.pks_genome_annotation}" > clb_genes.qc.bed
+
+    CLB_READS=\$(
+        bedtools bamtobed -i "${bam}" |
+        bedtools intersect -a - -b clb_genes.qc.bed -u |
+        cut -f4 |
+        sort -u |
+        wc -l
+    )
+
+    CLB_GENES_DETECTED=\$(awk -F '\t' '
+        \$1 ~ /^clb[A-S]\$/ && (\$NF + 0) > 0 { count++ }
+        END { print count + 0 }
+    ' "${counts}")
+
+    printf "Sample\tMetric\tValue\n" > "${qc}"
+    printf "%s\treads_mapping_ihe3034\t%s\n" "${sampleID}" "\$MAPPED_READS" >> "${qc}"
+    printf "%s\treads_mapping_clb\t%s\n" "${sampleID}" "\$CLB_READS" >> "${qc}"
+    printf "%s\tclb_genes_detected\t%s\n" "${sampleID}" "\$CLB_GENES_DETECTED" >> "${qc}"
 
     if [[ "\$MAPPED_READS" -eq 0 ]]; then
         echo "No confidently mapped reads for ${sampleID}; recording zero clb counts."

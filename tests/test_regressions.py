@@ -133,6 +133,101 @@ class CombinedSpeciesSupportTests(unittest.TestCase):
         self.assertEqual(combined[0]["Total"], "1")
 
 
+class QCSummaryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.qc_module = load_script("build_qc_summary")
+
+    @staticmethod
+    def write_fragment(path, sample, rows):
+        with path.open("w", newline="") as handle:
+            writer = csv.writer(handle, delimiter="\t")
+            writer.writerow(["Sample", "Metric", "Value"])
+            for metric, value in rows:
+                writer.writerow([sample, metric, value])
+
+    def test_bam_qc_summary_reports_all_alignment_stages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            sample = "bam_sample"
+            fragments = []
+            stages = [
+                [("bam_input_primary_records", 1000), ("extracted_unmapped_reads", 200)],
+                [("filter_input_reads", 200), ("reads_after_fastp", 180)],
+                [("reads_after_hg38", 120), ("reads_after_t2t_phix", 110)],
+                [
+                    ("reads_mapping_ihe3034", 20),
+                    ("reads_mapping_clb", 18),
+                    ("clb_genes_detected", 12),
+                ],
+            ]
+
+            for index, rows in enumerate(stages):
+                fragment = directory / f"stage{index}.tsv"
+                self.write_fragment(fragment, sample, rows)
+                fragments.append(fragment)
+
+            output = directory / "summary.tsv"
+            metrics = self.qc_module.load_fragments(fragments)
+            self.qc_module.write_summary(metrics, output)
+
+            with output.open(newline="") as handle:
+                row = next(csv.DictReader(handle, delimiter="\t"))
+
+        self.assertEqual(row["input_reads"], "1000")
+        self.assertEqual(row["unmapped_reads"], "200")
+        self.assertEqual(row["reads_after_fastp"], "180")
+        self.assertEqual(row["reads_after_hg38"], "120")
+        self.assertEqual(row["reads_after_t2t_phix"], "110")
+        self.assertEqual(row["reads_mapping_ihe3034"], "20")
+        self.assertEqual(row["reads_mapping_clb"], "18")
+        self.assertEqual(row["clb_genes_detected"], "12")
+
+    def test_fastq_hmm_only_summary_uses_input_count_and_na_alignment_metrics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            sample = "fastq_sample"
+            filter_fragment = directory / "filter.tsv"
+            depletion_fragment = directory / "depletion.tsv"
+            output = directory / "summary.tsv"
+
+            self.write_fragment(
+                filter_fragment,
+                sample,
+                [("filter_input_reads", 400), ("reads_after_fastp", 360)],
+            )
+            self.write_fragment(
+                depletion_fragment,
+                sample,
+                [("reads_after_hg38", 250), ("reads_after_t2t_phix", 230)],
+            )
+
+            metrics = self.qc_module.load_fragments(
+                [filter_fragment, depletion_fragment]
+            )
+            self.qc_module.write_summary(metrics, output)
+
+            with output.open(newline="") as handle:
+                row = next(csv.DictReader(handle, delimiter="\t"))
+
+        self.assertEqual(row["input_reads"], "400")
+        self.assertEqual(row["unmapped_reads"], "400")
+        self.assertEqual(row["reads_mapping_ihe3034"], "NA")
+        self.assertEqual(row["reads_mapping_clb"], "NA")
+        self.assertEqual(row["clb_genes_detected"], "NA")
+
+    def test_qc_summary_rejects_increasing_downstream_read_count(self):
+        values = {
+            "filter_input_reads": 100,
+            "reads_after_fastp": 90,
+            "reads_after_hg38": 95,
+            "reads_after_t2t_phix": 80,
+        }
+
+        with self.assertRaisesRegex(ValueError, "Impossible QC counts"):
+            self.qc_module.output_row("invalid_sample", values)
+
+
 class ExampleOutputTests(unittest.TestCase):
     def test_all_example_count_tables_have_19_ordered_integer_rows(self):
         example_files = sorted((REPO / "examples" / "results").glob("*/*.txt"))

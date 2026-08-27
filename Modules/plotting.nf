@@ -30,7 +30,7 @@ process masterTableAlign {
     conda "${params.pks_align_env}"
 
     input:
-    val(count_files)
+    path(count_files)
 
     output:
     path "pks.gene.counts.align.txt"
@@ -54,7 +54,7 @@ process masterTableHMM {
     conda "${params.pks_hmm_env}"
 
     input:
-    val(count_files)
+    path(count_files)
 
     output:
     path "pks.gene.counts.hmm.txt"
@@ -67,5 +67,30 @@ process masterTableHMM {
       --inputs ${inputs} \
       --out pks.gene.counts.hmm.txt \
       --strip-suffix ".hmm_counts.tsv"
+    """
+}
+
+process masterQCSummary {
+    label 'process_low'
+    scratch true
+    publishDir "${params.pks_qc_dir}", mode: 'copy'
+    conda "${params.pks_hmm_env}"
+
+    input:
+    path(qc_files)
+    path(qc_script)
+
+    output:
+    path "pks.qc.summary.tsv"
+
+    script:
+    def inputs = qc_files.collect { file -> "\"${file}\"" }.join(' ')
+
+    """
+    set -euo pipefail
+
+    python3 "${qc_script}" \
+        --inputs ${inputs} \
+        --output pks.qc.summary.tsv
     """
 }

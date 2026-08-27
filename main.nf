@@ -5,6 +5,7 @@ params.sample = null
 
 params.input_data_type = "bam"         // bam | fastq
 params.pks_taxa = false   // set true to run krakenuniq/bracken on pks-island reads
+params.save_intermediates = false // publish extracted/filtered/host-depleted FASTQs
 
 params.profiling_method = "bowtie2" // bowtie2 | hmm | both
 params.hmm_evalue       = 1e-10
@@ -28,6 +29,7 @@ params.pks_counts_dir = "${params.pks_summary_dir}/gene_counts"
 params.pks_coverage_plots_dir = "${params.pks_summary_dir}/coverage_plots"
 params.pks_taxonomy_dir = "${params.pks_summary_dir}/taxonomy"
 params.pks_taxonomy_plots_dir = "${params.pks_taxonomy_dir}/plots"
+params.pks_qc_dir = "${params.pks_summary_dir}/qc"
 
 // Databases and refs [CHANGE THIS]
 params.hg38_db      = null
@@ -56,7 +58,7 @@ include { filterReads } from './Modules/filter_reads.nf'
 include { mapReads } from './Modules/map_reads.nf'
 include { pksProfiler_align as pksProfilerAlign } from './Modules/pksProfiler_align.nf'
 include { pksProfiler_hmm as pksProfilerHMM } from './Modules/pksProfiler_hmm.nf'
-include { plotPKS; masterTableAlign; masterTableHMM } from './Modules/plotting.nf'
+include { plotPKS; masterTableAlign; masterTableHMM; masterQCSummary } from './Modules/plotting.nf'
 include { extractPksIslandReads; Bracken; process_bracken as combinePKSTaxa; combineClbTaxonomySupport } from './Modules/pks_taxa.nf'
 include { plotBrackenTaxa as plotPKSTaxa } from './Modules/plot_bracken_taxa.nf'
 
@@ -164,6 +166,8 @@ workflow {
             rows
         }
 
+    def QC_FRAGMENTS = channel.empty()
+
     if (params.input_data_type == "bam") {
 
 		// Expect columns: patient,bam
@@ -171,9 +175,15 @@ workflow {
 		    tuple(row.patient, file(row.bam, checkIfExists: true))
 		}
 
-        extractReads(sample_sheet)
+        EXTRACT_OUT = extractReads(sample_sheet)
+
+        EXTRACT_OUT.reads
             .map { sampleID, reads -> tuple(sampleID, [reads]) }
             .set { READS_TO_FILTER }
+
+        QC_FRAGMENTS = QC_FRAGMENTS.mix(
+            EXTRACT_OUT.qc.map { _sampleID, qc_file -> qc_file }
+        )
 
     } else if (params.input_data_type == "fastq") {
 
@@ -193,12 +203,24 @@ workflow {
 
     }
 
-    filterReads(READS_TO_FILTER)
+    FILTER_OUT = filterReads(READS_TO_FILTER)
+
+    FILTER_OUT.reads
         .set { FILTERED_UNMAPPED_READS }
 
+    QC_FRAGMENTS = QC_FRAGMENTS.mix(
+        FILTER_OUT.qc.map { _sampleID, qc_file -> qc_file }
+    )
+
 	// ---------- STEP 1b: Host read depletion ----------
-	mapReads(FILTERED_UNMAPPED_READS)
+	MAP_OUT = mapReads(FILTERED_UNMAPPED_READS)
+
+	MAP_OUT.reads
 	    .set { MAPPED_READS }
+
+    QC_FRAGMENTS = QC_FRAGMENTS.mix(
+        MAP_OUT.qc.map { _sampleID, qc_file -> qc_file }
+    )
 
 	// ---------- STEP 2: Profiling ----------
     def valid_methods = ["bowtie2", "hmm", "both"]
@@ -215,8 +237,14 @@ workflow {
     def do_hmm   = params.profiling_method in ["hmm", "both"]
 
     if (do_align) {
-        pksProfilerAlign(MAPPED_READS)
+        ALIGN_OUT = pksProfilerAlign(MAPPED_READS)
+
+        ALIGN_OUT.profile
             .set { PKS_ALIGN_OUT }
+
+        QC_FRAGMENTS = QC_FRAGMENTS.mix(
+            ALIGN_OUT.qc.map { _sampleID, qc_file -> qc_file }
+        )
     }
     if (do_hmm) {
         pksProfilerHMM(MAPPED_READS)
@@ -300,4 +328,16 @@ workflow {
 
         masterTableHMM(HMM_COUNT_FILES)
     }
+
+    // ---------- STEP 5: Cohort QC ----------
+    QC_FRAGMENTS
+        .collect()
+        .set { QC_FRAGMENT_FILES }
+
+    def qc_summary_script = file(
+        "${params.scripts}/build_qc_summary.py",
+        checkIfExists: true
+    )
+
+    masterQCSummary(QC_FRAGMENT_FILES, qc_summary_script)
 }

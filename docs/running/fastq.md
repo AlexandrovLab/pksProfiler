@@ -32,8 +32,10 @@ nextflow run main.nf \
 
 - `results_fastq/pks_summary/gene_counts/pks.gene.counts.align.txt`
 - `results_fastq/pks_summary/coverage_plots/<sample>.pks.circos.pdf` for samples with aligned *pks* reads
-- filtered and host-depleted reads under `results_fastq/host_depleted_reads/`
+- `results_fastq/pks_summary/qc/pks.qc.summary.tsv` for per-sample read attrition and *pks* QC
 - per-sample alignment, count, and coverage files under `results_fastq/pks_per_sample/`
+
+Filtered and host-depleted FASTQs are not copied to the results directory by default. Add `--save_intermediates true` to publish them under `results_fastq/unmapped_reads/` and `results_fastq/host_depleted_reads/`.
 
 ## Resume
 

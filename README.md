@@ -55,6 +55,8 @@ Place them together in a permanent directory that is readable from every compute
 
 The *pks*-positive *E. coli* Bowtie2 index, *clbA–clbS* annotation, and DNA HMM database are already included in this repository.
 
+The workflow currently performs two sequential host-depletion passes: first against `--hg38_db`, then against `--t2t_phix_db`. It does not run a separate human-pangenome alignment stage. The supplied `.mmi` files are external binary indexes, so retain the source FASTA/build manifest with any locally rebuilt or substituted indexes; the parameter names alone do not verify index contents.
+
 ### 4. Optional: install the taxonomy database
 
 This step is needed only when running the [taxonomy mode](docs/running/taxonomy.md). The pipeline was validated with the 8 August 2023 KrakenUniq Microbial database.
@@ -105,6 +107,7 @@ Bowtie2 alignment is the default, so `--profiling_method bowtie2` does not need 
 | `--hg38_db` | `.mmi` path | Yes | GRCh38 Minimap2 index |
 | `--t2t_phix_db` | `.mmi` path | Yes | T2T/phiX Minimap2 index |
 | `--outdir` | `results` | No | Output directory |
+| `--save_intermediates` | `false` | No | Publish extracted, filtered, and host-depleted FASTQs under the output directory |
 | `--hmm_evalue` | `1e-10` | No | Positive HMM E-value threshold |
 | `--hmm_chunking` | `false` | No | Parallelize HMM scanning across chunks |
 | `--pks_taxa` | off | No | Enable taxonomy by including this flag |
@@ -112,6 +115,8 @@ Bowtie2 alignment is the default, so `--profiling_method bowtie2` does not need 
 | `--bracken_read_length` | positive integer | With taxonomy | Read length supported by the Bracken database |
 
 The input sample sheet must contain `patient,bam` for BAM mode or `patient,fastq1,fastq2` for paired FASTQ mode. Sample identifiers must be unique and may contain letters, numbers, periods, underscores, and hyphens; the first character must be alphanumeric. File paths should be absolute when running on a cluster.
+
+Intermediate FASTQs remain in the Nextflow work directory for resumability but are not copied into the results directory by default. Add `--save_intermediates true` only when those files are needed for inspection or reuse.
 
 ### Choose a run mode
 
@@ -157,14 +162,17 @@ clbS    2
 
 ```text
 results/
-├── unmapped_reads/
-├── host_depleted_reads/
 ├── pks_per_sample/
 └── pks_summary/
     ├── gene_counts/
     ├── coverage_plots/
-    └── taxonomy/          # only when taxonomy is selected
+    ├── qc/
+    └── taxonomy/          # only when taxonomy is selected
 ```
+
+`pks_summary/qc/pks.qc.summary.tsv` contains one row per sample and records attrition through FASTP and both host-depletion passes, followed by IHE3034-aligned reads, *clb*-overlapping reads, and the number of detected *clb* genes. Alignment-specific fields are reported as `NA` in HMM-only runs. When `--save_intermediates true` is used, `unmapped_reads/` and `host_depleted_reads/` are also published.
+
+For BAM input, `input_reads` is the number of primary alignment records in the supplied BAM and `unmapped_reads` is the subset extracted for profiling. For paired FASTQ input, `input_reads` is the combined number of R1 and R2 records and `unmapped_reads` has the same value because the supplied FASTQs enter FASTP directly. All subsequent columns count individual reads, not read pairs.
 
 See the relevant [run-mode guide](#choose-a-run-mode) for the files produced by that mode.
 
