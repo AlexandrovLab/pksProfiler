@@ -33,7 +33,7 @@ The remaining bioinformatics tools are installed from the environment files in [
 ### 2. Clone pksProfiler
 
 ```bash
-git clone https://github.com/ammalabbasi/pksProfiler.git
+git clone https://github.com/AlexandrovLab/pksProfiler.git
 cd pksProfiler
 
 nextflow -version
