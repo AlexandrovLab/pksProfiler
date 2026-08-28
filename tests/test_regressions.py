@@ -226,6 +226,27 @@ class QCSummaryTests(unittest.TestCase):
         self.assertEqual(row["reads_clb_genes_hmm"], "17")
         self.assertEqual(row["num_clb_genes_hmm"], "8")
 
+    def test_pangenome_qc_uses_final_depleted_read_count(self):
+        values = {
+            "filter_input_reads": 400,
+            "reads_after_fastp": 360,
+            "reads_after_hg38": 250,
+            "reads_after_t2t_phix": 230,
+            "reads_after_pangenome": 200,
+            "reads_clb_genes_hmm": 201,
+            "num_clb_genes_hmm": 8,
+        }
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "exceeds reads_after_pangenome",
+        ):
+            self.qc_module.output_row("pangenome_sample", values)
+
+        values["reads_clb_genes_hmm"] = 17
+        row = self.qc_module.output_row("pangenome_sample", values)
+        self.assertEqual(row["reads_after_pangenome"], 200)
+
     def test_qc_summary_rejects_increasing_downstream_read_count(self):
         values = {
             "filter_input_reads": 100,

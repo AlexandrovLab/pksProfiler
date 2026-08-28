@@ -57,8 +57,9 @@ process filterReads {
 	    fi
 	done
 
-	# BAM input contributes one stream. For paired FASTQ input, append /1 and
-	# /2 when needed so downstream HMM queries retain distinct mate IDs.
+	# BAM and single-FASTQ inputs contribute one stream. For paired FASTQ
+	# input, append /1 and /2 when needed so downstream HMM queries retain
+	# distinct mate IDs.
 	${merge_reads}
 	FILTER_INPUT_READS=\$(gzip -dc "\$MERGED" | awk 'END { print int(NR / 4) }')
 

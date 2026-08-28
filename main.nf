@@ -34,6 +34,7 @@ params.pks_qc_dir = "${params.pks_summary_dir}/qc"
 // Databases and refs [CHANGE THIS]
 params.hg38_db      = null
 params.t2t_phix_db  = null
+params.pangenome_db = null
 params.adapters     = "${projectDir}/ref/known_adapters.fna"
 params.kraken_db= null
 
@@ -111,7 +112,7 @@ workflow {
 
     def required_sample_columns = params.input_data_type == "bam" ?
         ["patient", "bam"] :
-        ["patient", "fastq1", "fastq2"]
+        ["patient", "fastq1"]
 
     def sample_sheet = channel
         .fromPath(params.sample, checkIfExists: true)
@@ -188,14 +189,19 @@ workflow {
     } else if (params.input_data_type == "fastq") {
 
         def sample_sheet_fastq = sample_sheet
-            .map { row -> row.subMap('patient', 'fastq1', 'fastq2') }
             .map { row ->
+                def fastq_files = [
+                    file(row.fastq1, checkIfExists: true)
+                ]
+
+                def fastq2 = row.fastq2?.toString()?.trim()
+                if (fastq2) {
+                    fastq_files << file(fastq2, checkIfExists: true)
+                }
+
                 tuple(
                     row.patient,
-                    [
-                        file(row.fastq1, checkIfExists: true),
-                        file(row.fastq2, checkIfExists: true)
-                    ]
+                    fastq_files
                 )
             }
 

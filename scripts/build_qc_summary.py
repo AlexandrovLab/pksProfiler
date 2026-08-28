@@ -14,6 +14,7 @@ OUTPUT_COLUMNS = [
     "reads_after_fastp",
     "reads_after_hg38",
     "reads_after_t2t_phix",
+    "reads_after_pangenome",
     "num_clb_genes_align",
     "reads_clb_genes_align",
     "num_clb_genes_hmm",
@@ -74,6 +75,7 @@ def output_row(sample, values):
         "reads_after_fastp": values.get("reads_after_fastp"),
         "reads_after_hg38": values.get("reads_after_hg38"),
         "reads_after_t2t_phix": values.get("reads_after_t2t_phix"),
+        "reads_after_pangenome": values.get("reads_after_pangenome"),
         "num_clb_genes_align": values.get("num_clb_genes_align"),
         "reads_clb_genes_align": values.get("reads_clb_genes_align"),
         "num_clb_genes_hmm": values.get("num_clb_genes_hmm"),
@@ -99,6 +101,7 @@ def output_row(sample, values):
         "reads_after_fastp",
         "reads_after_hg38",
         "reads_after_t2t_phix",
+        "reads_after_pangenome",
         "reads_clb_genes_align",
     ]
     observed = [
@@ -116,11 +119,16 @@ def output_row(sample, values):
             )
 
     hmm_reads = mapped["reads_clb_genes_hmm"]
-    depleted_reads = mapped["reads_after_t2t_phix"]
+    if mapped["reads_after_pangenome"] is not None:
+        depleted_metric = "reads_after_pangenome"
+    else:
+        depleted_metric = "reads_after_t2t_phix"
+
+    depleted_reads = mapped[depleted_metric]
     if hmm_reads is not None and hmm_reads > depleted_reads:
         raise ValueError(
             f"Impossible QC counts for {sample}: reads_clb_genes_hmm "
-            f"({hmm_reads}) exceeds reads_after_t2t_phix ({depleted_reads})"
+            f"({hmm_reads}) exceeds {depleted_metric} ({depleted_reads})"
         )
 
     for field in ("num_clb_genes_align", "num_clb_genes_hmm"):
