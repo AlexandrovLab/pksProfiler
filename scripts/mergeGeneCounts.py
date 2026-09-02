@@ -1,25 +1,32 @@
 #!/usr/bin/env python3
+import math
+import os
+import sys
+
 import pandas as pd
-import sys, os
 from pandas.errors import EmptyDataError
 
 counts_files = sys.argv[1:-1]
 output_file  = sys.argv[-1]
 
+EXPECTED_GENES = [f"clb{letter}" for letter in "ABCDEFGHIJKLMNOPQRS"]
+
+
+def fail(message):
+    raise ValueError(message)
+
+
 def read_counts(path):
     """
-    Return (annot_df, counts_series, sample_name) or None if unusable.
-    annot_df has ['Geneid','Chr','Start','End','Strand','Length'].
+    Return (counts_series, sample_name), failing on incomplete or malformed input.
     counts_series is a Series indexed by Geneid with the sample's counts.
     """
     # Skip zero-byte
     try:
         if os.path.getsize(path) == 0:
-            sys.stderr.write(f"[WARN] Empty file (0 bytes): {path}\n")
-            return None
+            fail(f"Empty counts file: {path}")
     except OSError:
-        sys.stderr.write(f"[WARN] Cannot stat file, skipping: {path}\n")
-        return None
+        fail(f"Cannot stat counts file: {path}")
 
     try:
         df = pd.read_csv(
@@ -27,29 +34,20 @@ def read_counts(path):
             header=0, compression="infer"
         )
     except EmptyDataError:
-        sys.stderr.write(f"[WARN] No data (only comments?): {path}\n")
-        return None
+        fail(f"Counts file contains no data: {path}")
 
     if df.empty:
-        sys.stderr.write(f"[WARN] Empty dataframe after parsing: {path}\n")
-        return None
+        fail(f"Counts file contains no rows: {path}")
 
     # Expect at least the 6 annotation cols + 1 counts col
     if "Geneid" not in df.columns or df.shape[1] < 7:
-        # Some runs may lack headers; try force-naming if exactly 7+ columns
-        if "Geneid" not in df.columns and df.shape[1] >= 7:
-            df.columns = ["Geneid","Chr","Start","End","Strand","Length"] + \
-                         [f"col{i}" for i in range(7, df.shape[1]+1)]
-        else:
-            sys.stderr.write(f"[WARN] Unexpected columns in {path}: {list(df.columns)}\n")
-            return None
+        fail(f"Unexpected columns in {path}: {list(df.columns)}")
 
     # Determine counts column: last non-annotation column
     anno_cols = ["Geneid","Chr","Start","End","Strand","Length"]
     non_anno = [c for c in df.columns if c not in anno_cols]
     if not non_anno:
-        sys.stderr.write(f"[WARN] No counts column found in {path}\n")
-        return None
+        fail(f"No counts column found in {path}")
     counts_col = non_anno[-1]
 
     # Clean sample name
@@ -60,28 +58,33 @@ def read_counts(path):
                    .replace(".txt.gz","")
                    .replace(".txt",""))
 
-    # Prepare outputs
-    annot = df[anno_cols].copy()
-    # if duplicates in Geneid exist, group/sum (featureCounts should not, but just in case)
-    df = df[[ "Geneid", counts_col ]].copy()
-    df = df.groupby("Geneid", as_index=False)[counts_col].sum()
-    counts = df.set_index("Geneid")[counts_col]
+    if df["Geneid"].duplicated().any():
+        duplicates = sorted(df.loc[df["Geneid"].duplicated(), "Geneid"].unique())
+        fail(f"Duplicate Geneid values in {path}: {', '.join(duplicates)}")
+
+    observed = set(df["Geneid"])
+    expected = set(EXPECTED_GENES)
+    if observed != expected or len(df) != len(EXPECTED_GENES):
+        missing = sorted(expected - observed)
+        extra = sorted(observed - expected)
+        fail(f"Expected exactly clbA-clbS in {path}; missing={missing}, extra={extra}")
+
+    numeric_counts = pd.to_numeric(df[counts_col], errors="raise")
+    if numeric_counts.isna().any() or not numeric_counts.map(math.isfinite).all() or (numeric_counts < 0).any():
+        fail(f"Counts must be finite non-negative numbers in {path}")
+
+    counts = pd.Series(numeric_counts.values, index=df["Geneid"], name=sample_name)
+    counts = counts.reindex(EXPECTED_GENES)
     counts.name = sample_name
 
-    return annot, counts, sample_name
+    return counts, sample_name
 
 # Read all usable files
-ann_ref = None
 all_counts = []
 used = []
 
 for p in counts_files:
-    res = read_counts(p)
-    if res is None:
-        continue
-    annot, counts, name = res
-    if ann_ref is None:
-        ann_ref = annot.drop_duplicates(subset=["Geneid"]).set_index("Geneid")
+    counts, name = read_counts(p)
     all_counts.append(counts)
     used.append(name)
 
@@ -89,8 +92,8 @@ if not all_counts:
     sys.stderr.write("[ERROR] No valid counts files found. Aborting.\n")
     sys.exit(1)
 
-# Outer-merge all counts on Geneid
-merged_counts = pd.concat(all_counts, axis=1, join="outer")
+# Every input has already been proven to contain the same exact gene set.
+merged_counts = pd.concat(all_counts, axis=1, join="inner").reindex(EXPECTED_GENES)
 
 # Attach annotation from the first valid file
 merged_counts.index.name = "Gene"
@@ -99,4 +102,3 @@ merged.to_csv(output_file, sep="\t", index=False)
 
 
 sys.stderr.write(f"[INFO] Merged {len(used)} samples -> {output_file}\n")
-

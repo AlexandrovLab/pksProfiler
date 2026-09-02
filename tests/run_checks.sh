@@ -7,6 +7,8 @@ repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 echo "Running lightweight regression tests"
 PYTHONDONTWRITEBYTECODE=1 python3 \
     "$repo_dir/tests/test_regressions.py"
+PYTHONDONTWRITEBYTECODE=1 python3 \
+    "$repo_dir/tests/test_validators.py"
 
 if ! command -v nextflow >/dev/null 2>&1; then
     echo "ERROR: Nextflow is required for workflow linting." >&2

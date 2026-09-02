@@ -3,7 +3,8 @@ nextflow.enable.dsl = 2
 // ---------------- Parameters ----------------
 params.sample = null
 
-params.input_data_type = "bam"         // bam | fastq
+params.input_data_type = "auto"        // auto | bam | cram | fastq
+params.cram_reference  = null          // optional; used and validated when supplied
 params.pks_taxa = false   // set true to run krakenuniq/bracken on pks-island reads
 params.save_intermediates = false // publish extracted/filtered/host-depleted FASTQs
 
@@ -106,13 +107,12 @@ workflow {
     }
 
     // ---------- STEP 1: Inputs + filtering ----------
-    if (!(params.input_data_type in ["bam", "fastq"])) {
-        exit 1, "Unknown --input_data_type: ${params.input_data_type}. Supported: bam, fastq"
+    if (!(params.input_data_type in ["auto", "bam", "cram", "fastq"])) {
+        exit 1, "Unknown --input_data_type: ${params.input_data_type}. Supported: auto, bam, cram, fastq"
     }
 
-    def required_sample_columns = params.input_data_type == "bam" ?
-        ["patient", "bam"] :
-        ["patient", "fastq1"]
+    def alignment_input = params.input_data_type in ["auto", "bam", "cram"]
+    def required_sample_columns = alignment_input ? ["patient"] : ["patient", "fastq1"]
 
     def sample_sheet = channel
         .fromPath(params.sample, checkIfExists: true)
@@ -124,6 +124,9 @@ workflow {
             }
 
             def observed_columns = rows[0].keySet()
+            if (alignment_input && !("alignment" in observed_columns) && !("bam" in observed_columns)) {
+                error "Alignment sample sheets require an alignment column (or legacy bam column)"
+            }
             def missing_columns = required_sample_columns.findAll { column ->
                 !(column in observed_columns)
             }
@@ -158,6 +161,13 @@ workflow {
                             error "Sample sheet row ${row_number} has an empty ${column} value"
                         }
                     }
+
+                if (alignment_input) {
+                    def alignment = row.alignment?.toString()?.trim() ?: row.bam?.toString()?.trim()
+                    if (!alignment) {
+                        error "Sample sheet row ${row_number} has an empty alignment value"
+                    }
+                }
             }
 
             if (duplicate_ids) {
@@ -169,12 +179,13 @@ workflow {
 
     def QC_FRAGMENTS = channel.empty()
 
-    if (params.input_data_type == "bam") {
+    if (alignment_input) {
 
-		// Expect columns: patient,bam
-		sample_sheet = sample_sheet.map { row ->
-		    tuple(row.patient, file(row.bam, checkIfExists: true))
-		}
+			// Prefer patient,alignment; retain patient,bam for compatibility.
+			sample_sheet = sample_sheet.map { row ->
+			    def alignment = row.alignment?.toString()?.trim() ?: row.bam?.toString()?.trim()
+			    tuple(row.patient, file(alignment, checkIfExists: true))
+			}
 
         EXTRACT_OUT = extractReads(sample_sheet)
 
