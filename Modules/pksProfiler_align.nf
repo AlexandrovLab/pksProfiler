@@ -30,24 +30,15 @@ process pksProfiler_align {
     def qc           = "${sampleID}.alignment.qc.tsv"
 
     """
-    set -euo pipefail
+	    set -euo pipefail
 
-	# Validate the manuscript-facing clb annotation before processing samples.
-    CLB_GENE_COUNT=\$(awk -F '\t' '
-        \$0 !~ /^#/ &&
-        \$3 == "gene" &&
-        \$9 ~ /(^|;)Name=clb[A-S](;|\$)/ {
-            count++
-        }
-        END {
-            print count + 0
-        }
-    ' "${params.pks_genome_annotation}")
+	# Build and validate the exact manuscript-facing clbA-clbS annotation.
+    awk -F '\t' '
+        BEGIN { OFS="\t" }
+        \$0 !~ /^#/ && \$3 == "gene" && \$9 ~ /(^|;)Name=clb[A-S](;|\$)/ { print }
+    ' "${params.pks_genome_annotation}" > clb_genes.gff
 
-    if [[ "\$CLB_GENE_COUNT" -ne 19 ]]; then
-        echo "ERROR: Expected exactly 19 clb genes in ${params.pks_genome_annotation}; found \$CLB_GENE_COUNT." >&2
-        exit 1
-    fi
+    python "${params.scripts}/validate_featurecounts.py" --annotation clb_genes.gff
 
 	if ! gzip -t "${reads}" >/dev/null 2>&1; then
         echo "ERROR: Corrupt gzip input for ${sampleID}: ${reads}" >&2
@@ -67,13 +58,18 @@ process pksProfiler_align {
     # processed sample with no aligned reads must remain in summaries
     # as an explicit zero rather than disappearing as an empty file.
     featureCounts \
-		-T "${task.cpus}" \
-        -a "${params.pks_genome_annotation}" \
+        -T "${task.cpus}" \
+        -a clb_genes.gff \
         -o "${counts}" \
         -t gene \
         -F GFF \
         -g Name \
+        --largestOverlap \
         "${bam}"
+
+    python "${params.scripts}/validate_featurecounts.py" \
+        --counts "${counts}" \
+        --summary "${counts}.summary"
 
     awk -F '\t' '
         BEGIN { OFS="\t" }
@@ -118,6 +114,8 @@ process pksProfiler_align {
             -o "${coverage}" \
             --normalizeUsing RPKM \
             --outFileFormat bedgraph
+
+        python "${params.scripts}/validate_bedgraph.py" "${coverage}"
 
         bedtools genomecov \
             -ibam "${bam}" \

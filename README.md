@@ -2,7 +2,7 @@
 
 [![License: BSD 2-Clause](https://img.shields.io/badge/License-BSD_2--Clause-blue.svg)](LICENSE)
 
-**pksProfiler** is a Nextflow pipeline for detecting, quantifying, and visualizing the *pks* (polyketide synthase) pathogenicity island in BAM, single-end FASTQ, or paired-end FASTQ data. It reports counts for each of the 19 *clbA–clbS* genes and can optionally identify species supported by *pks*-aligned reads and summarize their *clb* gene support.
+**pksProfiler** is a Nextflow pipeline for detecting, quantifying, and visualizing the *pks* (polyketide synthase) pathogenicity island in BAM, CRAM, single-end FASTQ, or paired-end FASTQ data. It reports counts for each of the 19 *clbA–clbS* genes and can optionally identify species supported by *pks*-aligned reads and summarize their *clb* gene support.
 
 ## How it works
 
@@ -10,7 +10,7 @@
 
 The workflow has five modules:
 
-1. **Read preparation** extracts primary unmapped reads from BAM input or accepts paired FASTQ input, then filters the reads with fastp.
+1. **Read preparation** extracts primary unmapped reads from BAM or CRAM input, or accepts single/paired FASTQ input, then filters the reads with fastp.
 2. **Host depletion** removes reads matching the supplied GRCh38 and T2T/phiX Minimap2 indexes.
 3. **pks profiling** quantifies the island with Bowtie2 alignment by default. DNA HMM profiling can be selected instead or run alongside alignment.
 4. **Summarization** produces 19-gene count matrices and a circular island-coverage plot for samples with aligned *pks* reads.
@@ -76,10 +76,10 @@ This database is very large: `database.kdb` alone is approximately 535 GB. Downl
 
 ### Quick start
 
-Create a BAM sample sheet named `samples.csv`:
+Create an alignment sample sheet named `samples.csv`:
 
 ```csv
-patient,bam
+patient,alignment
 sample1,/absolute/path/to/sample1.bam
 ```
 
@@ -89,7 +89,7 @@ Run the default alignment workflow:
 nextflow run main.nf \
     -profile conda \
     --sample samples.csv \
-    --input_data_type bam \
+    --input_data_type auto \
     --hg38_db /references/pksProfiler/human-GRC-db.mmi \
     --t2t_phix_db /references/pksProfiler/human-GCA-phix-db.mmi \
     --outdir results
@@ -101,8 +101,9 @@ Bowtie2 alignment is the default, so `--profiling_method bowtie2` does not need 
 
 | Parameter | Values/default | Required | Description |
 |---|---|---:|---|
-| `--sample` | CSV path | Yes | BAM or FASTQ sample sheet |
-| `--input_data_type` | `bam` (default), `fastq` | No | Selects the sample-sheet format |
+| `--sample` | CSV path | Yes | Alignment or FASTQ sample sheet |
+| `--input_data_type` | `auto` (default), `bam`, `cram`, `fastq` | No | Selects or checks the input format |
+| `--cram_reference` | FASTA path | No | Matching CRAM reference; optional when embedded or available through HTSlib reference lookup |
 | `--profiling_method` | `bowtie2` (default), `hmm`, `both` | No | Profiling method(s) to run |
 | `--hg38_db` | `.mmi` path | Yes | GRCh38 Minimap2 index |
 | `--t2t_phix_db` | `.mmi` path | Yes | T2T/phiX Minimap2 index |
@@ -115,9 +116,11 @@ Bowtie2 alignment is the default, so `--profiling_method bowtie2` does not need 
 | `--kraken_db` | directory | With taxonomy | KrakenUniq/Bracken database directory |
 | `--bracken_read_length` | positive integer | With taxonomy | Read length supported by the Bracken database |
 
-The input sample sheet must contain `patient,bam` for BAM mode. FASTQ mode requires `patient,fastq1`; add `fastq2` for paired reads. The `fastq2` column may be absent or empty for a single-FASTQ sample. Sample identifiers must be unique and may contain letters, numbers, periods, underscores, and hyphens; the first character must be alphanumeric. File paths should be absolute when running on a cluster.
+Alignment input should use `patient,alignment`; the legacy `patient,bam` form remains supported for existing sample sheets. The `alignment` column accepts BAM or CRAM. Use `--input_data_type auto` to detect either format from file content, or `bam`/`cram` to require one format. When a CRAM cannot obtain its reference from embedded data, `REF_CACHE`, `REF_PATH`, or its local header URI, supply the matching FASTA with `--cram_reference`. FASTQ mode requires `patient,fastq1`; add `fastq2` for paired reads. The `fastq2` column may be absent or empty for a single-FASTQ sample. Sample identifiers must be unique and may contain letters, numbers, periods, underscores, and hyphens; the first character must be alphanumeric. File paths should be absolute when running on a cluster.
 
 Intermediate FASTQs remain in the Nextflow work directory for resumability but are not copied into the results directory by default. Add `--save_intermediates true` only when those files are needed for inspection or reuse.
+
+Read filtering avoids a merged intermediate FASTQ: single streams are passed directly to fastp, while paired FASTQs are combined through standard input after mate identifiers are preserved. QC read counts come from fastp's JSON report rather than additional full FASTQ decompression passes. The default filter allocation remains four CPUs with compression level 4 to balance per-sample latency, cohort concurrency, and temporary-file size.
 
 To include the optional pangenome depletion stage, add these arguments to any run command:
 
@@ -179,7 +182,7 @@ results/
     └── taxonomy/          # only when taxonomy is selected
 ```
 
-`pks_summary/qc/pks.qc.summary.tsv` contains one row per sample and records attrition through fastp and the host-depletion passes. When `--pangenome_db` is supplied, it also reports `reads_after_pangenome`; otherwise that column is `NA`. Alignment runs report `num_clb_genes_align` and `reads_clb_genes_align`. HMM runs report `num_clb_genes_hmm` and `reads_clb_genes_hmm` after applying `--hmm_evalue` and best-hit assignment. Method-specific fields are reported as `NA` when that method is not selected. When `--save_intermediates true` is used, `unmapped_reads/` and `host_depleted_reads/` are also published.
+`pks_summary/qc/pks.qc.summary.tsv` contains one row per sample and records attrition through extraction, fastp, and the host-depletion passes. For BAM/CRAM input, `input_reads` and `unmapped_reads` both report the extracted primary-unmapped read count; the complete alignment is intentionally not scanned a second time solely to count all records. When `--pangenome_db` is supplied, the summary also reports `reads_after_pangenome`; otherwise that column is `NA`. Alignment runs report `num_clb_genes_align` and `reads_clb_genes_align`. HMM runs report `num_clb_genes_hmm` and `reads_clb_genes_hmm` after applying `--hmm_evalue` and best-hit assignment. Method-specific fields are reported as `NA` when that method is not selected. When `--save_intermediates true` is used, `unmapped_reads/` and `host_depleted_reads/` are also published.
 
 For BAM input, `input_reads` is the number of primary alignment records in the supplied BAM and `unmapped_reads` is the subset extracted for profiling. For paired FASTQ input, `input_reads` is the combined number of R1 and R2 records and `unmapped_reads` has the same value because the supplied FASTQs enter FASTP directly. All subsequent columns count individual reads, not read pairs.
 
