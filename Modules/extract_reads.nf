@@ -52,7 +52,7 @@ process extractReads {
 		    python "${params.scripts}/validate_cram_reference.py" \
 		        --alignment "${alignment}" \
 		        --reference "${params.cram_reference}"
-		    REFERENCE_ARGS=(-T "${params.cram_reference}")
+		    REFERENCE_ARGS=(--reference "${params.cram_reference}")
 		fi
 
 		samtools quickcheck -v "${alignment}"
@@ -60,24 +60,37 @@ process extractReads {
     # Retain every primary unmapped alignment record, regardless of
     # whether its mate is mapped, unmapped, or absent. The alignment is
     # decoded only once; the extracted-read count comes from the FASTQ.
-    if ! samtools view \
+    # samtools fastq applies -f/-F itself, so the intermediate uncompressed-BAM
+    # pipe through samtools view is unnecessary; dropping it removes ~60 GB of
+    # pipe traffic per sample. The read count is tee'd off the live stream
+    # instead of decompressing the finished file a second time.
+    mkfifo extract.count.fifo
+    awk 'END { print int(NR / 4) }' < extract.count.fifo > extract.count &
+    EXTRACT_COUNTER=\$!
+
+    # -0 /dev/null reproduces the old "samtools fastq -o FILE" behaviour exactly:
+    # READ_OTHER records (neither READ1 nor READ2) were never written to the
+    # output FASTQ, they leaked to the task's stdout. Preserved deliberately so
+    # this stays a pure performance change -- see the note in RELEASE_NOTES.
+    if ! samtools fastq \
         -@ "${task.cpus}" \
+	        -N \
 	        -f 4 \
 	        -F 2304 \
-	        -u \
+	        -0 /dev/null \
 	        "\${REFERENCE_ARGS[@]}" \
 	        "${alignment}" |
-    samtools fastq \
-        -@ "${task.cpus}" \
-        -N \
-	        -o "\$READS" \
-	        -; then
+    tee extract.count.fifo |
+    bgzip -@ "${task.cpus}" -c > "\$READS"; then
 	        echo "ERROR: Could not decode ${alignment}. For CRAM, provide the matching --cram_reference if it is not embedded or cached." >&2
 	        exit 1
 	    fi
 
-		gzip -t "\$READS"
-		UNMAPPED_READS=\$(gzip -dc "\$READS" | awk 'END { print int(NR / 4) }')
+		wait "\$EXTRACT_COUNTER"
+		rm -f extract.count.fifo
+
+		bgzip -t "\$READS"
+		UNMAPPED_READS=\$(cat extract.count)
 
 	printf "Sample\tMetric\tValue\n" > "\$QC"
 	printf "%s\textracted_unmapped_reads\t%s\n" "${sampleID}" "\$UNMAPPED_READS" >> "\$QC"
