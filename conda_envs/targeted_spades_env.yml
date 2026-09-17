@@ -1,0 +1,8 @@
+name: pksprofiler-targeted-spades
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.11
+  - spades=4.2.0

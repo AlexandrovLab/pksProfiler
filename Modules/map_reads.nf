@@ -4,7 +4,7 @@ process mapReads {
     scratch true
     label 'map_reads'
     publishDir(
-        "${params.mapped_reads_dir}",
+        { "${params.sample_dir}/${sampleID}/intermediates" },
         mode: 'copy',
         enabled: params.save_intermediates
     )

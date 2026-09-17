@@ -4,7 +4,7 @@ process filterReads {
     scratch true
     label 'filter_reads'
 	publishDir(
-	    "${params.unmapped_bam_dir}",
+	    { "${params.sample_dir}/${sampleID}/intermediates" },
 	    mode: 'copy',
 	    enabled: params.save_intermediates
 	)

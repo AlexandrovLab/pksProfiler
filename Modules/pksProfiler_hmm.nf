@@ -3,7 +3,7 @@ nextflow.enable.dsl = 2
 process pksProfiler_hmm {
     label 'pks_hmm'
     scratch true
-    publishDir "${params.pks_dir}", mode: 'copy'
+    publishDir { "${params.sample_dir}/${sampleID}/hmm" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
     conda "${params.pks_hmm_env}"
 
     input:

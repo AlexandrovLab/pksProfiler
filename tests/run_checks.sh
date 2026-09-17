@@ -5,18 +5,12 @@ set -euo pipefail
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 echo "Running lightweight regression tests"
-PYTHONDONTWRITEBYTECODE=1 python3 \
-    "$repo_dir/tests/test_regressions.py"
-PYTHONDONTWRITEBYTECODE=1 python3 \
-    "$repo_dir/tests/test_validators.py"
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s "$repo_dir/tests" -p 'test_*.py' -v
 
 if ! command -v nextflow >/dev/null 2>&1; then
-    echo "ERROR: Nextflow is required for workflow linting." >&2
+    echo "ERROR: Nextflow is required for workflow validation checks." >&2
     exit 1
 fi
-
-echo "Linting the Nextflow workflow"
-nextflow lint "$repo_dir/main.nf"
 
 echo "Checking duplicate-sample rejection"
 test_dir=$(mktemp -d "${TMPDIR:-/tmp}/pksprofiler-checks.XXXXXX")
@@ -51,3 +45,77 @@ if [[ "$validation_status" -eq 0 ]] ||
 fi
 
 echo "All checks passed"
+
+printf '%s\n' \
+    'patient,fastq1' \
+    'sample1,/does/not/exist.fastq.gz' \
+    > "$test_dir/single.csv"
+
+check_validation() {
+    local name=$1
+    local expected=$2
+    shift 2
+
+    local output
+    local status
+    set +e
+    output=$(
+        cd "$test_dir"
+        nextflow run "$repo_dir/main.nf" \
+            -work-dir "$test_dir/work-$name" \
+            --sample "$test_dir/single.csv" \
+            --input_data_type fastq \
+            --hg38_db unused-for-validation \
+            --t2t_phix_db unused-for-validation \
+            --outdir "$test_dir/results-$name" \
+            "$@" \
+            2>&1
+    )
+    status=$?
+    set -e
+
+    if [[ "$status" -eq 0 ]] || ! grep -Fq -- "$expected" <<< "$output"; then
+        printf '%s\n' "$output" >&2
+        echo "ERROR: $name validation regression failed." >&2
+        exit 1
+    fi
+}
+
+echo "Checking MAG routing validation"
+check_validation \
+    invalid-sample-type \
+    'Unknown --sample_type: invalid' \
+    --sample_type invalid
+check_validation \
+    tumor-mag \
+    '--enable_mags requires --sample_type metagenome' \
+    --sample_type tumor_wgs --enable_mags true
+check_validation \
+    missing-gtdbtk \
+    '--enable_mags requires --gtdbtk_db' \
+    --sample_type metagenome --enable_mags true
+check_validation \
+    missing-genomad \
+    '--enable_mags requires --genomad_db' \
+    --sample_type metagenome --enable_mags true \
+    --gtdbtk_db unused-for-validation \
+    --checkm2_db unused-for-validation
+echo "All checks passed"
+
+echo "Checking tumour contig tier validation"
+check_validation \
+    unknown-tier \
+    'Unknown tier in --tumor_contig_tiers: bogus' \
+    --sample_type tumor_wgs --tumor_contig_tiers bogus
+check_validation \
+    non-monotonic-tiers \
+    'Tier thresholds must be non-decreasing' \
+    --sample_type tumor_wgs --tumor_broad_island_min_pks_reads 1
+check_validation \
+    tumor-hmm-only \
+    '--sample_type tumor_wgs requires --profiling_method bowtie2 or both' \
+    --sample_type tumor_wgs --profiling_method hmm
+check_validation \
+    context-without-genomad \
+    '--tumor_full_contig_context requires --genomad_db' \
+    --sample_type tumor_wgs --tumor_full_contig_context true

@@ -1,197 +1,232 @@
 # pksProfiler
 
+[![CI](https://github.com/AlexandrovLab/pksProfiler/actions/workflows/ci.yml/badge.svg)](https://github.com/AlexandrovLab/pksProfiler/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-0.0.2dev-orange.svg)](CHANGELOG.md)
+[![Nextflow](https://img.shields.io/badge/nextflow-%E2%89%A524.10-23aa62.svg)](https://www.nextflow.io/)
 [![License: BSD 2-Clause](https://img.shields.io/badge/License-BSD_2--Clause-blue.svg)](LICENSE)
 
-**pksProfiler** is a Nextflow pipeline for detecting, quantifying, and visualizing the *pks* (polyketide synthase) pathogenicity island in BAM, CRAM, single-end FASTQ, or paired-end FASTQ data. It reports counts for each of the 19 *clbA–clbS* genes and can optionally identify species supported by *pks*-aligned reads and summarize their *clb* gene support.
+**pksProfiler** searches sequencing data for the *pks* island — a cluster of 19 bacterial genes
+(*clbA* through *clbS*) that together produce **colibactin**, a molecule that damages human DNA and
+leaves a recognisable mutation pattern in colorectal tumours.
 
-## How it works
+You give it BAM, CRAM or FASTQ files. It tells you whether the island is there, **how convincing
+the evidence is**, and — depending on your data — which bacterium is carrying it, what strain that
+bacterium is, and whether the island looks able to move between bacteria.
 
-<img src="workflow_logo/v1.png" width="800" alt="pksProfiler workflow">
+<img src="workflow_logo/v2-animated.svg" width="1000" alt="pksProfiler workflow: a shared trunk of read extraction, quality filtering and human-read removal, splitting by sample type into a tumour lane that scores evidence and reassembles the island, and a metagenome lane that assembles and bins the community, with strain typing on assembled output from both">
 
-The workflow has five modules:
+*Left: metagenomes, where the question is which organism carries the island. Right: tumour
+genomes, where the question is how strong the evidence is and whether the island reassembles.
+Both share the trunk at the top.*
 
-1. **Read preparation** extracts primary unmapped reads from BAM or CRAM input, or accepts single/paired FASTQ input, then filters the reads with fastp.
-2. **Host depletion** removes reads matching the supplied GRCh38 and T2T/phiX Minimap2 indexes.
-3. **pks profiling** quantifies the island with Bowtie2 alignment by default. DNA HMM profiling can be selected instead or run alongside alignment.
-4. **Summarization** produces 19-gene count matrices and a circular island-coverage plot for samples with aligned *pks* reads.
-5. **Optional taxonomy** runs KrakenUniq and Bracken on *pks*-aligned reads and reports species-by-*clb*-gene support.
+## Pipeline summary
 
-Alignment and HMM profiling are complementary and are not expected to produce identical counts. Alignment provides stringent reference-based evidence; HMM profiling can recover more divergent or fragmented matches.
+1. Extract reads, discard low-quality ones, remove everything matching the human genome.
+2. **Quantify the island** — counts for each of the 19 *clb* genes, island coverage, a coverage plot. *Always runs.*
+3. **Score the evidence** — an [evidence tier](#evidence-tiers) per sample from read count, gene count and coverage breadth together. *Always runs for tumour and metagenome data.*
+4. **Reassemble the island** from its own reads, using two independent assemblers, and report whether they agree. *Tumour data.*
+5. **Recover draft genomes** from a mixed sample and identify which one carries the island. *Metagenomes.*
+6. **Describe the neighbourhood** — prophages, mobility markers, and each neighbouring organism's DNA-damage-response genes. Written to `by_sample/<sample>/community/`, separate from the genomes themselves.
+7. **Type the strain** — sequence type, clonal complex and phylogroup against a 45,761-genome panel. *Whenever assembly produced contigs.*
 
-## Installation
+Steps 1–3 and 7 need no flags. The rest you switch on — see [Adding capabilities](#adding-capabilities).
 
-### 1. Install the requirements
+## Evidence tiers
 
-- Linux
-- [Nextflow](https://www.nextflow.io/docs/latest/install.html) 24.10 or newer
-- Java 17 or newer
-- Conda or Mamba
-- Git
+Read-level evidence is reported as a tier, not a yes/no call. All three criteria must be met, and a
+sample gets the highest tier it satisfies.
 
-### 2. Clone pksProfiler
+| Tier | *clb* reads | *clb* genes | Island breadth at ≥1× | Reassembled by default? |
+|---|---:|---:|---:|:--:|
+| `extensive_island` | ≥100 | ≥10 | ≥20% | yes |
+| `broad_island` | ≥30 | ≥8 | ≥10% | yes |
+| `multi_gene` | ≥5 | ≥3 | ≥1% | no |
+| `localized_indeterminate` | ≥1, but fails one of the above | | | no |
+| `negative` | 0 | — | — | no |
+
+*Breadth* is the fraction of the island's 50,767 bp covered by at least one read. Every threshold
+is a parameter, e.g. `--tumor_broad_island_min_pks_reads 50`.
+
+> **These tiers rank how strong the evidence is. They are not a validated positive/negative test.**
+>
+> They were derived from cohorts in which every sample already carried at least one *pks* read, so
+> they measure how well designated positives are retained. They cannot tell you where true positive
+> stops and background mapping begins — that requires designated negatives and matched controls,
+> which those cohorts did not include.
+>
+> A small nonzero breadth is **indeterminate**, not positive. No tier here is a clinical result.
+
+## Quick start
+
+Requires Linux, [Nextflow](https://www.nextflow.io/docs/latest/install.html) 24.10 or newer
+(enforced by the pipeline manifest), **Java 17+ on every node that runs a task**, and Conda or
+Mamba. **There is no container support** — no process declares a container image, so
+`-profile singularity` and friends are deliberately absent rather than present-and-broken.
+Per-tool environments are built from `conda_envs/` on the first run.
+
+Run a fixed release directly, which is the reproducible form and needs no clone:
+
+```bash
+nextflow run AlexandrovLab/pksProfiler -r v0.0.1 --help
+```
+
+Or clone to work on it. `main` is a moving target, so record the commit if you clone:
 
 ```bash
 git clone https://github.com/AlexandrovLab/pksProfiler.git
 cd pksProfiler
-
-nextflow -version
-nextflow lint main.nf
+git rev-parse --short HEAD    # note this alongside your results
 ```
 
-### 3. Download the host-depletion indexes
-
-Download these two files from the [pksProfiler reference-index folder on Google Drive](https://drive.google.com/drive/folders/1HounCjQE8pyve8hGBvhUVkvWHrWbpO35?usp=share_link):
-
-- `human-GRC-db.mmi`
-- `human-GCA-phix-db.mmi`
-
-Place them together in a permanent directory that is readable from every compute node. For example:
-
-```text
-/references/pksProfiler/
-├── human-GRC-db.mmi
-└── human-GCA-phix-db.mmi
-```
-
-The *pks*-positive *E. coli* Bowtie2 index, *clbA–clbS* annotation, and DNA HMM database are already included in this repository.
-
-The workflow performs two host-depletion passes by default: first against `--hg38_db`, then against `--t2t_phix_db`. To enable an optional third pass against human-pangenome Minimap2 indexes, supply `--pangenome_db /path/to/pangenome_mmi`. The supplied `.mmi` files are external binary indexes, so retain the source FASTA/build manifest with any locally rebuilt or substituted indexes; the parameter names alone do not verify index contents.
-
-### 4. Optional: install the taxonomy database
-
-This step is needed only when running the [taxonomy mode](docs/running/taxonomy.md). The pipeline was validated with the 8 August 2023 KrakenUniq Microbial database.
-
-```bash
-mkdir -p /references/krakenuniq_2023
-cd /references/krakenuniq_2023
-
-wget https://genome-idx.s3.amazonaws.com/kraken/uniq/krakendb-2023-08-08-MICROBIAL/database.kdb
-wget https://genome-idx.s3.amazonaws.com/kraken/uniq/krakendb-2023-08-08-MICROBIAL/kuniq_microbialdb_minus_kdb.20230808.tgz
-tar -xzf kuniq_microbialdb_minus_kdb.20230808.tgz
-```
-
-This database is very large: `database.kdb` alone is approximately 535 GB. Download both files into the same directory. Additional databases are available under **KrakenUniq** on the [AWS Kraken 2 indexes page](https://benlangmead.github.io/aws-indexes/k2).
-
-## Running pksProfiler
-
-### Quick start
-
-Create an alignment sample sheet named `samples.csv`:
+A sample sheet needs a unique `patient` column plus your files:
 
 ```csv
-patient,alignment
-sample1,/absolute/path/to/sample1.bam
+patient,bam
+TUMOR_01,/data/TUMOR_01.bam
 ```
 
-Run the default alignment workflow:
+`fastq1`/`fastq2` and `cram`/`cram_reference` columns work the same way; with
+`--input_data_type auto` each row is detected independently, so one sheet may mix them. Templates
+are in [`examples/sample_sheets/`](examples/sample_sheets) — **replace the placeholder paths with
+your own files.**
+
+The minimum run, which quantifies the island and scores the evidence:
 
 ```bash
-nextflow run main.nf \
-    -profile conda \
-    --sample samples.csv \
-    --input_data_type auto \
-    --hg38_db /references/pksProfiler/human-GRC-db.mmi \
-    --t2t_phix_db /references/pksProfiler/human-GCA-phix-db.mmi \
-    --outdir results
+nextflow run main.nf -profile local \
+  --sample       samples.csv \
+  --input_data_type bam \
+  --sample_type  tumor_wgs \
+  --hg38_db      /refs/human-GRC-db.mmi \
+  --t2t_phix_db  /refs/human-GCA-phix-db.mmi \
+  --outdir       results
 ```
 
-Bowtie2 alignment is the default, so `--profiling_method bowtie2` does not need to be written.
+Start with `results/cohort/qc/pks.qc.summary.tsv`, which shows how many reads survived each
+stage — it is the fastest way to see where a sample lost its reads.
 
-### Parameters
+## Adding capabilities
 
-| Parameter | Values/default | Required | Description |
-|---|---|---:|---|
-| `--sample` | CSV path | Yes | Alignment or FASTQ sample sheet |
-| `--input_data_type` | `auto` (default), `bam`, `cram`, `fastq` | No | Selects or checks the input format |
-| `--cram_reference` | FASTA path | No | Matching CRAM reference; optional when embedded or available through HTSlib reference lookup |
-| `--profiling_method` | `bowtie2` (default), `hmm`, `both` | No | Profiling method(s) to run |
-| `--hg38_db` | `.mmi` path | Yes | GRCh38 Minimap2 index |
-| `--t2t_phix_db` | `.mmi` path | Yes | T2T/phiX Minimap2 index |
-| `--pangenome_db` | not set | No | Optional combined `.mmi` index or directory of `.mmi` indexes; supplying it enables pangenome depletion |
-| `--outdir` | `results` | No | Output directory |
-| `--save_intermediates` | `false` | No | Publish extracted, filtered, and host-depleted FASTQs under the output directory |
-| `--hmm_evalue` | `1e-10` | No | Positive HMM E-value threshold |
-| `--hmm_chunking` | `false` | No | Parallelize HMM scanning across chunks |
-| `--pks_taxa` | off | No | Enable taxonomy by including this flag |
-| `--kraken_db` | directory | With taxonomy | KrakenUniq/Bracken database directory |
-| `--bracken_read_length` | positive integer | With taxonomy | Read length supported by the Bracken database |
+Each row adds flags to the command above. Nothing is replaced.
 
-Alignment input should use `patient,alignment`; the legacy `patient,bam` form remains supported for existing sample sheets. The `alignment` column accepts BAM or CRAM. Use `--input_data_type auto` to detect either format from file content, or `bam`/`cram` to require one format. When a CRAM cannot obtain its reference from embedded data, `REF_CACHE`, `REF_PATH`, or its local header URI, supply the matching FASTA with `--cram_reference`. FASTQ mode requires `patient,fastq1`; add `fastq2` for paired reads. The `fastq2` column may be absent or empty for a single-FASTQ sample. Sample identifiers must be unique and may contain letters, numbers, periods, underscores, and hyphens; the first character must be alphanumeric. File paths should be absolute when running on a cluster.
-
-Intermediate FASTQs remain in the Nextflow work directory for resumability but are not copied into the results directory by default. Add `--save_intermediates true` only when those files are needed for inspection or reuse.
-
-Read filtering avoids a merged intermediate FASTQ: single streams are passed directly to fastp, while paired FASTQs are combined through standard input after mate identifiers are preserved. QC read counts come from fastp's JSON report rather than additional full FASTQ decompression passes. The default filter allocation remains four CPUs with compression level 4 to balance per-sample latency, cohort concurrency, and temporary-file size.
-
-To include the optional pangenome depletion stage, add these arguments to any run command:
-
-```bash
---pangenome_db /references/pksProfiler/pangenome_mmi
-```
-
-`--pangenome_db` may point either to one combined Minimap2 `.mmi` index or to a directory containing separate `.mmi` indexes. When a directory is supplied, the pipeline sorts the index paths and depletes against each one sequentially. A combined index is generally faster because Minimap2 is launched only once.
-
-### Choose a run mode
-
-Open only the guide that matches your data and analysis:
-
-| I want to... | Guide |
-|---|---|
-| Run alignment profiling from BAM files | [BAM mode](docs/running/bam.md) |
-| Run alignment profiling from single or paired FASTQ files | [FASTQ mode](docs/running/fastq.md) |
-| Run HMM profiling alone or together with alignment | [HMM and combined modes](docs/running/hmm.md) |
-| Identify taxa associated with *pks*-aligned reads | [Taxonomy mode](docs/running/taxonomy.md) |
-| Run on TSCC, Slurm, Biowulf, PBS Pro, LSF, or SGE | [HPC guide](docs/hpc.md) |
-
-Editable sample sheets are available in [`examples/sample_sheets/`](examples/sample_sheets).
-
-## Example results
-
-The repository includes small positive and negative output examples:
-
-| Sample | Alignment counts | HMM counts |
+| To also get | Add | Details |
 |---|---|---|
-| Synthetic positive | [view table](examples/results/synthetic_positive/pks.gene.counts.align.txt) | [view table](examples/results/synthetic_positive/pks.gene.counts.hmm.txt) |
-| Synthetic negative | [view table](examples/results/synthetic_negative/pks.gene.counts.align.txt) | [view table](examples/results/synthetic_negative/pks.gene.counts.hmm.txt) |
+| island reassembly, two assemblers | `--sample_type tumor_wgs` (already above) | [assembly](docs/running/assembly.md) |
+| prophage and mobility context | `--tumor_full_contig_context true --genomad_db <dir>` | [assembly](docs/running/assembly.md) |
+| which organism carries it | `--sample_type metagenome --enable_mags true` plus `--gtdbtk_db --checkm2_db --genomad_db` | [MAGs](docs/running/mags.md) |
+| community and neighbour context | automatic with `--enable_mags` | [community context](docs/running/community_context.md) |
+| strain type and phylogroup | automatic; disable with `--enable_strain_typing false` | [strain typing](docs/running/strain_typing.md) |
+| species abundances | `--pks_taxa true` or `--pks_community_taxa true`, plus `--kraken_db --bracken_read_length` | [taxonomy](docs/running/taxonomy.md) |
+| profile-model search instead of alignment | `--profiling_method hmm` or `both` | [HMM modes](docs/running/hmm.md) |
+| faster profiling on metagenomes | `--prefilter_mode balanced --kraken_db <dir>` | [prefilter](docs/prefilter.md) |
 
-Each table contains one row for every gene from `clbA` through `clbS`. A valid negative sample remains in the matrix with zero counts.
+## Databases
 
-```text
-Gene    synthetic_pks_positive
-clbA    1
-clbB    38
-clbC    10
-...     ...
-clbS    2
-```
+Only the first two are ever required.
 
-### Example coverage plot
+| Flag | Needed for |
+|---|---|
+| `--hg38_db`, `--t2t_phix_db` | removing human reads — every run |
+| `--pangenome_db` | optional extra human-read removal pass |
+| `--kraken_db` | species abundances, and the optional prefilter |
+| `--genomad_db` | prophage detection |
+| `--gtdbtk_db`, `--checkm2_db` | naming and quality-scoring draft genomes |
 
-![Synthetic pks-positive coverage plot](examples/plots/synthetic_positive/synthetic_pks_positive.pks.circos.png)
-
-[Download the example PDF](examples/plots/synthetic_positive/synthetic_pks_positive.pks.circos.pdf). A negative sample has zero counts but does not produce an empty coverage PDF.
-
-## Main output folders
+## Output
 
 ```text
 results/
-├── pks_per_sample/
-└── pks_summary/
-    ├── gene_counts/
-    ├── coverage_plots/
-    ├── qc/
-    └── taxonomy/          # only when taxonomy is selected
+├── by_sample/<sample>/     everything this one sample produced
+│   ├── read_evidence.tsv   evidence tier, reads, genes, breadth
+│   ├── counts.txt          reads per clb gene
+│   ├── alignment/          bam, coverage, per-sample QC
+│   ├── contigs/            recruitment, both assemblies, final evidence
+│   ├── genomes/            draft genomes, completeness, species, annotation
+│   ├── community/          prophages, flanking genes, producer-neighbour tables
+│   ├── strain/             sequence type, clonal complex, phylogroup
+│   └── figures/            coverage plot, taxa barplots, contig validation
+├── cohort/                 gene counts, QC summary, taxonomy, master summary
+└── runs/                   Nextflow report, timeline and trace
 ```
 
-`pks_summary/qc/pks.qc.summary.tsv` contains one row per sample and records attrition through extraction, fastp, and the host-depletion passes. For BAM/CRAM input, `input_reads` and `unmapped_reads` both report the extracted primary-unmapped read count; the complete alignment is intentionally not scanned a second time solely to count all records. When `--pangenome_db` is supplied, the summary also reports `reads_after_pangenome`; otherwise that column is `NA`. Alignment runs report `num_clb_genes_align` and `reads_clb_genes_align`. HMM runs report `num_clb_genes_hmm` and `reads_clb_genes_hmm` after applying `--hmm_evalue` and best-hit assignment. Method-specific fields are reported as `NA` when that method is not selected. When `--save_intermediates true` is used, `unmapped_reads/` and `host_depleted_reads/` are also published.
+The sample directory is the unit: if it is not under `by_sample/<sample>/`, it is not about
+that sample. Both sample types write the same paths — `--sample_type` decides which
+directories exist, not where they sit.
 
-For BAM input, `input_reads` is the number of primary alignment records in the supplied BAM and `unmapped_reads` is the subset extracted for profiling. For paired FASTQ input, `input_reads` is the combined number of R1 and R2 records and `unmapped_reads` has the same value because the supplied FASTQs enter FASTP directly. All subsequent columns count individual reads, not read pairs.
+A sample with no *pks* reads stays in every table as a row of zeros rather than disappearing, so
+"tested and negative" is distinguishable from "never ran". Full layout and per-file notes are in
+the [output reference](docs/output.md).
 
-See the relevant [run-mode guide](#choose-a-run-mode) for the files produced by that mode.
+### One table with everything
 
-## License
+Each stage writes its own results, which is awkward to read across. This joins them into one row
+per sample — whatever ran, with `NA` where a stage did not:
 
-This project is distributed under the [BSD 2-Clause License](LICENSE).
+```bash
+python3 scripts/build_master_summary.py --results results \
+  --output results/cohort/pks.master_summary.tsv
+```
+
+Columns appear only for stages that actually ran, so the width of the table tells you what the run
+did. With everything enabled you get read counts, the evidence tier and breadth, the structural
+call from reassembly, the *pks*-positive genome's species and completeness, prophage and neighbour
+counts, island mobility flags, and the sequence type and phylogroup — about 30 columns. It reads
+only published output, so it is safe to re-run at any time without re-running the pipeline.
+
+### Example output
+
+| Sample | Alignment counts | HMM counts |
+|---|---|---|
+| Synthetic positive | [table](examples/results/synthetic_positive/pks.gene.counts.align.txt) | [table](examples/results/synthetic_positive/pks.gene.counts.hmm.txt) |
+| Synthetic negative | [table](examples/results/synthetic_negative/pks.gene.counts.align.txt) | [table](examples/results/synthetic_negative/pks.gene.counts.hmm.txt) |
+
+![Coverage plot for a pks-positive sample](examples/plots/synthetic_positive/synthetic_pks_positive.pks.circos.png)
+
+## Running on HPC
+
+Swap `-profile local` for your scheduler and add `-resume` so an interrupted run continues rather
+than restarting. Profiles for TSCC, Slurm, PBS Pro, LSF and SGE are in [`conf/`](conf).
+
+Two things that catch people out: **Java 17+ must be present on the compute nodes**, not just the
+login node, and concurrent runs each need their own launch directory or they will collide on
+Nextflow's session lock. See the [HPC guide](docs/hpc.md).
+
+## Documentation
+
+| Guide | |
+|---|---|
+| [BAM and CRAM mode](docs/running/bam.md) | alignment profiling from aligned input |
+| [FASTQ mode](docs/running/fastq.md) | single or paired FASTQ |
+| [HMM and combined modes](docs/running/hmm.md) | profile-model search, and how it differs from alignment |
+| [Island reassembly](docs/running/assembly.md) | evidence tiers, targeted assembly, mobility context |
+| [Genome-resolved analysis](docs/running/mags.md) | recovering draft genomes from a mixed sample |
+| [Community context](docs/running/community_context.md) | prophages, island mobility, neighbouring organisms |
+| [Strain typing](docs/running/strain_typing.md) | sequence type, clonal complex, phylogroup |
+| [Taxonomy](docs/running/taxonomy.md) | species abundances |
+| [Read prefilter](docs/prefilter.md) | optional narrowing before profiling |
+| [Output reference](docs/output.md) | what every directory and file contains |
+| [Glossary](docs/glossary.md) | reads, contigs, MAGs, breadth, tiers and the rest |
+| [HPC guide](docs/hpc.md) | schedulers, resources, known pitfalls |
+| [Reference models](ref/hmm/PROVENANCE.md) | how the *clb* profile models were built and validated |
+| [Tool citations](CITATIONS.md) | every tool the pipeline calls, with DOIs |
+
+The test suite runs on every push. To run it yourself: `bash tests/run_checks.sh` for the
+full set, or `python3 -m unittest discover -s tests` for the fast checks that need no Nextflow.
 
 ## Citation
 
-A manuscript citation will be added when available.
+A manuscript is in preparation. Until it is available, cite the software itself — GitHub and
+Zenodo both read [`CITATION.cff`](CITATION.cff), so the "Cite this repository" button on the
+repository page produces a correctly formatted reference. Record the release tag or commit you
+ran.
+
+Please also cite the underlying tools your run used; they are listed with DOIs in
+[`CITATIONS.md`](CITATIONS.md).
+
+The biological premise — that colibactin-producing *E. coli* leave a distinctive mutational
+signature in colorectal cancer — rests on Pleguezuelos-Manzano *et al.* and
+Dziubańska-Kusibab *et al.*, both *Nature* 2020.
+
+## License
+
+[BSD 2-Clause](LICENSE).

@@ -4,7 +4,9 @@ process plotPKS {
 
     label 'process_low'
     scratch true
-    publishDir "${params.pks_coverage_plots_dir}", mode: 'copy'
+    publishDir "${params.sample_dir}", mode: 'copy',
+        // no sampleID in scope here: the circos plot is named <sample>.pks.circos.pdf
+        saveAs: { fn -> (fn - '.pks.circos.pdf') + '/figures/circos.pdf' }
     conda "${params.pks_align_env}"
 
     input:

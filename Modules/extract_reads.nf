@@ -4,7 +4,7 @@ process extractReads {
     scratch true
     label 'extract_reads'
     publishDir(
-        "${params.unmapped_bam_dir}",
+        { "${params.sample_dir}/${sampleID}/intermediates" },
         mode: 'copy',
         enabled: params.save_intermediates
     )

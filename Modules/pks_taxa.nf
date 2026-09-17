@@ -1,7 +1,7 @@
 process extractPksIslandReads {
   label 'process_medium'
   scratch true
-  publishDir "${params.pks_dir}", mode: 'copy'
+  publishDir { "${params.sample_dir}/${sampleID}/taxonomy" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
   conda "${params.pks_align_env}"
 
   input:
@@ -115,7 +115,7 @@ process extractPksIslandReads {
 process Bracken {
   scratch true
   label 'process_high_disk'
-  publishDir "${params.pks_dir}", mode: 'copy'
+  publishDir { "${params.sample_dir}/${sampleID}/taxonomy" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
   conda "${params.krakenuniq_bracken_env}"
 
   input:

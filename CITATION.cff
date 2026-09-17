@@ -1,0 +1,47 @@
+cff-version: 1.2.0
+message: "If you use pksProfiler, please cite it using these metadata."
+title: "pksProfiler: detection and genome-resolved analysis of the pks (colibactin) island"
+abstract: >-
+  A Nextflow pipeline that detects the pks pathogenicity island in tumour and metagenome
+  sequencing data, scores the strength of the evidence, reconstructs the island from its own
+  reads, identifies the bacterium carrying it, and describes the surrounding community.
+type: software
+authors:
+  - name: "Alexandrov Lab, University of California San Diego"
+repository-code: "https://github.com/AlexandrovLab/pksProfiler"
+license: BSD-2-Clause
+version: 0.0.2dev
+keywords:
+  - colibactin
+  - pks island
+  - metagenomics
+  - cancer genomics
+  - mutational signatures
+  - Nextflow
+references:
+  - type: article
+    title: "Mutational signature in colorectal cancer caused by genotoxic pks+ E. coli"
+    authors:
+      - family-names: Pleguezuelos-Manzano
+        given-names: Cayetano
+      - family-names: Puschhof
+        given-names: Jens
+    journal: Nature
+    volume: 580
+    start: 269
+    end: 273
+    year: 2020
+    doi: 10.1038/s41586-020-2080-8
+  - type: article
+    title: "Colibactin DNA-damage signature indicates mutational impact in colorectal cancer"
+    authors:
+      - family-names: Dziubańska-Kusibab
+        given-names: Paulina J.
+      - family-names: Berger
+        given-names: Hilmar
+    journal: Nature Medicine
+    volume: 26
+    start: 1063
+    end: 1069
+    year: 2020
+    doi: 10.1038/s41591-020-0908-2

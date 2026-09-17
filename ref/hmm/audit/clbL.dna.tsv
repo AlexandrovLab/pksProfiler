@@ -1,0 +1,8 @@
+metric	value
+raw	2835
+modal_length	1464
+min_length	1171.2
+max_length	1756.8
+retained_exact_unique	49
+rejected_length	0
+rejected_exact_duplicate	2786

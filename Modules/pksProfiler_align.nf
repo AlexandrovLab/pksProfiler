@@ -3,7 +3,10 @@ nextflow.enable.dsl = 2
 process pksProfiler_align {
     label 'pks_align'
     scratch true
-    publishDir "${params.pks_dir}", mode: 'copy'
+    publishDir { "${params.sample_dir}/${sampleID}" }, mode: 'copy',
+        // counts and coverage are the two files people open; the rest is alignment detail
+        saveAs: { fn -> (fn.endsWith('.counts.txt') || fn.endsWith('.coverage.txt'))
+                        ? fn - "${sampleID}." : "alignment/" + (fn - "${sampleID}.") }
     conda "${params.pks_align_env}"
 
     input:

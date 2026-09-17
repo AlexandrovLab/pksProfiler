@@ -4,7 +4,7 @@ Taxonomy is an optional addition to alignment profiling. KrakenUniq is run only 
 
 ## Before running
 
-1. Install the KrakenUniq/Bracken database described in the main [installation guide](../../README.md#4-optional-install-the-taxonomy-database).
+1. Install the KrakenUniq/Bracken database described in the main [installation guide](../../README.md#databases).
 2. Confirm the database directory contains `database.kdb`, `database.idx`, `taxDB`, and the Bracken distribution matching the chosen read length.
 3. Prepare a [BAM](bam.md) or [paired FASTQ](fastq.md) sample sheet.
 
@@ -37,7 +37,7 @@ Taxonomy cannot be used with `--profiling_method hmm` alone because it depends o
 ## Outputs to check
 
 ```text
-results_taxonomy/pks_summary/taxonomy/
+results_taxonomy/cohort/taxonomy/
 ├── pks.clb_species_support.tsv
 ├── bracken.genus.mpa.report.txt
 ├── bracken.species.mpa.report.txt
