@@ -8,8 +8,8 @@ classification proceeds from the highest tier downward.
     negative                 0 pks reads
     localized_indeterminate  >=1 read, fails one or more multi_gene criteria
     multi_gene               >=5   reads, >=3  genes, >=1%  breadth
-    broad_island             >=30  reads, >=8  genes, >=10% breadth
-    extensive_island         >=100 reads, >=10 genes, >=20% breadth
+    broad_island             >=30  reads, >=8  genes, >=7.5% breadth
+    extensive_island         >=100 reads, >=10 genes, >=15%  breadth
 
 localized_indeterminate is NOT a formal positive tier. These data are positive-only and
 cannot establish the boundary between a true positive and background mapping.
@@ -65,10 +65,10 @@ def main():
     p.add_argument("--multi-gene-breadth", type=float, default=.01)
     p.add_argument("--broad-island-reads", type=int, default=30)
     p.add_argument("--broad-island-genes", type=int, default=8)
-    p.add_argument("--broad-island-breadth", type=float, default=.10)
+    p.add_argument("--broad-island-breadth", type=float, default=.075)
     p.add_argument("--extensive-island-reads", type=int, default=100)
     p.add_argument("--extensive-island-genes", type=int, default=10)
-    p.add_argument("--extensive-island-breadth", type=float, default=.20)
+    p.add_argument("--extensive-island-breadth", type=float, default=.15)
     a = p.parse_args()
 
     thresholds = {

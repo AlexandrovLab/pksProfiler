@@ -107,9 +107,8 @@ It only reads published output, so it is safe to re-run at any time.
 
 ## Primary result files
 
-Column-level specifications are still being written. Until then, the pages under
-`docs/running/` describe the files each mode produces, and every table carries a header
-row.
+Every table carries a header row. The two tables produced by every run are specified
+below; the pages under `docs/running/` describe the files each optional mode adds.
 
 | File | Produced by | One row per |
 |---|---|---|
@@ -118,6 +117,38 @@ row.
 | `cohort/pks.master_summary.tsv` | `build_master_summary.py` | sample — every stage joined |
 | `by_sample/*/read_evidence.tsv` | `--sample_type tumor_wgs` or `metagenome` | sample |
 | `by_sample/*/contigs/final_evidence/final_pks_evidence.tsv` | targeted reassembly | sample |
+
+### `cohort/qc/pks.qc.summary.tsv`
+
+Read attrition through every stage, one row per sample. Counts are read counts and
+decrease monotonically down the depletion chain; a violation is a fatal error, not a
+warning.
+
+| Column | Meaning |
+|---|---|
+| `Sample` | sample identifier, as given in the sheet's `patient` column |
+| `input_reads` | primary records in the input alignment; for FASTQ input, reads entering fastp |
+| `unmapped_reads` | unmapped primary records extracted (`-f 4 -F 2304`) |
+| `reads_after_fastp` | surviving adapter and quality filtering |
+| `reads_after_hg38` | surviving GRCh38 depletion |
+| `reads_after_t2t_phix` | surviving T2T + PhiX depletion |
+| `reads_after_pangenome` | surviving optional pangenome depletion; `NA` unless `--pangenome_db` |
+| `num_clb_genes_align` | *clb* genes with at least one assigned read, alignment profiling (0–19) |
+| `reads_clb_genes_align` | reads assigned to *clb* genes, alignment profiling |
+| `num_clb_genes_hmm` | as above, HMM profiling; `NA` unless `--profiling_method hmm` or `both` |
+| `reads_clb_genes_hmm` | as above, HMM profiling |
+| `status` | `complete`, `incomplete` (sample ran partially), or `no_qc_produced` (sample entered the run but emitted no QC) |
+
+A sample that failed mid-run still gets a row. The table is built from whatever
+fragments exist, so one sample hitting a time cap no longer costs the cohort its QC —
+check `status` before treating an `NA` as a biological zero.
+
+### `cohort/gene_counts/pks.gene.counts.*.txt`
+
+One row per *clb* gene, one column per sample, plus a leading `Gene` column. Values are
+read counts assigned to that gene in that sample. `.align.txt` comes from Bowtie2 plus
+featureCounts, `.hmm.txt` from `nhmmscan`. Genes are always all 19 of clbA–clbS, in
+order, whether or not any sample carried reads for them.
 | `by_sample/*/genomes/pks_mag_summary.tsv` | `--enable_mags` | draft genome |
 | `by_sample/*/community/community_prophage_inventory.tsv` | `--enable_mags` | prophage |
 | `by_sample/*/community/pks_community_interactions.tsv` | `--enable_mags` | producer × neighbour pair |

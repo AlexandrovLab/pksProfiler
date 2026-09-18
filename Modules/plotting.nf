@@ -81,6 +81,7 @@ process masterQCSummary {
     input:
     path(qc_files)
     path(qc_script)
+    path(expected_samples)
 
     output:
     path "pks.qc.summary.tsv"
@@ -93,6 +94,7 @@ process masterQCSummary {
 
     python3 "${qc_script}" \
         --inputs ${inputs} \
+        --expected-samples "${expected_samples}" \
         --output pks.qc.summary.tsv
     """
 }

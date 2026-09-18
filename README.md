@@ -44,14 +44,24 @@ sample gets the highest tier it satisfies.
 
 | Tier | *clb* reads | *clb* genes | Island breadth at ≥1× | Reassembled by default? |
 |---|---:|---:|---:|:--:|
-| `extensive_island` | ≥100 | ≥10 | ≥20% | yes |
-| `broad_island` | ≥30 | ≥8 | ≥10% | yes |
+| `extensive_island` | ≥100 | ≥10 | ≥15% | yes |
+| `broad_island` | ≥30 | ≥8 | ≥7.5% | yes |
 | `multi_gene` | ≥5 | ≥3 | ≥1% | no |
 | `localized_indeterminate` | ≥1, but fails one of the above | | | no |
 | `negative` | 0 | — | — | no |
 
 *Breadth* is the fraction of the island's 50,767 bp covered by at least one read. Every threshold
 is a parameter, e.g. `--tumor_broad_island_min_pks_reads 50`.
+
+> **Why 15% and 7.5% and not 20% and 10%.** v0.0.1 measured breadth from a binned coverage
+> track — 50 bp bins, where a bin counted as covered if any single base in it was. v0.0.2
+> measures per base with `samtools depth`, which is the more honest quantity and reads a median
+> **0.794×** lower on the same data. The v0.0.1 thresholds of 20% and 10% were set on the binned
+> axis, so carrying them across unchanged would have made v0.0.2 stricter by accident rather than
+> by choice. 0.20 × 0.794 = 0.159 and 0.10 × 0.794 = 0.079; a grid search against the v0.0.1 tier
+> assignments lands on the same pair. These are a **unit conversion, not a recalibration** — they
+> preserve v0.0.1's effective stringency on the new axis and are no better validated than the
+> numbers they replace.
 
 > **These tiers rank how strong the evidence is. They are not a validated positive/negative test.**
 >

@@ -2,6 +2,11 @@ nextflow.enable.dsl = 2
 
 // ---------------- Parameters ----------------
 params.help = false
+// What to do when one sample fails a per-sample step. 'ignore' lets the remaining
+// samples finish and the cohort tables build; the failed sample is recorded in
+// pks.qc.summary.tsv as no_qc_produced or incomplete. 'finish' stops the run, which
+// also means no cohort table is written at all.
+params.sample_failure_strategy = 'ignore'
 params.sample = null
 
 params.input_data_type = "auto"        // auto | bam | cram | fastq
@@ -51,10 +56,10 @@ params.tumor_multi_gene_min_clb_genes       = 3
 params.tumor_multi_gene_min_breadth         = 0.01
 params.tumor_broad_island_min_pks_reads     = 30
 params.tumor_broad_island_min_clb_genes     = 8
-params.tumor_broad_island_min_breadth       = 0.10
+params.tumor_broad_island_min_breadth       = 0.075
 params.tumor_extensive_island_min_pks_reads = 100
 params.tumor_extensive_island_min_clb_genes = 10
-params.tumor_extensive_island_min_breadth   = 0.20
+params.tumor_extensive_island_min_breadth   = 0.15
 
 // Tiers that qualify a tumour sample for contig analysis.
 // Restricted to the two higher tiers: the depth-control sweep showed targeted assembly
@@ -372,6 +377,13 @@ workflow {
 
             rows
         }
+
+    // Every sample that entered the run, captured before the sheet is remapped per
+    // input type. masterQCSummary uses this to give a row to samples that produced no
+    // QC at all, so a failure is visible in the table instead of silently absent.
+    def EXPECTED_SAMPLE_IDS = sample_sheet
+        .map { row -> row.patient.toString().trim() }
+        .collectFile(name: 'expected_samples.txt', newLine: true, sort: true)
 
     def QC_FRAGMENTS = channel.empty()
 
@@ -786,5 +798,5 @@ workflow {
         checkIfExists: true
     )
 
-    masterQCSummary(QC_FRAGMENT_FILES, qc_summary_script)
+    masterQCSummary(QC_FRAGMENT_FILES, qc_summary_script, EXPECTED_SAMPLE_IDS)
 }

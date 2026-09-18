@@ -17,8 +17,8 @@ spec.loader.exec_module(classify_tumor)
 
 FROZEN = {
     "multi_gene":       (5, 3, 0.01),
-    "broad_island":     (30, 8, 0.10),
-    "extensive_island": (100, 10, 0.20),
+    "broad_island":     (30, 8, 0.075),
+    "extensive_island": (100, 10, 0.15),
 }
 
 def tier(reads, genes, breadth):
@@ -45,14 +45,14 @@ class TierCascadeTests(unittest.TestCase):
 
     def test_each_tier_at_its_exact_boundary(self):
         self.assertEqual(tier(5, 3, 0.01), "multi_gene")
-        self.assertEqual(tier(30, 8, 0.10), "broad_island")
-        self.assertEqual(tier(100, 10, 0.20), "extensive_island")
+        self.assertEqual(tier(30, 8, 0.075), "broad_island")
+        self.assertEqual(tier(100, 10, 0.15), "extensive_island")
 
     def test_all_three_criteria_are_required(self):
         # Meets broad_island reads and genes but not breadth -> falls back to multi_gene.
         self.assertEqual(tier(30, 8, 0.05), "multi_gene")
         # Meets extensive reads and breadth but not genes -> falls back to broad_island.
-        self.assertEqual(tier(100, 8, 0.20), "broad_island")
+        self.assertEqual(tier(100, 8, 0.15), "broad_island")
 
     def test_classification_takes_the_highest_qualifying_tier(self):
         self.assertEqual(tier(1000, 19, 0.99), "extensive_island")
@@ -77,8 +77,8 @@ class ContigGateTests(unittest.TestCase):
         self.assertNotIn(tier(5, 3, 0.01), self.DEFAULT_GATE)
 
     def test_higher_tiers_do_assemble(self):
-        self.assertIn(tier(30, 8, 0.10), self.DEFAULT_GATE)
-        self.assertIn(tier(100, 10, 0.20), self.DEFAULT_GATE)
+        self.assertIn(tier(30, 8, 0.075), self.DEFAULT_GATE)
+        self.assertIn(tier(100, 10, 0.15), self.DEFAULT_GATE)
 
     def test_indeterminate_and_negative_never_assemble(self):
         self.assertNotIn(tier(0, 0, 0.0), self.DEFAULT_GATE)

@@ -24,6 +24,12 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 - Continuous integration, `CITATION.cff`, `CITATIONS.md`.
 
 **Changed**
+- Island breadth tier thresholds converted for the change of measurement axis: `broad_island`
+  0.10 -> **0.075**, `extensive_island` 0.20 -> **0.15**. v0.0.1 measured breadth from a 50 bp
+  binned coverage track; v0.0.2 measures per base, which reads a median 0.794x lower on the same
+  data. This is a unit conversion preserving v0.0.1's effective stringency, not a recalibration.
+  On 420 TCGA tumours it returns 8 boundary samples to the tier v0.0.1 gave them. Specificity is
+  unaffected either way: 0 of 420 matched normals are positive at breadth >= 0.05 and above.
 - All MAG output consolidated under `mags/`; `pks_summary/mag/` is gone.
 - Profile HMM defaults now point at the population-scale models. The v0.0.1 benchmark model
   is retained and selectable with `--hmm_model`.

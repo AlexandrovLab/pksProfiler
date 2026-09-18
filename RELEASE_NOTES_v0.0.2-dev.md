@@ -35,8 +35,8 @@ hold for a tier; classification proceeds from the highest tier downward.
 | `negative` | 0 | — | — | no |
 | `localized_indeterminate` | >=1 | fails a multi_gene criterion | | no |
 | `multi_gene` | >=5 | >=3 | >=1% | no (classifies only) |
-| `broad_island` | >=30 | >=8 | >=10% | yes |
-| `extensive_island` | >=100 | >=10 | >=20% | yes |
+| `broad_island` | >=30 | >=8 | >=7.5% | yes |
+| `extensive_island` | >=100 | >=10 | >=15% | yes |
 
 `localized_indeterminate` is **not** a formal positive tier.
 
