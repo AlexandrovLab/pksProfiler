@@ -119,3 +119,5 @@ check_validation \
     context-without-genomad \
     '--tumor_full_contig_context requires --genomad_db' \
     --sample_type tumor_wgs --tumor_full_contig_context true
+
+echo "All checks passed"

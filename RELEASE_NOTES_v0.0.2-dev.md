@@ -2,7 +2,7 @@
 
 Extends the immutable v0.0.1 release with sample-type routing, tumour contig analysis gated
 on evidence tier, and genome-resolved MAG reconstruction with prophage and neighbouring-gene
-context. Ported from the tested `pksProfiler-v3-working` tree onto v0.0.1 under version
+context. Ported from the tested v3 integration tree onto v0.0.1 under version
 control.
 
 ## What is new

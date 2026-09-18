@@ -1,6 +1,7 @@
 nextflow.enable.dsl = 2
 
 // ---------------- Parameters ----------------
+params.help = false
 params.sample = null
 
 params.input_data_type = "auto"        // auto | bam | cram | fastq
@@ -199,6 +200,44 @@ include { krakenPrefilter; buildClbDiamondDb; diamondRescue; mergePksCandidates;
 
 // ---------------- Workflow ----------------
 workflow {
+
+    // ---------- Help ----------
+    // First thing the workflow does: `--help` must work without --sample, without
+    // databases, and without emitting the prefilter resolution line.
+    if (params.help.toString().toBoolean()) {
+        log.info """
+        pksProfiler ${workflow.manifest.version} -- ${workflow.manifest.description}
+
+        Usage:
+          nextflow run ${workflow.manifest.name} --sample SHEET.csv \\
+              --hg38_db INDEX --t2t_phix_db INDEX [options]
+
+        Required:
+          --sample            sample sheet; needs a unique `patient` column plus your
+                              files (bam | cram + cram_reference | fastq1/fastq2)
+          --hg38_db           minimap2 index or FASTA for human depletion
+          --t2t_phix_db       minimap2 index or FASTA for T2T + PhiX depletion
+
+        Common:
+          --input_data_type   auto | bam | cram | fastq            (default: auto)
+          --sample_type       auto | metagenome | tumor_wgs |
+                              tumor_wes | tumor_rna                (default: auto)
+          --profiling_method  bowtie2 | hmm | both                 (default: bowtie2)
+          --outdir            results directory                    (default: ./results)
+          --save_intermediates  publish extracted/filtered/host-depleted FASTQs
+
+        Optional stages (each off unless stated):
+          --enable_mags            recover draft genomes from metagenomes
+          --tumor_targeted_assembly  reassemble the island from tumour reads
+          --enable_strain_typing   MLST on assembled output        (default: on)
+          --prefilter_mode         auto | off | balanced           (default: auto)
+          --pks_taxa               taxonomy of island reads; needs --kraken_db
+
+        Evidence tiers are descriptive strata, not a validated presence/absence test.
+        See README.md and docs/ for the full parameter list and interpretation limits.
+        """.stripIndent()
+        exit 0
+    }
 
     // ---------- v0.0.2: boolean flag coercion ----------
     // `--flag false` on the command line arrives as the String "false", which is truthy

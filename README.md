@@ -29,6 +29,12 @@ Both share the trunk at the top.*
 6. **Describe the neighbourhood** — prophages, mobility markers, and each neighbouring organism's DNA-damage-response genes. Written to `by_sample/<sample>/community/`, separate from the genomes themselves.
 7. **Type the strain** — sequence type, clonal complex and phylogroup against a 45,761-genome panel. *Whenever assembly produced contigs.*
 
+> **Typing needs a complete allele profile, and tumour-derived assemblies rarely give one.**
+> MLST reports a type only from exact allele calls; a partial profile is reported as
+> `insufficient_loci`, never guessed at. On fragmented, low-coverage tumour contigs the usual
+> outcome is `insufficient_loci` rather than a sequence type — in the v0.0.2 test set, no
+> tumour-derived assembly was typeable.
+
 Steps 1–3 and 7 need no flags. The rest you switch on — see [Adding capabilities](#adding-capabilities).
 
 ## Evidence tiers
@@ -50,9 +56,13 @@ is a parameter, e.g. `--tumor_broad_island_min_pks_reads 50`.
 > **These tiers rank how strong the evidence is. They are not a validated positive/negative test.**
 >
 > They were derived from cohorts in which every sample already carried at least one *pks* read, so
-> they measure how well designated positives are retained. They cannot tell you where true positive
-> stops and background mapping begins — that requires designated negatives and matched controls,
-> which those cohorts did not include.
+> what they measure directly is how well designated positives are retained. They cannot tell you
+> where true positive stops and background mapping begins: that boundary was never fitted.
+>
+> There is one piece of specificity evidence. Across **420 matched TCGA tumour/normal pairs**, no
+> normal was called positive at island breadth ≥ 0.05 or above — 0 of 420, at every threshold at or
+> above that point. That bounds the false-positive rate in matched normal tissue; it does not
+> validate the tier boundaries themselves, which sit well above it.
 >
 > A small nonzero breadth is **indeterminate**, not positive. No tier here is a clinical result.
 

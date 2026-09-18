@@ -41,6 +41,6 @@ jobs:
         with:
           version: "24.10.0"
       - name: Compile the workflow
-        run: nextflow run main.nf --help || true
+        run: nextflow run main.nf --help
       - name: Validation regression checks
         run: bash tests/run_checks.sh
