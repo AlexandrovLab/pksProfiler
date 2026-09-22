@@ -28,6 +28,8 @@ process pksProfiler_hmm {
     def qc           = "${sampleID}.hmm.qc.tsv"
 
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # hmm_model ${params.dep_digest?.hmm_model}  scripts ${params.dep_digest?.scripts}
     set -euo pipefail
 
     if ! gzip -t "${reads}" >/dev/null 2>&1; then
@@ -132,57 +134,25 @@ process pksProfiler_hmm {
 
     E="${params.hmm_evalue}"
 
-    # Select the best qualifying HMM hit for each query and count by gene
-    awk -v e="\$E" '
-      \$0 ~ /^#/ { next }
-      NF < 14 { next }
-      {
-        t=\$1;
-        sub(/[.]cds[.]aln/, "", t);
-        q=\$3;
-        eval=\$13+0;
-        score=\$14+0;
-
-        if (eval <= e) {
-          if (!(q in bestE) || eval < bestE[q] ||
-              (eval == bestE[q] && score > bestScore[q])) {
-            bestE[q]=eval;
-            bestScore[q]=score;
-            bestT[q]=t;
-          }
-        }
-      }
-      END {
-        # Initialize clbA through clbS to zero
-        for (i=0; i<19; i++) {
-          gene=sprintf("clb%c", 65+i);
-          cnt[gene]=0;
-        }
-
-        # Count the best qualifying hit for each query
-        for (q in bestT) {
-          cnt[bestT[q]]++;
-        }
-
-        for (g in cnt) {
-          printf "%s\\t%d\\n", g, cnt[g];
-        }
-      }
-    ' "${tblout}" | sort -k1,1 > "${counts_tsv}.tmp"
-
-    printf "Gene\\tCount\\n" > "${counts_tsv}"
-    cat "${counts_tsv}.tmp" >> "${counts_tsv}"
-    rm -f "${counts_tsv}.tmp"
-
-    # Record read identifiers with at least one qualifying hit
-    awk -v e="\$E" '
-      \$0 ~ /^#/ { next }
-      NF >= 14 {
-        q=\$3;
-        eval=\$13+0;
-        if (eval <= e) print q;
-      }
-    ' "${tblout}" | sort -u > "${read_ids}"
+    # F07: a typed parser, not awk coercion. `\$13+0` turned a non-numeric E-value
+    # into 0, which passes any stringency threshold and became the best hit in the
+    # file; short rows were skipped in silence; and ties were settled by whichever
+    # line came first, so the answer depended on row order and therefore on chunking.
+    #
+    # The rule now: lowest E-value, then highest score, then longest aligned length on
+    # the read -- the same idea as featureCounts' --largestOverlap -- and a read still
+    # tied across two genes after all three is ambiguous and counts for neither, which
+    # is what featureCounts does with a perfect tie.
+    # Written on one line deliberately. With backslash continuations this rendered with
+    # every argument shifted by one position -- the script path became the tblout name --
+    # and the first the run knew of it was python3 reporting a path that does not exist,
+    # on a task whose failure the per-sample error strategy ignores. One line cannot shift.
+    BEST_HIT="${params.scripts}/hmm_best_hit.py"
+    if [[ ! -f "\$BEST_HIT" ]]; then
+        echo "ERROR: HMM best-hit parser not found at \$BEST_HIT" >&2
+        exit 1
+    fi
+    python3 "\$BEST_HIT" --tblout "${tblout}" --evalue "\$E" --counts-out "${counts_tsv}" --read-ids-out "${read_ids}" --ambiguous-out "${sampleID}.hmm.ambiguous_reads.txt"
 
     # Retain the FASTA sequences corresponding to qualifying reads
     if [[ -s "${read_ids}" ]]; then
@@ -202,6 +172,8 @@ process pksProfiler_hmm {
 
     printf "Sample\\tMetric\\tValue\\n" > "${qc}"
     printf "%s\\treads_clb_genes_hmm\\t%s\\n" "${sampleID}" "\$HMM_READS" >> "${qc}"
+    AMBIGUOUS=\$(wc -l < "${sampleID}.hmm.ambiguous_reads.txt")
+    printf "%s\\thmm_ambiguous_reads\\t%s\\n" "${sampleID}" "\$AMBIGUOUS" >> "${qc}"
     printf "%s\\tnum_clb_genes_hmm\\t%s\\n" "${sampleID}" "\$HMM_GENES_DETECTED" >> "${qc}"
     """
 }

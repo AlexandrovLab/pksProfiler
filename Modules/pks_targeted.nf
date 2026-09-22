@@ -12,6 +12,8 @@ process classifyPksReadEvidence {
     script:
     def islandEnd = params.pks_shift.toString().toInteger() + params.pks_island_len.toString().toInteger()
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # scripts ${params.dep_digest?.scripts}
     set -euo pipefail
     samtools depth -aa -s -Q 40 -r "${params.pks_contig}:${params.pks_shift.toString().toInteger() + 1}-${islandEnd}" "${bam}" > "${sampleID}.island.raw_depth.tsv"
     python "${params.scripts}/classify_tumor_pks_evidence.py" --sample "${sampleID}" --qc "${qc}" --counts "${counts}" --depth "${sampleID}.island.raw_depth.tsv" --island-length "${params.pks_island_len}" --multi-gene-reads "${params.tumor_multi_gene_min_pks_reads}" --multi-gene-genes "${params.tumor_multi_gene_min_clb_genes}" --multi-gene-breadth "${params.tumor_multi_gene_min_breadth}" --broad-island-reads "${params.tumor_broad_island_min_pks_reads}" --broad-island-genes "${params.tumor_broad_island_min_clb_genes}" --broad-island-breadth "${params.tumor_broad_island_min_breadth}" --extensive-island-reads "${params.tumor_extensive_island_min_pks_reads}" --extensive-island-genes "${params.tumor_extensive_island_min_clb_genes}" --extensive-island-breadth "${params.tumor_extensive_island_min_breadth}" --output "${sampleID}.read_evidence.tsv"
@@ -31,6 +33,8 @@ process targetedPksRecruit {
     tuple val(sampleID), path("${sampleID}.pks_recruitment.tsv"), emit: stats
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # pks_recruit_index ${params.dep_digest?.pks_recruit_index}  scripts ${params.dep_digest?.scripts}
     set -euo pipefail
     bowtie2 --very-sensitive-local -k 1 --no-unal --threads ${task.cpus} -x "${params.pks_recruit_index}" -U "${reads}" -S "${sampleID}.pks_recruitment.sam"
     python "${params.scripts}/recover_recruited_mates.py" --sam "${sampleID}.pks_recruitment.sam" --fastq "${reads}" --r1 "${sampleID}.pks.R1.fastq.gz" --r2 "${sampleID}.pks.R2.fastq.gz" --single "${sampleID}.pks.single.fastq.gz" --stats "${sampleID}.pks_recruitment.tsv" --min-aligned-bases "${params.pks_recruit_min_aligned}" --min-identity "${params.pks_recruit_min_identity}"
@@ -125,6 +129,8 @@ process summarizeTargetedPksEvidence {
     tuple val(sampleID), path("${sampleID}.raw_depth_megahit_metaspades_IHE3034.svg"), emit: plots
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # pks_annotation ${params.dep_digest?.pks_annotation}  pks_reference_fasta ${params.dep_digest?.pks_reference_fasta}  scripts ${params.dep_digest?.scripts}
     set -euo pipefail
     python "${params.scripts}/summarize_tumor_pks_contigs.py" --sample "${sampleID}" --megahit-contigs "${megahit_contigs}" --metaspades-contigs "${metaspades_contigs}" --megahit-paf "${megahit_paf}" --metaspades-paf "${metaspades_paf}" --raw-depth "${raw_coverage}" --read-evidence "${read_evidence}" --gff "${params.pks_genome_annotation}" --contig "${params.pks_contig}" --region-start "${params.pks_plot_region_start}" --region-end "${params.pks_plot_region_end}" --island-start "${params.pks_shift}" --island-end "${params.pks_shift.toString().toInteger() + params.pks_island_len.toString().toInteger()}" --min-aligned-bp "${params.tumor_contig_min_aligned_bp}" --output-tsv "${sampleID}.final_pks_evidence.tsv" --output-svg "${sampleID}.raw_depth_megahit_metaspades_IHE3034.svg"
     """

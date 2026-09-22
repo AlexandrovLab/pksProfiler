@@ -16,8 +16,9 @@ build_qc_summary = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(build_qc_summary)
 
 COMPLETE = [
-    ("bam_input_primary_records", 100),
+    ("input_alignment_records", 100),
     ("extracted_unmapped_reads", 90),
+    ("filter_input_reads", 90),
     ("reads_after_fastp", 80),
     ("reads_after_hg38", 70),
     ("reads_after_t2t_phix", 60),
@@ -58,7 +59,7 @@ class PartialCohortTests(unittest.TestCase):
             good = fragment(d, "good", COMPLETE)
             rows = summarise(d, [good], expected=["good", "failed"])
             self.assertEqual(rows["failed"]["status"], "no_qc_produced")
-            self.assertEqual(rows["failed"]["input_reads"], "NA")
+            self.assertEqual(rows["failed"]["input_alignment_records"], "NA")
 
     def test_a_partially_run_sample_is_marked_incomplete_not_fatal(self):
         with tempfile.TemporaryDirectory() as d:
@@ -92,8 +93,9 @@ class CorruptionIsStillFatalTests(unittest.TestCase):
     def test_counts_increasing_down_the_chain_still_raise(self):
         with tempfile.TemporaryDirectory() as d:
             bad = fragment(d, "s", [
-                ("bam_input_primary_records", 10),
+                ("input_alignment_records", 10),
                 ("extracted_unmapped_reads", 10),
+                ("filter_input_reads", 10),
                 ("reads_after_fastp", 10),
                 ("reads_after_hg38", 10),
                 ("reads_after_t2t_phix", 999),

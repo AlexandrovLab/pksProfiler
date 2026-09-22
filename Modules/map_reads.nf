@@ -19,6 +19,8 @@ process mapReads {
 
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # hg38_db ${params.dep_digest?.hg38_db}  pangenome_db ${params.dep_digest?.pangenome_db}  t2t_phix_db ${params.dep_digest?.t2t_phix_db}
     set -euo pipefail
 
     if ! gzip -t "${reads_fastq}" >/dev/null 2>&1; then

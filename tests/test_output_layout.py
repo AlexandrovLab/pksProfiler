@@ -59,6 +59,7 @@ TARGETS = publish_targets()
 
 # Processes whose output spans samples, so they belong in cohort/, not by_sample/.
 COHORT_PROCESSES = ("masterTableAlign", "masterTableHMM", "masterQCSummary",
+                    "cohortReport",
                     "process_bracken", "combineClbTaxonomySupport",
                     "tumorEligibilityStatus")
 

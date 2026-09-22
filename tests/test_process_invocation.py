@@ -12,7 +12,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = (ROOT / "main.nf").read_text()
-BODY = MAIN.split("workflow {", 1)[1]
+
+
+def strip_comments(text):
+    """Comments are not invocations.
+
+    A comment explaining a call -- "`Bracken(...).set { }` captured the multi-channel
+    object" -- counted as a second invocation and failed this test. The rule is about
+    executable code, so the text it reads has to be executable code.
+    """
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return "\n".join(re.sub(r"//.*$", "", line) for line in text.splitlines())
+
+
+BODY = strip_comments(MAIN.split("workflow {", 1)[1])
 
 
 def included_names():

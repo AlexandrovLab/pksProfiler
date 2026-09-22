@@ -23,8 +23,9 @@ from collections import defaultdict
 
 # Column groups, in the order they appear. Each group is skipped entirely when the stage
 # that produces it left no files behind.
-QC_COLUMNS = ["input_reads", "reads_after_fastp", "reads_after_hg38", "reads_after_t2t_phix",
-              "num_clb_genes_align", "reads_clb_genes_align",
+QC_COLUMNS = ["input_alignment_records", "total_primary_reads", "extracted_unmapped_reads",
+              "filter_input_reads", "reads_after_fastp", "reads_after_hg38", "reads_after_t2t_phix",
+              "reads_mapped_ihe3034", "num_clb_genes_align", "reads_clb_genes_align",
               "num_clb_genes_hmm", "reads_clb_genes_hmm"]
 EVIDENCE_COLUMNS = ["read_evidence", "pks_reads", "clb_genes_detected", "island_breadth_1x"]
 CONTIG_COLUMNS = ["final_structural_evidence", "assembler_agreement"]

@@ -120,4 +120,10 @@ check_validation \
     '--tumor_full_contig_context requires --genomad_db' \
     --sample_type tumor_wgs --tumor_full_contig_context true
 
+echo
+echo "Building the workflow graph for every flag combination"
+# Not piped: a pipeline's exit status is the last command's, so `| tail` would swallow
+# the failure this check exists to report.
+bash "$repo_dir/tests/check_workflow_construction.sh"
+
 echo "All checks passed"

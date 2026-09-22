@@ -42,6 +42,8 @@ process assignStrainType {
 
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # scripts ${params.dep_digest?.scripts}
     set -euo pipefail
     python "${params.scripts}/assign_strain_type.py" \\
         --mlst "${mlst_tsv}" \\

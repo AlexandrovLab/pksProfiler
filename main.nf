@@ -87,7 +87,7 @@ params.targeted_min_contig_len = 300
 // v0.0.2_functional_test_20260910 tumour arm, reporting those as no_contig_support.
 // Set to the assembler floor: below it MEGAHIT cannot contribute by construction, so a
 // lower value makes metaSPAdes look artificially divergent.
-params.tumor_contig_min_aligned_bp = 300
+params.tumor_contig_min_aligned_bp = 200   // T1: total island bases a contig must carry to count as supporting; below clbR (213 bp)
 
 // Legacy read-level eligibility screen inside tumorWGS. Undefined upstream (latent NPE);
 // aligned here with the lowest positive tier. Non-host floor disabled by default -- the
@@ -102,7 +102,18 @@ params.checkm2_db              = null
 params.genomad_db              = null
 params.clb_protein_hmm         = "${projectDir}/ref/hmm/clb_population_protein_exact_v1.hmm"
 params.hmm_protein_evalue      = 1e-5
-params.community_min_clb_genes = 3
+// M3: one definition of a pks-positive bin, used by the status count, by the choice
+// of which bins get genomic context, and by community producer selection. Counted as
+// distinct clb genes, which is what build_mag_summary.py reports. The number itself is
+// M1's to settle -- until per-model gathering thresholds land, the gene calls feeding
+// it are inflated by clbB/clbK domain homology.
+params.mag_min_clb_genes = 3
+
+// T3: a geNomad provirus must clear both floors to be reported. geNomad called 134
+// "viral contigs" on AA-3850 whose top hits were 369 bp with one gene and one
+// hallmark -- a count that tracked assembly fragmentation, not biology.
+params.provirus_min_length_bp = 3000
+params.provirus_min_hallmarks = 2
 // Flanking window for nearby-gene context around each clb hit, both lanes.
 params.context_window_bp = 50000
 
@@ -146,7 +157,11 @@ params.pks_qc_dir = "${params.cohort_dir}/qc"
 params.hg38_db      = null
 params.t2t_phix_db  = null
 params.pangenome_db = null
-params.adapters     = "${projectDir}/ref/known_adapters.fna"
+// Optional. fastp detects adapters by itself -- by overlap analysis for paired reads
+// and a built-in list otherwise -- and matching every read against the 234 sequences
+// in ref/known_adapters.fna was a measurable share of the Hartwig extraction runtime
+// for no change in what survived. Pass --adapters ref/known_adapters.fna to restore it.
+params.adapters     = null
 params.kraken_db= null
 
 
@@ -183,7 +198,47 @@ params.checkm2_env            = "${projectDir}/conda_envs/checkm2_env.yml"
 params.gtdbtk_env             = "${projectDir}/conda_envs/gtdbtk_env.yml"
 params.genomad_env            = "${projectDir}/conda_envs/genomad_env.yml"
 params.prokka_env             = "${projectDir}/conda_envs/prokka_env.yml"
+// F09: the cheap denominator comes from the alignment index and counts records,
+// including secondary and supplementary. Set this to count primary records exactly,
+// which costs a second full decode of every input.
+params.exact_input_counts = false
+
+// F14: aligned bases a read must share with a clb gene to be assigned to it. One
+// value, used by the alignment QC and the taxonomy lane alike.
+params.min_gene_overlap_bp = 1
+params.conda_cache_dir = null   // pin conda envs outside the work dir; also read by the run report
 params.scripts = "${projectDir}/scripts"
+
+// ---------------- Dependency digests (F15) ----------------
+// Nextflow hashes a task from its declared inputs and its rendered script. A reference,
+// model or helper that appears only as a path string inside the script is neither, so
+// rebuilding an index in place or editing a helper leaves every task hash unchanged and
+// `-resume` reuses work that no longer corresponds to the current code or references.
+// These digests are interpolated into the affected task scripts, which are hashed, so a
+// change to any of them invalidates exactly the tasks that depend on it.
+//
+// Provenance.code() reads content, for the things small enough to read on every launch.
+// Provenance.data() reads name, size and mtime of the top level, for indexes and
+// databases that are far too large -- see lib/Provenance.groovy for what that misses.
+params.dep_digest = [
+    scripts             : Provenance.code(params.scripts),
+    hmm_model           : Provenance.code(params.hmm_model),
+    clb_protein_hmm     : Provenance.code(params.clb_protein_hmm),
+    pks_annotation      : Provenance.code(params.pks_genome_annotation),
+    pks_cytoband        : Provenance.code(params.pks_cytoband),
+    adapters            : Provenance.code(params.adapters),
+    hg38_db             : Provenance.data(params.hg38_db),
+    t2t_phix_db         : Provenance.data(params.t2t_phix_db),
+    pangenome_db        : Provenance.data(params.pangenome_db),
+    pks_genome          : Provenance.data(params.pks_genome),
+    pks_recruit_index   : Provenance.data(params.pks_recruit_index),
+    pks_reference_fasta : Provenance.data(params.pks_reference_fasta),
+    cram_reference      : Provenance.data(params.cram_reference),
+    kraken_db           : Provenance.data(params.kraken_db),
+    genomad_db          : Provenance.data(params.genomad_db),
+    gtdbtk_db           : Provenance.data(params.gtdbtk_db),
+    checkm2_db          : Provenance.data(params.checkm2_db),
+]
 
 // ---------------- Modules ----------------
 include { extractReads } from './Modules/extract_reads.nf'
@@ -191,7 +246,7 @@ include { filterReads } from './Modules/filter_reads.nf'
 include { mapReads } from './Modules/map_reads.nf'
 include { pksProfiler_align as pksProfilerAlign } from './Modules/pksProfiler_align.nf'
 include { pksProfiler_hmm as pksProfilerHMM } from './Modules/pksProfiler_hmm.nf'
-include { plotPKS; masterTableAlign; masterTableHMM; masterQCSummary } from './Modules/plotting.nf'
+include { plotPKS; masterTableAlign; masterTableHMM; masterQCSummary; cohortReport } from './Modules/plotting.nf'
 include { extractPksIslandReads; Bracken; process_bracken as combinePKSTaxa; combineClbTaxonomySupport } from './Modules/pks_taxa.nf'
 include { plotBrackenTaxa as plotPKSTaxa } from './Modules/plot_bracken_taxa.nf'
 include { plotBrackenTaxa as plotCommunityTaxa } from './Modules/plot_bracken_taxa.nf'
@@ -202,6 +257,11 @@ include { pksMAG; tumorWGS } from './Modules/pks_mag.nf'
 // guarantee than making the second invocation a different component.
 include { pksMAG as tumorPksMAG } from './Modules/pks_mag.nf'
 include { krakenPrefilter; buildClbDiamondDb; diamondRescue; mergePksCandidates; sampleBracken } from './Modules/pks_prefilter.nf'
+
+// An empty channel, named for what it gates. A local `def` inside the branch that
+// fills it would not be visible where cohortReport is invoked, and Nextflow's parser
+// allows no statements at the top level.
+def classifyPksReadEvidence_gate() { return channel.empty() }
 
 // ---------------- Workflow ----------------
 workflow {
@@ -256,6 +316,52 @@ workflow {
     def pks_community_taxa_b        = params.pks_community_taxa.toString().toBoolean()
     def enable_strain_typing_b      = params.enable_strain_typing.toString().toBoolean()
 
+    // ---------- Equivalence record (F16) ----------
+    // Written now, before any task runs, so a run that dies still leaves a record of
+    // what it was attempting; finished off in onComplete with the outcome and the
+    // output checksums. One file per session: with -resume a results tree is usually
+    // the product of several sessions, and a record describing only the last one would
+    // misdescribe the cohort.
+    def run_record_path = RunRecord.path(params.runs_dir, workflow.sessionId)
+    RunRecord.write(run_record_path, RunRecord.start([
+        session_id  : workflow.sessionId.toString(),
+        code        : RunRecord.gitIdentity(workflow.projectDir, workflow.commitId, workflow.revision) + [
+            repository      : workflow.manifest.name,
+            manifest_version: workflow.manifest.version,
+            script_id       : workflow.scriptId?.toString(),
+            project_dir     : workflow.projectDir.toString(),
+        ],
+        invocation  : [
+            command_line    : workflow.commandLine,
+            launch_dir      : workflow.launchDir.toString(),
+            work_dir        : workflow.workDir.toString(),
+            profile         : workflow.profile,
+            outdir          : params.outdir.toString(),
+            sample_sheet    : [path: params.sample?.toString(), digest: Provenance.data(params.sample)],
+            stages_requested: RunRecord.stages(params),
+            params          : params.findAll { key, _value -> key != 'dep_digest' }
+                                    .collectEntries { key, value -> [(key): value?.toString()] },
+        ],
+        dependencies: params.dep_digest,
+        environment : [
+            nextflow_version : workflow.nextflow.version?.toString(),
+            nextflow_build   : workflow.nextflow.build?.toString(),
+            java_version     : System.getProperty('java.version'),
+            os               : "${System.getProperty('os.name')} ${System.getProperty('os.version')}",
+            user_name        : workflow.userName,
+            // The launch host. Tasks run wherever the executor put them, but on a
+            // cluster the head node is often what explains a failure.
+            hostname         : java.net.InetAddress.getLocalHost().getHostName(),
+            conda_envs_digest: Provenance.code("${projectDir}/conda_envs"),
+        ],
+        notes       : [
+            "stages_requested is what the parameters asked for; runs/trace.txt lists the tasks that actually executed.",
+            "Solved tool versions are not captured: conda_envs_digest fingerprints the pinned specifications, not the environments conda resolved from them.",
+            "Reference and database digests follow lib/Provenance.groovy -- content for code and models, name/size/mtime for large indexes and databases.",
+        ],
+    ]))
+    log.info "Provenance record: ${run_record_path}"
+
     // ---------- v0.0.2: resolve the prefilter mode ----------
     def prefilter_mode = params.prefilter_mode.toString()
     if (prefilter_mode == "auto") {
@@ -267,6 +373,49 @@ workflow {
         }
         log.info "prefilter_mode auto -> ${prefilter_mode} (sample_type=${params.sample_type})"
     }
+
+    // ---------- Preflight contract (F20) ----------
+    // One pass over everything the run needs, before a single task is submitted, and
+    // every problem at once. Stage prerequisites used to check only that a flag was
+    // set: `--hg38_db /typo/human.mmi` satisfied every check and failed in the first
+    // mapReads task, after the whole cohort had been extracted.
+    def preflight_status = Preflight.run("${params.scripts}/preflight.py", [
+        sample                   : params.sample,
+        input_data_type          : params.input_data_type,
+        sample_type              : params.sample_type,
+        cram_reference           : params.cram_reference,
+        profiling_method         : params.profiling_method,
+        prefilter_mode           : prefilter_mode,
+        hg38_db                  : params.hg38_db,
+        t2t_phix_db              : params.t2t_phix_db,
+        pangenome_db             : params.pangenome_db,
+        pks_genome               : params.pks_genome,
+        pks_recruit_index        : params.pks_recruit_index,
+        adapters                 : params.adapters,
+        pks_reference_fasta      : params.pks_reference_fasta,
+        pks_genome_annotation    : params.pks_genome_annotation,
+        hmm_model                : params.hmm_model,
+        clb_protein_hmm          : params.clb_protein_hmm,
+        clb_protein_fasta        : params.clb_protein_fasta,
+        st_phylogroup_lookup     : params.st_phylogroup_lookup,
+        kraken_db                : params.kraken_db,
+        bracken_read_length      : params.bracken_read_length,
+        genomad_db               : params.genomad_db,
+        gtdbtk_db                : params.gtdbtk_db,
+        checkm2_db               : params.checkm2_db,
+        pks_taxa                 : params.pks_taxa.toString().toBoolean(),
+        pks_community_taxa       : pks_community_taxa_b,
+        enable_mags              : enable_mags_b,
+        tumor_enable_mags        : tumor_enable_mags_b,
+        tumor_full_contig_context: tumor_full_contig_context_b,
+        tumor_targeted_assembly  : tumor_targeted_assembly_b,
+        enable_strain_typing     : enable_strain_typing_b,
+    ], log)
+
+    if (preflight_status != 0) {
+        error "Preflight checks failed. Nothing has run; fix the problems above and relaunch."
+    }
+
 
 	// ---------- Required input validation ----------
     if (!params.sample) {
@@ -392,7 +541,10 @@ workflow {
 			// Prefer patient,alignment; retain patient,bam for compatibility.
 			sample_sheet = sample_sheet.map { row ->
 			    def alignment = row.alignment?.toString()?.trim() ?: row.bam?.toString()?.trim()
-			    tuple(row.patient, file(alignment, checkIfExists: true))
+			    // Trimmed, exactly as validation and EXPECTED_SAMPLE_IDS trim it. Passing
+			    // the raw value made a sheet with stray whitespace validate as one
+			    // identifier and run as another, so the sample read as missing in QC.
+			    tuple(row.patient.toString().trim(), file(alignment, checkIfExists: true))
 			}
 
         EXTRACT_OUT = extractReads(sample_sheet)
@@ -419,7 +571,7 @@ workflow {
                 }
 
                 tuple(
-                    row.patient,
+                    row.patient.toString().trim(),
                     fastq_files
                 )
             }
@@ -606,6 +758,15 @@ workflow {
     def do_align = params.profiling_method in ["bowtie2", "both"]
     def do_hmm   = params.profiling_method in ["hmm", "both"]
 
+    // The cohort report's ordering gate is declared here, not inside `if (do_align)`,
+    // because cohortReport reads it unconditionally. Assigned only in the alignment
+    // branch, `--profiling_method hmm` left it undefined and the run died while the
+    // workflow was still being built: "No such variable: cohort_report_gate". The
+    // alignment branch overwrites it with the real evidence channel; read-level evidence
+    // comes from the alignment lane, so an HMM-only run genuinely has no gate to wait on
+    // and the empty channel is the correct value rather than a placeholder.
+    cohort_report_gate = classifyPksReadEvidence_gate()
+
     // ---------- v0.0.2: optional prefilter ahead of profiling ----------
     // MAG assembly and the tumour re-join both draw on MAPPED_READS, so neither is
     // affected by this narrowing -- only what gets profiled changes.
@@ -654,13 +815,19 @@ workflow {
         // calibrated for metagenome depth, and gating genome-resolved analysis on a
         // reference-based nucleotide tier would filter out the divergent carriers that
         // lane exists to find. The contig-count gate remains the metagenome gate.
+        // The cohort report reads the published tree, so it must not start before the
+        // per-sample evidence is there. Depending only on the QC summary, it could run
+        // while read_evidence.tsv was still unpublished and report every sample as
+        // not_classified. Empty when the lane that writes it did not run.
         if (params.sample_type in ["tumor_wgs", "metagenome"]) {
             read_evidence_input_ch = ALIGN_OUT.profile
                 .join(ALIGN_OUT.qc, by: 0)
-                .map { sampleID, rawCoverage, bedgraph, counts, bam, bai, sam, qc ->
+                .map { sampleID, rawCoverage, bedgraph, counts, bam, bai, qc ->
                     tuple(sampleID, rawCoverage, counts, bam, bai, qc)
                 }
             classifyPksReadEvidence(read_evidence_input_ch)
+            cohort_report_gate = classifyPksReadEvidence.out.evidence
+                .map { _sampleID, _rawCoverage, _counts, evidenceFile -> evidenceFile }
         }
 
         // ---------- v0.0.2: tumour contig analysis on formally positive samples ----------
@@ -722,7 +889,7 @@ workflow {
 	// ---------- STEP 3b: Optional PKS-island taxa profiling (align only) ----------
     if (do_align && params.pks_taxa) {
         PKS_ALIGN_OUT
-			.map { sampleID, _covtxt, _bedgraph, _counts, bam, bai, _sam ->
+			.map { sampleID, _covtxt, _bedgraph, _counts, bam, bai ->
 			    tuple(sampleID, bam, bai)
 			}
             .set { PKS_BAM_FOR_TAXA }
@@ -730,12 +897,26 @@ workflow {
         extractPksIslandReads(PKS_BAM_FOR_TAXA)
             .set { PKS_ISLAND_FASTQ }
 
-		Bracken(PKS_ISLAND_FASTQ).set { BRACKEN_PER_SAMPLE }
+		// Bracken emits two channels since F10 added the QC fragment, so the reports
+		// channel is addressed by name. `Bracken(...).set { ... }` captured the
+		// multi-channel object instead, and the next `.map` on it failed at parse time --
+		// which is every --pks_taxa run, and nothing without a live Nextflow caught it.
+		Bracken(PKS_ISLAND_FASTQ)
+		Bracken.out.reports.set { BRACKEN_PER_SAMPLE }
 
+		// F10: the taxonomy outcome reaches pks.qc.summary.tsv, which already carries a
+		// row for every sample, so "no species" stops being indistinguishable from
+		// "never classified".
+		QC_FRAGMENTS = QC_FRAGMENTS.mix(Bracken.out.qc.map { _sampleID, qc_file -> qc_file })
+
+		// F02: the files, plus one list naming them, instead of one argument each.
 		BRACKEN_PER_SAMPLE
 		.map { _sampleID, _report, _classified, _unclassified, _brG, _brS, _gk, _sk, _gmpa, _smpa, speciesSupport -> speciesSupport }
-		.collect()
-		.set { CLB_SPECIES_SUPPORT_FILES }
+		.multiMap { support ->
+		    files: support
+		    rows:  support.name
+		}
+		.set { CLB_SUPPORT_MERGE }
 
 		def combine_clb_support_script = file(
 		    "${params.scripts}/combine_clb_species_support.py",
@@ -743,8 +924,10 @@ workflow {
 		)
 
 		combineClbTaxonomySupport(
-		    CLB_SPECIES_SUPPORT_FILES,
-		    combine_clb_support_script
+		    CLB_SUPPORT_MERGE.files.collect(),
+		    combine_clb_support_script,
+		    CLB_SUPPORT_MERGE.rows.collectFile(name: 'pks.clb_species_support.list',
+		                                       newLine: true, sort: true)
 		)
 
 		BRACKEN_PER_SAMPLE
@@ -770,33 +953,70 @@ workflow {
     }
 
     // ---------- STEP 4: Master tables ----------
+    // The sample identifier travels with its counts file into the merge, as a manifest.
+    // It used to be dropped here and guessed back from the filename, which collapsed the
+    // distinct sheet identifiers `case` and `case.txt` onto one column (F03). Passing a
+    // manifest also means the merge command holds one filename, not one per sample, which
+    // is what F02 is about.
     if (do_align) {
         PKS_ALIGN_OUT
-            .map { output -> output[3] }    // counts.txt
-            .collect()
-            .set { ALIGN_COUNT_FILES }
+            .multiMap { output ->
+                files: output[3]                                            // counts.txt
+                rows:  "${output[0].toString().trim()}\t${output[3].name}"
+            }
+            .set { ALIGN_MERGE }
 
-        masterTableAlign(ALIGN_COUNT_FILES)
+        masterTableAlign(
+            ALIGN_MERGE.files.collect(),
+            ALIGN_MERGE.rows.collectFile(name: 'pks.align.counts.manifest.tsv',
+                                         newLine: true, sort: true)
+        )
     }
 
     if (do_hmm) {
         PKS_HMM_OUT
-            .map { output -> output[3] }    // hmm_counts.tsv
-            .collect()
-            .set { HMM_COUNT_FILES }
+            .multiMap { output ->
+                files: output[3]                                            // hmm_counts.tsv
+                rows:  "${output[0].toString().trim()}\t${output[3].name}"
+            }
+            .set { HMM_MERGE }
 
-        masterTableHMM(HMM_COUNT_FILES)
+        masterTableHMM(
+            HMM_MERGE.files.collect(),
+            HMM_MERGE.rows.collectFile(name: 'pks.hmm.counts.manifest.tsv',
+                                       newLine: true, sort: true)
+        )
     }
 
     // ---------- STEP 5: Cohort QC ----------
+    // F02: the fragments, plus one list naming them, instead of one argument each.
     QC_FRAGMENTS
-        .collect()
-        .set { QC_FRAGMENT_FILES }
+        .multiMap { fragment ->
+            files: fragment
+            rows:  fragment.name
+        }
+        .set { QC_MERGE }
 
     def qc_summary_script = file(
         "${params.scripts}/build_qc_summary.py",
         checkIfExists: true
     )
 
-    masterQCSummary(QC_FRAGMENT_FILES, qc_summary_script, EXPECTED_SAMPLE_IDS)
+    masterQCSummary(
+        QC_MERGE.files.collect(),
+        qc_summary_script,
+        EXPECTED_SAMPLE_IDS,
+        QC_MERGE.rows.collectFile(name: 'pks.qc.fragments.list', newLine: true, sort: true)
+    )
+
+    // ---------- STEP 6: One page for the cohort ----------
+    // Two thousand sample directories and no view across them is not a result anyone
+    // can read. This runs last, after the cohort tables exist, and only reads what the
+    // pipeline already wrote -- the tier from read_evidence.tsv, the breadth from the
+    // depth that produced it. An earlier hand-built version recomputed both with the
+    // v0.0.1 thresholds and could disagree with the run it described.
+    def cohort_report_script = file("${params.scripts}/build_cohort_report.py",
+                                    checkIfExists: true)
+    cohortReport(masterQCSummary.out.mix(cohort_report_gate).collect(),
+                 cohort_report_script)
 }

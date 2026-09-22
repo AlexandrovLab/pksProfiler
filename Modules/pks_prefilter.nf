@@ -15,6 +15,8 @@ process krakenPrefilter {
     tuple val(sampleID), path("${sampleID}.prefilter.qc.tsv"), emit: qc
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # kraken_db ${params.dep_digest?.kraken_db}  scripts ${params.dep_digest?.scripts}
     set -euo pipefail
     NODES="${params.kraken_db}/taxonomy/nodes.dmp"
     if [[ ! -s "\$NODES" ]]; then
@@ -63,6 +65,8 @@ process diamondRescue {
     tuple val(sampleID), path("${sampleID}.diamond.qc.tsv"), emit: qc
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # scripts ${params.dep_digest?.scripts}
     set -euo pipefail
     if [[ \$(gzip -dc "${reads}" | wc -l) -eq 0 ]]; then
       : > "${sampleID}.diamond.tsv"
@@ -121,6 +125,8 @@ process sampleBracken {
     tuple val(sampleID), path("${sampleID}.bracken.G.krakenreport.txt"), path("${sampleID}.bracken.S.krakenreport.txt"), emit: kraken_reports
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # kraken_db ${params.dep_digest?.kraken_db}
     set -euo pipefail
     for LEVEL in G S; do
       bracken -d "${params.kraken_db}" -i "${kraken_report}" \

@@ -112,24 +112,51 @@ def write_output(rows, output_path):
         writer.writerows(rows)
 
 
+def read_list_file(path):
+    """One path per line. Blank lines ignored; every named file must be here."""
+    paths = []
+    for number, line in enumerate(Path(path).read_text().splitlines(), start=1):
+        name = line.strip()
+        if not name:
+            continue
+        candidate = Path(name)
+        if not candidate.exists():
+            raise SystemExit(f"[ERROR] {path} line {number} names a file that is not here: {name}")
+        paths.append(candidate)
+    return paths
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
             "Combine per-sample species-by-clb direct-support tables."
         )
     )
+    # F02: one filename per input overflows the OS argument limit on a large cohort.
+    # --species-files-from passes a single file listing them instead.
     parser.add_argument(
         "--species-files",
         nargs="+",
-        required=True,
+        default=[],
         type=Path,
+    )
+    parser.add_argument(
+        "--species-files-from",
+        default=None,
+        type=Path,
+        help="file of per-sample table paths, one per line (preferred)",
     )
     parser.add_argument(
         "--species-output",
         required=True,
         type=Path,
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if bool(args.species_files) == bool(args.species_files_from):
+        parser.error("give exactly one of --species-files or --species-files-from")
+    if args.species_files_from:
+        args.species_files = read_list_file(args.species_files_from)
+    return args
 
 
 def main():

@@ -1,0 +1,9 @@
+sample	clbA	clbB	clbC	clbD	clbE	clbF	clbG	clbH	clbI	clbJ	clbK	clbL	clbM	clbN	clbO	clbP	clbQ	clbR	clbS	pks_reads	genes_detected	island_breadth_1x	island_breadth_2x	island_breadth_3x	read_evidence	megahit_supporting_contigs	metaspades_supporting_contigs	megahit_reference_coverage	metaspades_reference_coverage	assembler_agreement	final_structural_evidence
+SYNTHETIC_01	29	29	29	29	29	29	29	29	29	29	29	29	29	29	0	0	0	0	0	412	14	0.310000	0.155000	0.103333	extensive_island	0	0	0.930000	0.910000	concordant	complete_island
+SYNTHETIC_02	17	17	17	17	17	17	17	17	17	17	17	0	0	0	0	0	0	0	0	188	11	0.190000	0.095000	0.063333	extensive_island	0	0	0.930000	0.910000	concordant	complete_island
+SYNTHETIC_03	7	7	7	7	7	7	7	7	7	0	0	0	0	0	0	0	0	0	0	64	9	0.110000	0.055000	0.036667	broad_island	0	0	0.930000	0.910000	concordant	complete_island
+SYNTHETIC_04	4	4	4	4	4	4	4	4	0	0	0	0	0	0	0	0	0	0	0	37	8	0.082000	0.041000	0.027333	broad_island	0	0	0.930000	0.910000	concordant	complete_island
+SYNTHETIC_05	3	3	3	3	3	0	0	0	0	0	0	0	0	0	0	0	0	0	0	19	5	0.041000	0.020500	0.013667	multi_gene	0	0	0.000000	0.000000		
+SYNTHETIC_06	2	2	2	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	8	3	0.013000	0.006500	0.004333	multi_gene	0	0	0.000000	0.000000		
+SYNTHETIC_07	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	3	2	0.004000	0.002000	0.001333	localized_indeterminate	0	0	0.000000	0.000000		
+SYNTHETIC_08	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0.000000	0.000000	0.000000	negative	0	0	0.000000	0.000000		

@@ -26,6 +26,11 @@ by_sample/<sample>/
 ├── counts.txt              reads per clb gene
 ├── coverage.txt            island coverage
 ├── alignment/              sorted.bam, .bai, .sam, coverage.bedgraph, alignment.qc.tsv
+│                           coverage.bedgraph is **raw per-bin depth** over reads that
+│                           aligned to the island reference at MAPQ >= 40. It is not a
+│                           library-normalised abundance and is not comparable between
+│                           samples; it drives the circos figure only. Gene counts are
+│                           the primary read-level evidence.
 ├── hmm/                    nhmmscan tblout, hmm_counts.tsv, qc       --profiling_method hmm
 ├── contigs/                                                          (step 4, tumour)
 │   ├── recruitment/        recruited read counts
@@ -92,7 +97,7 @@ Column groups appear only when the stage that produces them ran:
 
 | Group | Columns |
 |---|---|
-| read profiling | `input_reads`, `reads_after_*`, `num_clb_genes_*`, `reads_clb_genes_*` |
+| read profiling | `input_alignment_records`, `total_primary_reads`, `extracted_unmapped_reads`, `filter_input_reads`, `reads_after_*`, `num_clb_genes_*`, `reads_clb_genes_*` |
 | evidence tier | `read_evidence`, `pks_reads`, `clb_genes_detected`, `island_breadth_1x` |
 | contig reassembly | `final_structural_evidence`, `assembler_agreement` |
 | draft genomes | `mag_bins_total`, `mag_bins_pks_positive`, `pks_mag_taxonomy`, `pks_mag_completeness`, `pks_mag_clb_genes` |
@@ -127,7 +132,13 @@ warning.
 | Column | Meaning |
 |---|---|
 | `Sample` | sample identifier, as given in the sheet's `patient` column |
-| `input_reads` | primary records in the input alignment; for FASTQ input, reads entering fastp |
+| `input_alignment_records` | records in the input alignment, from its index — secondary and supplementary included. Absent for FASTQ input and when the alignment has no index |
+| `total_primary_reads` | exact count of primary records in the input alignment. Only written with `--exact_input_counts`, which costs a second decode of every input |
+| `extracted_unmapped_reads` | reads extraction wrote out |
+| `filter_input_reads` | reads entering fastp. For alignment input this equals the extracted count; for FASTQ input it is the library |
+| `taxonomy_status` | why a sample is or is not in the species table: `no_pks_reads`, `below_rank_threshold`, `no_species_identified`, `species_identified`. `NA` when taxonomy did not run |
+| `clb_species_reported` | how many species that sample contributed to `pks.clb_species_support.tsv` |
+| `reads_mapped_ihe3034` | reads that mapped to the reference at all, at MAPQ ≥ 40 — the denominator the *clb* counts sit inside |
 | `unmapped_reads` | unmapped primary records extracted (`-f 4 -F 2304`) |
 | `reads_after_fastp` | surviving adapter and quality filtering |
 | `reads_after_hg38` | surviving GRCh38 depletion |

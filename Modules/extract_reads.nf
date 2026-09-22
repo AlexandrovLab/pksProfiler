@@ -19,6 +19,8 @@ process extractReads {
     
 	script:
 	"""
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # cram_reference ${params.dep_digest?.cram_reference}  scripts ${params.dep_digest?.scripts}
 	set -euo pipefail
 
 		READS="${sampleID}.UNMAPPED.fastq.gz"
@@ -68,16 +70,16 @@ process extractReads {
     awk 'END { print int(NR / 4) }' < extract.count.fifo > extract.count &
     EXTRACT_COUNTER=\$!
 
-    # -0 /dev/null reproduces the old "samtools fastq -o FILE" behaviour exactly:
-    # READ_OTHER records (neither READ1 nor READ2) were never written to the
-    # output FASTQ, they leaked to the task's stdout. Preserved deliberately so
-    # this stays a pure performance change -- see the note in RELEASE_NOTES.
+    # No -o / -0 / -s: every category -- READ1, READ2, READ_OTHER and singletons
+    # -- goes to stdout, which is captured below. -o writes only READ1/READ2 and
+    # -0 only READ_OTHER, so naming either one silently drops the rest. Records
+    # with neither mate bit set (unpaired input) or with both set are READ_OTHER;
+    # they were discarded until 2026-09-20. See Ludmil's audit, F01.
     if ! samtools fastq \
         -@ "${task.cpus}" \
 	        -N \
 	        -f 4 \
 	        -F 2304 \
-	        -0 /dev/null \
 	        "\${REFERENCE_ARGS[@]}" \
 	        "${alignment}" |
     tee extract.count.fifo |
@@ -92,7 +94,31 @@ process extractReads {
 		bgzip -t "\$READS"
 		UNMAPPED_READS=\$(cat extract.count)
 
+	# F09: a library denominator that does not come from the extraction itself. The QC
+	# summary used to fall back to the post-extraction count, so the table could not show
+	# how much of the library was dropped -- which is why F01 stayed invisible in QC.
+	#
+	# idxstats reads the index only, so this costs milliseconds rather than a second
+	# decode of a 66 GiB CRAM. It counts alignment *records*, secondary and supplementary
+	# included, and it needs an index; both are why the metric is named for what it is,
+	# and why it is simply absent when it cannot be had rather than being stood in for.
+	INPUT_RECORDS=""
+	if samtools idxstats "\${REFERENCE_ARGS[@]}" "${alignment}" > input.idxstats 2>/dev/null; then
+	    INPUT_RECORDS=\$(awk '{ total += \$3 + \$4 } END { print total + 0 }' input.idxstats)
+	fi
+
+	TOTAL_PRIMARY=""
+	if [[ "${params.exact_input_counts}" == "true" ]]; then
+	    TOTAL_PRIMARY=\$(samtools view -c -@ "${task.cpus}" -F 2304 "\${REFERENCE_ARGS[@]}" "${alignment}")
+	fi
+
 	printf "Sample\tMetric\tValue\n" > "\$QC"
+	if [[ -n "\$INPUT_RECORDS" ]]; then
+	    printf "%s\tinput_alignment_records\t%s\n" "${sampleID}" "\$INPUT_RECORDS" >> "\$QC"
+	fi
+	if [[ -n "\$TOTAL_PRIMARY" ]]; then
+	    printf "%s\ttotal_primary_reads\t%s\n" "${sampleID}" "\$TOTAL_PRIMARY" >> "\$QC"
+	fi
 	printf "%s\textracted_unmapped_reads\t%s\n" "${sampleID}" "\$UNMAPPED_READS" >> "\$QC"
 	"""
 }

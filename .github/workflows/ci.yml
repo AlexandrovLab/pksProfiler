@@ -42,5 +42,17 @@ jobs:
           version: "24.10.0"
       - name: Compile the workflow
         run: nextflow run main.nf --help
+      - name: Build the workflow graph for each flag combination
+        # `--help` compiles the script; it does not wire the channels. A defect like the
+        # Bracken multi-channel one (21 September) compiles cleanly and dies when the
+        # graph is built, so -preview is the cheapest place to catch it. Stand-in
+        # reference files satisfy the existence checks; -preview opens none of them, and
+        # the combinations needing a real database are skipped and named.
+        run: |
+          mkdir -p ci-refs
+          # The names the script looks for under DB_ROOT.
+          printf 'x' > ci-refs/human-GRC-db.mmi
+          printf 'x' > ci-refs/human-GCA-phix-db.mmi
+          DB_ROOT="$PWD/ci-refs" bash tests/check_workflow_construction.sh
       - name: Validation regression checks
         run: bash tests/run_checks.sh

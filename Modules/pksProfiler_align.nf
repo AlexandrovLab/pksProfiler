@@ -19,7 +19,6 @@ process pksProfiler_align {
           path("${sampleID}.counts.txt"),
 	      path("${sampleID}.sorted.bam"),
 	      path("${sampleID}.sorted.bam.bai"),
-	      path("${sampleID}.sam"),
           emit: profile
     tuple val(sampleID), path("${sampleID}.alignment.qc.tsv"), emit: qc
 
@@ -29,10 +28,11 @@ process pksProfiler_align {
     def counts       = "${sampleID}.counts.txt"
     def bam          = "${sampleID}.sorted.bam"
 	def bai          = "${sampleID}.sorted.bam.bai"
-    def sam          = "${sampleID}.sam"
     def qc           = "${sampleID}.alignment.qc.tsv"
 
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # pks_annotation ${params.dep_digest?.pks_annotation}  pks_genome ${params.dep_digest?.pks_genome}  scripts ${params.dep_digest?.scripts}
 	    set -euo pipefail
 
 	# Build and validate the exact manuscript-facing clbA-clbS annotation.
@@ -49,10 +49,14 @@ process pksProfiler_align {
     fi
 
     echo "Bowtie2 Alignment (sample: ${sampleID})"
+    # F18: bowtie2 streams straight into the sorter. The SAM was written to disk, kept
+    # as a process output, published beside the BAM that duplicates it, and read by
+    # nothing -- main.nf destructured it and dropped it. At cohort scale that is one
+    # redundant alignment file per sample.
     bowtie2 -x "${params.pks_genome}" -q -U "${reads}" \
-        --seed 42 --threads "${task.cpus}" --very-sensitive --no-unal -S "${sam}"
-
-    samtools view -@ "${task.cpus}" -bS -q 40 "${sam}" | samtools sort -@ "${task.cpus}" -o "${bam}" -
+        --seed 42 --threads "${task.cpus}" --very-sensitive --no-unal \
+      | samtools view -@ "${task.cpus}" -bS -q 40 - \
+      | samtools sort -@ "${task.cpus}" -o "${bam}" -
     samtools index -@ "${task.cpus}" "${bam}" "${bai}"
 
     MAPPED_READS=\$(samtools view -c -F 4 "${bam}")
@@ -74,28 +78,17 @@ process pksProfiler_align {
         --counts "${counts}" \
         --summary "${counts}.summary"
 
-    awk -F '\t' '
-        BEGIN { OFS="\t" }
-        \$0 !~ /^#/ && \$3 == "gene" && \$9 ~ /(^|;)Name=clb[A-S](;|\$)/ {
-            gene=""
-            n=split(\$9, attributes, ";")
-            for (i=1; i<=n; i++) {
-                if (attributes[i] ~ /^Name=/) {
-                    sub(/^Name=/, "", attributes[i])
-                    gene=attributes[i]
-                }
-            }
-            if (gene != "") print \$1, \$4-1, \$5, gene
-        }
-    ' "${params.pks_genome_annotation}" > clb_genes.qc.bed
-
-    CLB_READS=\$(
-        bedtools bamtobed -i "${bam}" |
-        bedtools intersect -a - -b clb_genes.qc.bed -u |
-        cut -f4 |
-        sort -u |
-        wc -l
-    )
+    # F14: one rule, and it is featureCounts'. --largestOverlap already assigns each
+    # read to exactly one clb gene; the QC count is the sum of that assignment, so it
+    # cannot disagree with the matrix it sits beside -- it *is* the matrix column
+    # total. This used to be recomputed with `bedtools intersect -u`, which counted
+    # every read touching any clb gene: a different quantity, higher than the counts
+    # table, with nothing saying so. num_clb_genes_align was already derived from this
+    # same file.
+    CLB_READS=\$(awk -F '\t' '
+        \$1 ~ /^clb[A-S]\$/ { total += \$NF + 0 }
+        END { print total + 0 }
+    ' "${counts}")
 
     CLB_GENES_DETECTED=\$(awk -F '\t' '
         \$1 ~ /^clb[A-S]\$/ && (\$NF + 0) > 0 { count++ }
@@ -103,6 +96,9 @@ process pksProfiler_align {
     ' "${counts}")
 
     printf "Sample\tMetric\tValue\n" > "${qc}"
+    # F09: computed since v0.0.1 and used only for a zero check. It is the reads that
+    # mapped to the reference at all -- the denominator the clb counts sit inside.
+    printf "%s\treads_mapped_ihe3034\t%s\n" "${sampleID}" "\$MAPPED_READS" >> "${qc}"
     printf "%s\treads_clb_genes_align\t%s\n" "${sampleID}" "\$CLB_READS" >> "${qc}"
     printf "%s\tnum_clb_genes_align\t%s\n" "${sampleID}" "\$CLB_GENES_DETECTED" >> "${qc}"
 
@@ -111,19 +107,32 @@ process pksProfiler_align {
         : > "${coverage}"
         : > "${bedtools_cov}"
     else
+        # F13: raw depth, not RPKM. RPKM's "per million mapped reads" denominator here
+        # is reads that mapped to the island reference at MAPQ >= 40 -- not the library
+        # -- so the number was the share of island-mapped reads in a bin while the unit
+        # name claimed library-normalised abundance. Two samples were not comparable on
+        # it, and it read as though they were. Raw depth says what it is.
+        #
+        # This track feeds the circos figure only. Breadth and the evidence tiers come
+        # from samtools depth in pks_targeted.nf, so no called result changes.
         bamCoverage \
 			--numberOfProcessors "${task.cpus}" \
             -b "${bam}" \
             -o "${coverage}" \
-            --normalizeUsing RPKM \
+            --normalizeUsing None \
             --outFileFormat bedgraph
 
         python "${params.scripts}/validate_bedgraph.py" "${coverage}"
 
-        bedtools genomecov \
-            -ibam "${bam}" \
-            -d \
-            > "${bedtools_cov}"
+        # F18: per-base depth over the island, not the whole 5.1 Mb reference.
+        # `bedtools genomecov -d` wrote one line per base of the genome -- about 5.1
+        # million lines per sample, of which the 50,767 bp island is 1%. Nothing reads
+        # the file: classifyPksReadEvidence takes it as an input, passes it straight to
+        # its own output, and recomputes depth from the BAM. This is the same tool and
+        # the same filters that recomputation uses, so the two now agree by construction.
+        samtools depth -aa -s -Q 40 \
+            -r "${params.pks_contig}:${params.pks_shift.toString().toInteger() + 1}-${params.pks_shift.toString().toInteger() + params.pks_island_len.toString().toInteger()}" \
+            "${bam}" > "${bedtools_cov}"
     fi
     """
 }

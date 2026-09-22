@@ -146,6 +146,8 @@ process checkm2Predict {
 
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # checkm2_db ${params.dep_digest?.checkm2_db}
     set -euo pipefail
     mkdir -p bin_input
     for b in ${bins}; do ln -s \$(realpath \$b) bin_input/; done
@@ -173,6 +175,8 @@ process gtdbtkClassify {
 
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # gtdbtk_db ${params.dep_digest?.gtdbtk_db}
     set -euo pipefail
     mkdir -p bin_input gtdbtk_out
     for b in ${bins}; do ln -s \$(realpath \$b) bin_input/; done
@@ -224,17 +228,26 @@ process hmmsearchClb {
 
     output:
     tuple val(sampleID), val(binID), path("${binID}.tblout"), emit: tblout
-    tuple val(sampleID), val(binID), path("${binID}.hit_count.txt"), emit: hit_count
+    tuple val(sampleID), val(binID), path("${binID}.clb_gene_count.txt"), emit: clb_gene_count
 
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # clb_protein_hmm ${params.dep_digest?.clb_protein_hmm}
     set -euo pipefail
     hmmsearch --cpu ${task.cpus} \
         --tblout ${binID}.tblout \
         -E ${params.hmm_protein_evalue} \
         ${params.clb_protein_hmm} \
         ${proteins}
-    grep -vc '^#' ${binID}.tblout > ${binID}.hit_count.txt 2>/dev/null || echo 0 > ${binID}.hit_count.txt
+    # M3: distinct clb genes, not hit lines. `grep -vc '^#'` counted every
+    # protein-to-model match, so one gene matched by three predicted proteins counted
+    # three times and a single line anywhere made the bin pks-positive. This counts the
+    # same quantity build_mag_summary.py reports as clb_genes_detected -- field 3 is the
+    # query model, field 5 the E-value -- so the two agree by construction.
+    awk '!/^#/ && NF>=19 && (\$5+0) <= ${params.hmm_protein_evalue} { genes[\$3]=1 }
+         END { print length(genes)+0 }' ${binID}.tblout > ${binID}.clb_gene_count.txt \
+      || echo 0 > ${binID}.clb_gene_count.txt
     """
 }
 
@@ -254,6 +267,8 @@ process genomadProphages {
 
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # genomad_db ${params.dep_digest?.genomad_db}
     set -euo pipefail
     genomad end-to-end --cleanup --threads ${task.cpus} --splits ${task.cpus} \
         ${bin_fa} genomad_out ${params.genomad_db}
@@ -296,7 +311,9 @@ process communityProphageSummary {
         --tblout-dir tblout_dir \
         --genomad-dir genomad_dir \
         --evalue ${params.hmm_protein_evalue} \
-        --min-clb-genes ${params.community_min_clb_genes} \
+        --min-clb-genes ${params.mag_min_clb_genes} \
+        --min-provirus-length ${params.provirus_min_length_bp} \
+        --min-provirus-hallmarks ${params.provirus_min_hallmarks} \
         --prophage-out ${sampleID}.community_prophage_inventory.tsv \
         --interaction-out ${sampleID}.pks_community_interactions.tsv \
         --mobility-out ${sampleID}.pks_island_mobility.tsv
@@ -459,13 +476,15 @@ workflow pksMAG {
     // 8. hmmsearch vs clb protein HMM (per bin, on prokka proteins)
     hmmsearchClb(prokkaAnnotate.out.faa_for_hmm)
 
-    // 9. Filter to pks+ bins using hit_count (avoids reading tblouts in the driver JVM)
+    // 9. Filter to pks+ bins on the distinct-gene count (avoids reading tblouts in the
+    // driver JVM). M3: one definition of pks-positive, shared with the status count
+    // below and with community producer selection -- params.mag_min_clb_genes.
     pks_pos_tblout_ch = hmmsearchClb.out.tblout
-        .join(hmmsearchClb.out.hit_count, by: [0, 1])
-        .filter { sampleID, binID, tblout, hit_count ->
-            hit_count.text.trim() as Integer > 0
+        .join(hmmsearchClb.out.clb_gene_count, by: [0, 1])
+        .filter { sampleID, binID, tblout, gene_count ->
+            (gene_count.text.trim() as Integer) >= (params.mag_min_clb_genes as Integer)
         }
-        .map { sampleID, binID, tblout, hit_count -> tuple(sampleID, binID, tblout) }
+        .map { sampleID, binID, tblout, gene_count -> tuple(sampleID, binID, tblout) }
 
     // 10. Genomic context (prokka GFF + tblout joined per pks+ bin; locus_tags now match)
     extractGenomicContext(prokkaAnnotate.out.gff.join(pks_pos_tblout_ch, by: [0, 1]))
@@ -505,9 +524,9 @@ workflow pksMAG {
     assembly_binning_counts_ch = no_contig_counts_ch
         .mix(binned_assembly_counts_ch)
 
-    pks_positive_bin_counts_ch = hmmsearchClb.out.hit_count
-        .map { sampleID, _binID, hit_count ->
-            tuple(sampleID, hit_count.text.trim().toInteger() > 0 ? 1 : 0)
+    pks_positive_bin_counts_ch = hmmsearchClb.out.clb_gene_count
+        .map { sampleID, _binID, gene_count ->
+            tuple(sampleID, gene_count.text.trim().toInteger() >= (params.mag_min_clb_genes as Integer) ? 1 : 0)
         }
         .groupTuple(by: 0)
         .map { sampleID, flags -> tuple(sampleID, flags.sum() as Integer) }
@@ -603,6 +622,8 @@ process hmmsearchTumorContigs {
 
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # clb_protein_hmm ${params.dep_digest?.clb_protein_hmm}
     set -euo pipefail
     hmmsearch --cpu ${task.cpus} --tblout ${sampleID}.contigs.clb.tblout \
         -E ${params.hmm_protein_evalue} ${params.clb_protein_hmm} ${proteins}
@@ -623,6 +644,8 @@ process genomadTumorContigs {
 
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # genomad_db ${params.dep_digest?.genomad_db}
     set -euo pipefail
     genomad end-to-end --cleanup --threads ${task.cpus} --splits ${task.cpus} \
         ${contigs} genomad_out ${params.genomad_db}
@@ -653,6 +676,8 @@ process tumorContigContext {
         --gff ${gff} --tblout ${tblout} --evalue ${params.hmm_protein_evalue} \
         --window ${params.context_window_bp} \
         --genomad ${virusSummary} \
+        --min-provirus-length ${params.provirus_min_length_bp} \
+        --min-provirus-hallmarks ${params.provirus_min_hallmarks} \
         --out ${sampleID}.contig_pks_context.tsv
     awk -F '\\t' 'BEGIN{OFS="\\t"} NR==1{print "sample","locus_tag","clb_gene","contig","has_integrase","has_transposase","nearby_trna","in_prophage","prophage_id","prophage_virus_score"; next} {print "${sampleID}",\$1,\$2,\$4,\$5,\$6,\$7,\$8,\$9,\$10}' \
         ${sampleID}.contig_pks_context.tsv > ${sampleID}.contig_pks_mobility.tsv

@@ -26,7 +26,7 @@ def write(path, header, rows, delim="\t"):
 def minimal(root):
     """Only read profiling — the smallest real run."""
     write(root / "cohort/qc/pks.qc.summary.tsv",
-          ["Sample", "input_reads", "reads_after_fastp", "reads_after_hg38",
+          ["Sample", "input_alignment_records", "reads_after_fastp", "reads_after_hg38",
            "reads_after_t2t_phix", "num_clb_genes_align", "reads_clb_genes_align",
            "num_clb_genes_hmm", "reads_clb_genes_hmm"],
           [["S1", "1000", "990", "500", "480", "15", "1497", "NA", "NA"],

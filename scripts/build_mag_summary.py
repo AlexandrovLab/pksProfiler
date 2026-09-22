@@ -14,7 +14,7 @@ ENTEROBACTERALES = "o__Enterobacterales"
 
 FIELDNAMES = [
     "sample", "bin_id", "taxonomy", "completeness", "contamination",
-    "genome_size", "clb_genes_detected", "clb_genes", "best_evalue",
+    "genome_size", "contig_n50", "clb_genes_detected", "clb_genes", "best_evalue",
     "has_integrase", "has_transposase", "flanking_genes", "unexpected_taxon_flag",
 ]
 
@@ -25,15 +25,37 @@ def is_unexpected_taxon(taxonomy):
     return taxonomy not in ("unclassified", "") and ENTEROBACTERALES not in taxonomy
 
 
+# CheckM2 writes these, capitalised exactly so -- see checkm2/predictQuality.py,
+# which sets final_results['Genome_Size'] and final_results['Contig_N50'].
+CHECKM2_REQUIRED = ("Name", "Completeness", "Contamination", "Genome_Size", "Contig_N50")
+
+
 def parse_checkm2(tsv_path):
+    """
+    M4: this used `row.get("Genome_size", 0)` -- lowercase s, which CheckM2 has never
+    written. The lookup never matched and the default turned a schema mismatch into a
+    measurement: genome_size was 0 for all 8 bins of the v0.0.2 test, which also removed
+    the cheapest sanity check on a bin (an E. coli MAG should be ~4.6 Mb, not 200 kb).
+
+    A missing column now raises. A quality report we cannot read is a broken run, not a
+    genome of size zero.
+    """
     result = {}
     with open(tsv_path) as fh:
         reader = csv.DictReader(fh, delimiter="\t")
+        observed = list(reader.fieldnames or [])
+        missing = [column for column in CHECKM2_REQUIRED if column not in observed]
+        if missing:
+            raise ValueError(
+                f"CheckM2 report {tsv_path} is missing {', '.join(missing)}. "
+                f"Columns present: {', '.join(observed) or 'none'}"
+            )
         for row in reader:
             result[row["Name"]] = {
                 "completeness": float(row["Completeness"]),
                 "contamination": float(row["Contamination"]),
-                "genome_size": int(row.get("Genome_size", 0)),
+                "genome_size": int(row["Genome_Size"]),
+                "contig_n50": int(row["Contig_N50"]),
             }
     return result
 
@@ -89,7 +111,10 @@ def main():
         clb_genes = sorted(clb_genes_seen.keys())
         best_evalue = min(clb_genes_seen.values())
 
-        qc = checkm2.get(bin_id, {"completeness": 0.0, "contamination": 0.0, "genome_size": 0})
+        # A bin absent from the report is genuinely unmeasured; NA says so, where 0
+        # would read as a measurement.
+        qc = checkm2.get(bin_id, {"completeness": 0.0, "contamination": 0.0,
+                                  "genome_size": "NA", "contig_n50": "NA"})
         taxonomy = gtdbtk.get(bin_id, "unclassified")
         unexpected = is_unexpected_taxon(taxonomy)
 
@@ -106,6 +131,7 @@ def main():
             "completeness": qc["completeness"],
             "contamination": qc["contamination"],
             "genome_size": qc["genome_size"],
+            "contig_n50": qc["contig_n50"],
             "clb_genes_detected": len(clb_genes),
             "clb_genes": ",".join(clb_genes),
             "best_evalue": best_evalue,

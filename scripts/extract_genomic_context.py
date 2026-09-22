@@ -59,12 +59,32 @@ def parse_prokka_rna(gff_path):
     return rnas
 
 
-def parse_genomad_proviruses(path):
-    """geNomad provirus intervals keyed by host contig.
+def provirus_passes(row, min_length, min_hallmarks):
+    """Length and hallmark floors, applied identically here and in the community lane.
 
-    Follows build_community_prophage.py: keep rows whose topology is `provirus`, read the
-    interval from `coordinates`, and recover the host contig by stripping the
-    `|provirus_...` suffix from `seq_name`.
+    T3: geNomad called 134 "viral contigs" on AA-3850, the top hits 369 bp with one
+    gene and one hallmark. That count tracked how fragmented the assembly was, not
+    biology. A provirus must now clear a length and a hallmark-count floor to be
+    reported; a short interval with a single hallmark is assembly noise, and calling
+    it a prophage put mobility claims on top of it.
+    """
+    try:
+        length = int(float(row.get("length") or 0))
+    except ValueError:
+        length = 0
+    try:
+        hallmarks = int(float(row.get("n_hallmarks") or 0))
+    except ValueError:
+        hallmarks = 0
+    return length >= min_length and hallmarks >= min_hallmarks
+
+
+def parse_genomad_proviruses(path, min_length=3000, min_hallmarks=2):
+    """geNomad provirus intervals keyed by host contig, above the noise floors.
+
+    Keeps rows whose topology is `provirus`, reads the interval from `coordinates`,
+    and recovers the host contig by stripping the `|provirus_...` suffix from
+    `seq_name`. See provirus_passes() for why the floors exist.
     """
     proviruses = {}
     if not path:
@@ -72,6 +92,8 @@ def parse_genomad_proviruses(path):
     with open(path) as fh:
         for row in csv.DictReader(fh, delimiter="\t"):
             if (row.get("topology") or "").lower() != "provirus":
+                continue
+            if not provirus_passes(row, min_length, min_hallmarks):
                 continue
             match = re.fullmatch(r"(\d+)-(\d+)", (row.get("coordinates") or "").strip())
             if not match:
@@ -129,6 +151,10 @@ def main():
     parser.add_argument("--tblout", required=True)
     parser.add_argument("--evalue", type=float, default=1e-5)
     parser.add_argument("--window", type=int, default=50000)
+    parser.add_argument("--min-provirus-length", type=int, default=3000,
+                        help="T3: shortest geNomad provirus interval reported as one")
+    parser.add_argument("--min-provirus-hallmarks", type=int, default=2,
+                        help="T3: fewest viral hallmark genes for a provirus call")
     parser.add_argument("--genomad", default=None,
                         help="geNomad virus_summary.tsv; enables provirus overlap columns")
     parser.add_argument("--out", required=True)
@@ -136,7 +162,8 @@ def main():
 
     genes = parse_prokka_gff(args.gff)
     rnas = parse_prokka_rna(args.gff)
-    proviruses = parse_genomad_proviruses(args.genomad)
+    proviruses = parse_genomad_proviruses(
+        args.genomad, args.min_provirus_length, args.min_provirus_hallmarks)
     hits = parse_hmmsearch_tblout(args.tblout, args.evalue)
 
     tag_to_gene = {g["locus_tag"]: g for g in genes}

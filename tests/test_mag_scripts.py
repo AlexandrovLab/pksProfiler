@@ -130,10 +130,13 @@ class TestExtractGenomicContext(unittest.TestCase):
 # build_mag_summary
 # ---------------------------------------------------------------------------
 
+# Column names exactly as CheckM2 writes them (checkm2/predictQuality.py). The
+# previous fixture said "Genome_size", matching the bug in the reader rather than the
+# tool -- which is how M4 stayed hidden while this test passed.
 CHECKM2_CONTENT = """\
-Name\tCompleteness\tContamination\tGenome_size
-bin_001\t92.5\t1.2\t4500000
-bin_002\t45.0\t8.0\t2100000
+Name\tCompleteness\tContamination\tGenome_Size\tContig_N50
+bin_001\t92.5\t1.2\t4500000\t125000
+bin_002\t45.0\t8.0\t2100000\t18000
 """
 
 GTDBTK_CONTENT = """\
@@ -237,10 +240,14 @@ class TestBuildMagSummary(unittest.TestCase):
 # build_community_prophage
 # ---------------------------------------------------------------------------
 
+# A realistic provirus: the 401 bp interval this fixture used to carry is below the
+# T3 noise floor, and the length was incidental to what these tests check (that only
+# `provirus` topology is an inventory candidate). The floor itself is covered in
+# tests/test_provirus_noise_floor.py.
 GENOMAD_CONTENT = """\
 seq_name\tlength\ttopology\tcoordinates\tn_genes\tgenetic_code\tvirus_score\tfdr\tn_hallmarks\tmarker_enrichment\ttaxonomy
-contig1|provirus_100_500\t401\tProvirus\t100-500\t8\t11\t0.97\tNA\t3\t10\tViruses;Caudoviricetes
-free_virus\t1000\tNo terminal repeats\tNA\t10\t11\t0.99\tNA\t4\t12\tViruses
+contig1|provirus_100_42100\t42001\tProvirus\t100-42100\t48\t11\t0.97\tNA\t3\t10\tViruses;Caudoviricetes
+free_virus\t35000\tNo terminal repeats\tNA\t40\t11\t0.99\tNA\t4\t12\tViruses
 """
 
 
@@ -260,7 +267,7 @@ class TestCommunityProphage(unittest.TestCase):
             rows = self.mod.read_prophages(summary)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["host_contig"], "contig1")
-        self.assertEqual((rows[0]["start"], rows[0]["end"]), (100, 500))
+        self.assertEqual((rows[0]["start"], rows[0]["end"]), (100, 42100))
 
     def test_sos_markers_come_from_explicit_gene_names(self):
         gff = """##gff-version 3
@@ -320,3 +327,38 @@ x3\t-\tclbS\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
         self.assertEqual(mobility_rows[0]["mobility_interpretation"], "no_local_HGT_marker_detected")
 if __name__ == "__main__":
     unittest.main()
+
+
+class Checkm2SchemaTests(unittest.TestCase):
+    """M4: a report we cannot read is a broken run, not a genome of size zero.
+
+    build_mag_summary read `Genome_size`; CheckM2 writes `Genome_Size`. The lookup
+    never matched, and `.get(..., 0)` turned that into a measurement -- 0 bp for all
+    8 bins of the v0.0.2 test, which also removed the cheapest sanity check on a bin.
+    """
+
+    def setUp(self):
+        self.mod = load_script("build_mag_summary")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "quality_report.tsv"
+
+    def test_the_real_checkm2_column_names_are_read(self):
+        self.path.write_text(CHECKM2_CONTENT)
+        parsed = self.mod.parse_checkm2(self.path)
+        self.assertEqual(parsed["bin_001"]["genome_size"], 4500000)
+        self.assertEqual(parsed["bin_001"]["contig_n50"], 125000)
+
+    def test_a_missing_column_raises_instead_of_yielding_zero(self):
+        self.path.write_text("Name\tCompleteness\tContamination\n bin_001\t92.5\t1.2\n")
+        with self.assertRaises(ValueError) as caught:
+            self.mod.parse_checkm2(self.path)
+        self.assertIn("Genome_Size", str(caught.exception))
+        self.assertIn("Columns present", str(caught.exception))
+
+    def test_the_old_lowercase_spelling_is_not_silently_accepted(self):
+        # Exactly the schema the buggy reader expected.
+        self.path.write_text("Name\tCompleteness\tContamination\tGenome_size\n"
+                             "bin_001\t92.5\t1.2\t4500000\n")
+        with self.assertRaises(ValueError):
+            self.mod.parse_checkm2(self.path)

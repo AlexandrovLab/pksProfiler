@@ -108,11 +108,26 @@ def mobility_evidence(gff_path, tblout_path, evalue):
         "nearby_trna": close_to_clb(trnas, 10000),
     }
 
-def read_prophages(path):
+def read_prophages(path, min_length=3000, min_hallmarks=2):
+    """Provirus intervals above the length and hallmark floors.
+
+    T3: geNomad called 134 "viral contigs" on AA-3850, the top hits 369 bp with one
+    gene and one hallmark. That count tracked how fragmented the assembly was, not
+    biology. A provirus must now clear a length and a hallmark-count floor to be
+    reported; a short interval with a single hallmark is assembly noise, and calling
+    it a prophage put mobility claims on top of it.
+    """
     rows = []
     with open(path) as fh:
         for row in csv.DictReader(fh, delimiter="\t"):
             if row.get("topology", "").lower() != "provirus":
+                continue
+            try:
+                length_bp = int(float(row.get("length") or 0))
+                hallmarks = int(float(row.get("n_hallmarks") or 0))
+            except ValueError:
+                continue
+            if length_bp < min_length or hallmarks < min_hallmarks:
                 continue
             match = re.fullmatch(r"(\d+)-(\d+)", row.get("coordinates", ""))
             if not match:
@@ -147,6 +162,8 @@ def main():
     parser.add_argument("--genomad-dir", required=True)
     parser.add_argument("--evalue", type=float, default=1e-5)
     parser.add_argument("--min-clb-genes", type=int, default=3)
+    parser.add_argument("--min-provirus-length", type=int, default=3000)
+    parser.add_argument("--min-provirus-hallmarks", type=int, default=2)
     parser.add_argument("--prophage-out", required=True)
     parser.add_argument("--interaction-out", required=True)
     parser.add_argument("--mobility-out", required=True)
@@ -163,7 +180,8 @@ def main():
         bins[bin_id] = {
             "taxonomy": taxonomy.get(bin_id, "unclassified"),
             "clb_genes": genes, "clbS_like": clb_s,
-            "recA": rec_a, "lexA": lex_a, "prophages": read_prophages(summary),
+            "recA": rec_a, "lexA": lex_a, "prophages": read_prophages(summary, args.min_provirus_length,
+                                        args.min_provirus_hallmarks),
             "mobility": mobility_evidence(gff, tblout, args.evalue),
         }
 

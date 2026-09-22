@@ -152,7 +152,7 @@ class QCSummaryTests(unittest.TestCase):
             sample = "bam_sample"
             fragments = []
             stages = [
-                [("bam_input_primary_records", 1000), ("extracted_unmapped_reads", 200)],
+                [("input_alignment_records", 1000), ("extracted_unmapped_reads", 200)],
                 [("filter_input_reads", 200), ("reads_after_fastp", 180)],
                 [("reads_after_hg38", 120), ("reads_after_t2t_phix", 110)],
                 [
@@ -173,8 +173,10 @@ class QCSummaryTests(unittest.TestCase):
             with output.open(newline="") as handle:
                 row = next(csv.DictReader(handle, delimiter="\t"))
 
-        self.assertEqual(row["input_reads"], "1000")
-        self.assertEqual(row["unmapped_reads"], "200")
+        # F09: the alignment denominator and the extracted count are separate columns,
+        # and neither stands in for the other.
+        self.assertEqual(row["input_alignment_records"], "1000")
+        self.assertEqual(row["extracted_unmapped_reads"], "200")
         self.assertEqual(row["reads_after_fastp"], "180")
         self.assertEqual(row["reads_after_hg38"], "120")
         self.assertEqual(row["reads_after_t2t_phix"], "110")
@@ -219,8 +221,11 @@ class QCSummaryTests(unittest.TestCase):
             with output.open(newline="") as handle:
                 row = next(csv.DictReader(handle, delimiter="\t"))
 
-        self.assertEqual(row["input_reads"], "400")
-        self.assertEqual(row["unmapped_reads"], "400")
+        # FASTQ input has no alignment to count, so that column is NA rather than
+        # being filled in with the post-fastp number.
+        self.assertEqual(row["filter_input_reads"], "400")
+        self.assertEqual(row["input_alignment_records"], "NA")
+        self.assertEqual(row["extracted_unmapped_reads"], "NA")
         self.assertEqual(row["reads_clb_genes_align"], "NA")
         self.assertEqual(row["num_clb_genes_align"], "NA")
         self.assertEqual(row["reads_clb_genes_hmm"], "17")

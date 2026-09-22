@@ -1,0 +1,9 @@
+Sample	input_alignment_records	total_primary_reads	extracted_unmapped_reads	filter_input_reads	reads_after_fastp	reads_after_hg38	reads_after_t2t_phix	reads_after_pangenome	num_clb_genes_align	reads_clb_genes_align	num_clb_genes_hmm	reads_clb_genes_hmm	hmm_ambiguous_reads	taxonomy_status	clb_species_reported	status
+SYNTHETIC_01	921440112	908112004	14882301	14882301	14701118	612447	318902	NA	14	412	13	398	2	species_identified	1	complete
+SYNTHETIC_02	884200318	871004882	13114920	13114920	12988441	548112	271006	NA	11	188	11	181	0	species_identified	1	complete
+SYNTHETIC_03	903118774	890442113	15220881	15220881	15042007	601338	296115	NA	9	64	8	61	1	species_identified	1	complete
+SYNTHETIC_04	870552901	858119447	12904663	12904663	12781220	533907	262884	NA	8	37	8	35	0	below_rank_threshold	0	complete
+SYNTHETIC_05	912004556	899887120	14003119	14003119	13866402	579441	284773	NA	5	19	5	19	0	below_rank_threshold	0	complete
+SYNTHETIC_06	895331208	882774915	13551007	13551007	13411889	561204	276330	NA	3	8	3	8	0	below_rank_threshold	0	complete
+SYNTHETIC_07	878990443	866552771	13002884	13002884	12874119	540662	266041	NA	2	3	2	3	0	no_species_identified	0	complete
+SYNTHETIC_08	889447002	877118336	13774552	13774552	13640775	570119	280447	NA	0	0	0	0	0	no_pks_reads	0	complete

@@ -14,6 +14,8 @@ process plotBrackenTaxa {
 
   script:
   """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # scripts ${params.dep_digest?.scripts}
   set -euo pipefail
 
   python3 "${params.scripts}/plot_bracken_taxa.py" \

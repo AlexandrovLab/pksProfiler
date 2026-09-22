@@ -17,11 +17,15 @@ process plotPKS {
 
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # pks_cytoband ${params.dep_digest?.pks_cytoband}  scripts ${params.dep_digest?.scripts}
 	coverage_basename="\$(basename "${coverage_file}")"
 	sample_name="\${coverage_basename%.coverage.bedgraph}"
 	output_pdf="\${sample_name}.pks.circos.pdf"
 
-    Rscript "${params.scripts}/plotPKS.R" ${coverage_file} "${params.pks_cytoband}" "\${output_pdf}"
+    Rscript "${params.scripts}/plotPKS.R" ${coverage_file} "${params.pks_cytoband}" "\${output_pdf}" \
+        "${params.pks_contig}" "${params.pks_shift}" \
+        "${params.pks_shift.toString().toInteger() + params.pks_island_len.toString().toInteger()}"
     """
 }
 
@@ -33,17 +37,22 @@ process masterTableAlign {
 
     input:
     path(count_files)
+    path(manifest)
 
     output:
     path "pks.gene.counts.align.txt"
 
 	script:
-    def inputs = count_files.collect { file -> file.toString() }.join(' ')
-
-
+    // The manifest pairs each staged counts file with the sample identifier that came
+    // from the sample sheet, so the merge never reconstructs a name (F03). It is also
+    // one filename on the command line instead of one per sample (F02).
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # scripts ${params.dep_digest?.scripts}
 	echo "Building Gene-by-Sample alignment summary"
-    python "${params.scripts}/mergeGeneCounts.py" ${inputs} pks.gene.counts.align.txt
+    python "${params.scripts}/mergeGeneCounts.py" \
+        --manifest "${manifest}" \
+        --output pks.gene.counts.align.txt
     """
 }
 
@@ -57,18 +66,18 @@ process masterTableHMM {
 
     input:
     path(count_files)
+    path(manifest)
 
     output:
     path "pks.gene.counts.hmm.txt"
 
     script:
-    def inputs = count_files.collect { file -> file.toString() }.join(' ')
-
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # scripts ${params.dep_digest?.scripts}
     python3 "${params.scripts}/build_hmm_matrix.py" \
-      --inputs ${inputs} \
-      --out pks.gene.counts.hmm.txt \
-      --strip-suffix ".hmm_counts.tsv"
+      --manifest "${manifest}" \
+      --out pks.gene.counts.hmm.txt
     """
 }
 
@@ -82,19 +91,53 @@ process masterQCSummary {
     path(qc_files)
     path(qc_script)
     path(expected_samples)
+    path(fragment_list)
 
     output:
     path "pks.qc.summary.tsv"
 
     script:
-    def inputs = qc_files.collect { file -> "\"${file}\"" }.join(' ')
-
+    // F02: one filename per fragment on the command line overflows the OS argument
+    // limit on a cohort of this size. The fragments arrive as one list file.
     """
     set -euo pipefail
 
     python3 "${qc_script}" \
-        --inputs ${inputs} \
+        --inputs-file "${fragment_list}" \
         --expected-samples "${expected_samples}" \
         --output pks.qc.summary.tsv
+    """
+}
+
+
+// ─── One page for the whole cohort ────────────────────────────────────────────
+
+process cohortReport {
+    label 'process_low'
+    publishDir "${params.cohort_dir}", mode: 'copy'
+    conda "${params.pks_hmm_env}"
+
+    input:
+    path(results_marker)
+    path(report_script)
+
+    output:
+    path "pks_cohort_report.html", emit: report
+    path "pks_cohort_report.tsv",  emit: table
+
+    script:
+    // Runs against the published tree rather than staged channels: the report is a
+    // view of what the run produced, and reading it back is what makes every value
+    // traceable to a file beside it. It derives nothing.
+    // The task writes to its own working directory and publishDir moves the files to
+    // params.cohort_dir. An earlier version also wrote them into a `cohort/` subdirectory,
+    // which put them one level below where the output declarations look: the script
+    // exited 0, the report existed, and Nextflow failed the task for a missing output.
+    """
+    set -euo pipefail
+    python3 "${report_script}" \
+        --results "${params.outdir}" \
+        --output pks_cohort_report.html \
+        --table  pks_cohort_report.tsv
     """
 }
