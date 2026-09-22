@@ -32,10 +32,10 @@ CRAM references may be embedded or resolved by HTSlib. If that lookup is unavail
 
 ## Outputs to check
 
-- `results_bam/pks_summary/gene_counts/pks.gene.counts.align.txt`
-- `results_bam/pks_summary/coverage_plots/<sample>.pks.circos.pdf` for samples with aligned *pks* reads
-- `results_bam/pks_summary/qc/pks.qc.summary.tsv` for per-sample read attrition and *pks* QC
-- per-sample alignment, count, and coverage files under `results_bam/pks_per_sample/`
+- `results_bam/cohort/gene_counts/pks.gene.counts.align.txt`
+- `results_bam/by_sample/<sample>/figures/circos.pdf` for samples with aligned *pks* reads
+- `results_bam/cohort/qc/pks.qc.summary.tsv` for per-sample read attrition and *pks* QC
+- per-sample alignment, count, and coverage files under `results_bam/by_sample/<sample>/alignment/`
 
 Valid samples without qualifying reads remain in the combined count matrix with zeros.
 Extracted and host-depleted FASTQs are not copied to the results directory by default. Add `--save_intermediates true` if they need to be retained outside the Nextflow work directory.
@@ -51,3 +51,20 @@ nextflow run main.nf -resume [the same options]
 ```
 
 [Return to the main README](../../README.md)
+
+## Reading the gene count table
+
+```text
+results/cohort/gene_counts/pks.gene.counts.align.txt   one row per gene, one column per sample
+results/by_sample/<sample>/figures/circos.pdf  circular map of coverage over the island
+results/cohort/qc/pks.qc.summary.tsv                   how many reads survived each stage
+```
+
+**How to read it.** A sample with zero counts stays in the table as a row of zeros — it does not
+disappear, so you can tell "tested and negative" from "never ran". In the QC summary,
+`reads_clb_genes_align` is the read count that matters and `num_clb_genes_align` is how many of the
+19 genes were seen at all.
+
+> One gene with a couple of reads is not a positive result. Short stretches of *clb* genes resemble
+> sequence found elsewhere, so a small number of reads can appear in a sample with no island.
+> That is the entire reason for step 2.

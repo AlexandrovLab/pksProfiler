@@ -1,0 +1,7 @@
+name: pks_targeted_alignment
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - minimap2=2.28
+  - python=3.11

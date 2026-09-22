@@ -1,7 +1,7 @@
 process extractPksIslandReads {
   label 'process_medium'
   scratch true
-  publishDir "${params.pks_dir}", mode: 'copy'
+  publishDir { "${params.sample_dir}/${sampleID}/taxonomy" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
   conda "${params.pks_align_env}"
 
   input:
@@ -14,6 +14,8 @@ process extractPksIslandReads {
 
   script:
   """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # pks_annotation ${params.dep_digest?.pks_annotation}  scripts ${params.dep_digest?.scripts}
   set -euo pipefail
 
   CHR="${params.pks_contig}"
@@ -31,79 +33,20 @@ process extractPksIslandReads {
     "${bam}" \
     > "${sampleID}.pks.bam"
 
-  # Convert clb gene coordinates from GFF to BED
-  awk -F '\\t' '
-    BEGIN {
-      OFS="\\t"
-    }
+  # F14: one definition of the clb intervals and of read-to-gene assignment, shared
+  # with the alignment lane. The awk this replaces took every feature with a Name,
+  # not only clbA-clbS, so a read over a neighbouring gene was assigned to it here and
+  # ignored there.
+  python3 "${params.scripts}/clb_gene_bed.py" \
+    --annotation "${params.pks_genome_annotation}" \
+    --output clb_genes.bed
 
-    \$0 !~ /^#/ && \$3 == "gene" {
-      gene=""
-      n=split(\$9, attributes, ";")
-
-      for (i=1; i<=n; i++) {
-        if (attributes[i] ~ /^Name=/) {
-          sub(/^Name=/, "", attributes[i])
-          gene=attributes[i]
-        }
-      }
-
-      if (gene != "") {
-        print \$1, \$4-1, \$5, gene
-      }
-    }
-  ' "${params.pks_genome_annotation}" > clb_genes.bed
-
-  # Assign each read/template to the clb gene with the greatest
-  # total aligned-base overlap
-  bedtools bamtobed \
-    -i "${sampleID}.pks.bam" |
-    bedtools intersect \
-      -a - \
-      -b clb_genes.bed \
-      -wo |
-    awk '
-      BEGIN {
-        OFS="\\t"
-      }
-
-      {
-        read_id=\$4
-        gene=\$10
-        overlap=\$11+0
-        total[read_id SUBSEP gene] += overlap
-      }
-
-      END {
-        for (key in total) {
-          split(key, fields, SUBSEP)
-
-          read_id=fields[1]
-          gene=fields[2]
-          overlap=total[key]
-
-          if (!(read_id in best_overlap) ||
-              overlap > best_overlap[read_id] ||
-              (overlap == best_overlap[read_id] &&
-               gene < best_gene[read_id])) {
-            best_overlap[read_id]=overlap
-            best_gene[read_id]=gene
-          }
-        }
-
-        for (read_id in best_gene) {
-          print read_id, best_gene[read_id], best_overlap[read_id]
-        }
-      }
-    ' > "${sampleID}.read_clb_gene.tmp.tsv"
-
-  printf "read_id\\tGene\\toverlap_bp\\n" \
-    > "${sampleID}.read_clb_gene.tsv"
-
-  sort -k1,1 "${sampleID}.read_clb_gene.tmp.tsv" \
-    >> "${sampleID}.read_clb_gene.tsv"
-
-  rm -f "${sampleID}.read_clb_gene.tmp.tsv"
+  bedtools bamtobed -i "${sampleID}.pks.bam" |
+    bedtools intersect -a - -b clb_genes.bed -wo |
+    python3 "${params.scripts}/assign_reads_to_genes.py" \
+      --output "${sampleID}.read_clb_gene.tsv" \
+      --min-overlap "${params.min_gene_overlap_bp}" \
+      > /dev/null
 
   # Convert overlapping alignments to a single FASTQ stream
   samtools fastq "${sampleID}.pks.bam" |
@@ -115,7 +58,7 @@ process extractPksIslandReads {
 process Bracken {
   scratch true
   label 'process_high_disk'
-  publishDir "${params.pks_dir}", mode: 'copy'
+  publishDir { "${params.sample_dir}/${sampleID}/taxonomy" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
   conda "${params.krakenuniq_bracken_env}"
 
   input:
@@ -132,10 +75,13 @@ process Bracken {
         path("${sampleID}.bracken.S.krakenreport.txt"),
         path("${sampleID}.bracken.G.mpa.krakenreport.txt"),
         path("${sampleID}.bracken.S.mpa.krakenreport.txt"),
-        path("${sampleID}.clb_species_support.tsv")
+        path("${sampleID}.clb_species_support.tsv"), emit: reports
+  tuple val(sampleID), path("${sampleID}.taxonomy.qc.tsv"), emit: qc
 
   script:
   """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # kraken_db ${params.dep_digest?.kraken_db}  scripts ${params.dep_digest?.scripts}
   set -euo pipefail
 
   REPORT="${sampleID}.krakenuniq.report.txt"
@@ -143,6 +89,7 @@ process Bracken {
   CLASSIFIED="${sampleID}.classified.fasta"
   UNCLASSIFIED="${sampleID}.unclassified.fasta"
   SPECIES_MATRIX="${sampleID}.clb_species_support.tsv"
+  TAXONOMY_QC="${sampleID}.taxonomy.qc.tsv"
 
   # Decompress PKS reads for KrakenUniq
   zcat "${fastq_gz}" > "${sampleID}.pks.fastq"
@@ -173,6 +120,13 @@ process Bracken {
       printf "\\tTotal\\n"
     } > "\$SPECIES_MATRIX"
 
+    # F10: a sample with no island reads and a sample that was never classified used
+    # to be the same absence. pks.qc.summary.tsv has a row for every sample, so the
+    # distinction belongs there.
+    printf "Sample\\tMetric\\tValue\\n" > "\$TAXONOMY_QC"
+    printf "%s\\ttaxonomy_status\\tno_pks_reads\\n" "${sampleID}" >> "\$TAXONOMY_QC"
+    printf "%s\\tclb_species_reported\\t0\\n" "${sampleID}" >> "\$TAXONOMY_QC"
+
     exit 0
   fi
 
@@ -197,23 +151,27 @@ process Bracken {
   # Apply the same conservative support threshold used by Bracken.
   # Reads classified only above the requested rank do not satisfy this
   # requirement until at least two reads support a target-rank node.
+  # F10: the largest read count on a single taxon, not the sum across all of them.
+  # Bracken's -t 2 admits a taxon with two reads; summing the rank let two species
+  # with one read each through, and Bracken then reported neither. The pre-check now
+  # asks the question Bracken will ask.
   GENUS_READS=\$(awk -F '\\t' '
-    \$8 == "genus" && \$2 ~ /^[0-9]+\$/ {
-      sum += \$2
+    \$8 == "genus" && \$2 ~ /^[0-9]+\$/ && \$2+0 > best {
+      best = \$2+0
     }
 
     END {
-      print sum+0
+      print best+0
     }
   ' "\$REPORT")
 
   SPECIES_READS=\$(awk -F '\\t' '
-    \$8 == "species" && \$2 ~ /^[0-9]+\$/ {
-      sum += \$2
+    \$8 == "species" && \$2 ~ /^[0-9]+\$/ && \$2+0 > best {
+      best = \$2+0
     }
 
     END {
-      print sum+0
+      print best+0
     }
   ' "\$REPORT")
 
@@ -229,7 +187,7 @@ process Bracken {
     fi
 
     if [[ "\$LVL_READS" -lt 2 ]]; then
-      echo "Skipping Bracken level \$lvl: exact-rank reads=\$LVL_READS; threshold=2"
+      echo "Skipping Bracken level \$lvl: no taxon reaches 2 reads (best=\$LVL_READS)"
 
       : > "\$bracken_output"
       : > "\$bracken_kraken_report"
@@ -252,6 +210,20 @@ process Bracken {
       -o "\$bracken_kraken_mpa_report" \
       --display-header
   done
+
+  # F10: how this sample ended up, for the one table that has every sample in it.
+  SPECIES_ROWS=\$(awk 'END { print (NR > 1 ? NR - 1 : 0) }' "\$SPECIES_MATRIX")
+  if [[ "\$SPECIES_ROWS" -gt 0 ]]; then
+    STATUS="species_identified"
+  elif [[ "\$SPECIES_READS" -lt 2 ]]; then
+    STATUS="below_rank_threshold"
+  else
+    STATUS="no_species_identified"
+  fi
+
+  printf "Sample\\tMetric\\tValue\\n" > "\$TAXONOMY_QC"
+  printf "%s\\ttaxonomy_status\\t%s\\n" "${sampleID}" "\$STATUS" >> "\$TAXONOMY_QC"
+  printf "%s\\tclb_species_reported\\t%s\\n" "${sampleID}" "\$SPECIES_ROWS" >> "\$TAXONOMY_QC"
   """
 }
 
@@ -269,42 +241,40 @@ process process_bracken {
         path("bracken.species.mpa.report.txt")
 
   script:
-  def genus_files = bracken_files.findAll { file ->
-    file.name.endsWith('.G.mpa.krakenreport.txt')
-  }
-
-  def species_files = bracken_files.findAll { file ->
-    file.name.endsWith('.S.mpa.krakenreport.txt')
-  }
-
-  def genus_str = genus_files
-    .collect { file -> "\"${file}\"" }
-    .join(' ')
-
-  def species_str = species_files
-    .collect { file -> "\"${file}\"" }
-    .join(' ')
-
+  // F02. combine_mpa.py is KrakenTools' and takes its inputs as arguments; it has no
+  // manifest option and we do not fork it. What we can stop doing is building that
+  // argument list in Groovy, which put one filename per sample into .command.sh with
+  // no idea of the limit. The lists are built here with find, and the size is checked
+  // against ARG_MAX before the call, so an oversized cohort fails with a message that
+  // says what happened instead of "Argument list too long" from the shell.
   """
   set -euo pipefail
 
-  if [[ -n "${genus_str}" ]]; then
-    combine_mpa.py \
-      --input ${genus_str} \
-      --output bracken.genus.mpa.report.txt
-  else
-    echo "No genus files found." \
-      > bracken.genus.mpa.report.txt
-  fi
+  find . -maxdepth 1 -name '*.G.mpa.krakenreport.txt' -printf '%f\\n' | sort > genus.list
+  find . -maxdepth 1 -name '*.S.mpa.krakenreport.txt' -printf '%f\\n' | sort > species.list
 
-  if [[ -n "${species_str}" ]]; then
-    combine_mpa.py \
-      --input ${species_str} \
-      --output bracken.species.mpa.report.txt
-  else
-    echo "No species files found." \
-      > bracken.species.mpa.report.txt
-  fi
+  arg_limit=\$(( \$(getconf ARG_MAX) / 2 ))
+
+  combine_rank() {
+      local list=\$1 out=\$2 label=\$3
+      if [[ ! -s "\$list" ]]; then
+          echo "No \$label files found." > "\$out"
+          return 0
+      fi
+      local bytes
+      bytes=\$(wc -c < "\$list")
+      if (( bytes >= arg_limit )); then
+          echo "ERROR: \$(wc -l < "\$list") \$label files (\$bytes bytes of paths) exceed" >&2
+          echo "       half of ARG_MAX (\$arg_limit). combine_mpa.py takes files as arguments" >&2
+          echo "       and cannot read a manifest; this cohort needs it run in batches." >&2
+          return 1
+      fi
+      # shellcheck disable=SC2046
+      combine_mpa.py --output "\$out" --input \$(cat "\$list")
+  }
+
+  combine_rank genus.list   bracken.genus.mpa.report.txt   genus
+  combine_rank species.list bracken.species.mpa.report.txt species
   """
 }
 
@@ -317,20 +287,18 @@ process combineClbTaxonomySupport {
   input:
   path species_support_files
   path combine_script
+  path species_file_list
 
   output:
   path("pks.clb_species_support.tsv")
 
   script:
-  def species_inputs = species_support_files
-    .collect { file -> "\"${file}\"" }
-    .join(' ')
-
+  // F02: one list file rather than one argument per sample.
   """
   set -euo pipefail
 
   python "${combine_script}" \
-    --species-files ${species_inputs} \
+    --species-files-from "${species_file_list}" \
     --species-output pks.clb_species_support.tsv
   """
 }

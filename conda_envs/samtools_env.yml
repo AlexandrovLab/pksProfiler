@@ -8,3 +8,4 @@ channels:
 dependencies:
   - python=3.10
   - samtools=1.22
+  - htslib

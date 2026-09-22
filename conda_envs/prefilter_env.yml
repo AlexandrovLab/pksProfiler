@@ -1,0 +1,9 @@
+name: pksprofiler-prefilter
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.11
+  - krakenuniq=1.0.4
+  - diamond=2.1.10

@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="1080" viewBox="0 0 1180 1080" role="img"
+ aria-label="Animated pksProfiler workflow. A shared trunk extracts reads, filters them and removes human sequence to produce the complete host-depleted stream. That stream branches: the metagenome lane assembles and bins the whole community, scores genome quality and taxonomy, annotates genes, searches the clb protein model, calls prophages and builds community interaction tables; the tumour lane optionally prefilters, profiles by alignment and profile HMM, scores an evidence tier, and for qualifying samples reassembles the island with two assemblers and describes its mobility. Assembled output from both lanes is strain typed.">
+<title>pksProfiler workflow</title>
+<style>
+ :root{--pg:#ffffff;--card:#f6f9f8;--bd:#ccd6d4;--ink:#111a1c;--mut:#5d6d70;
+       --tum:#a4433a;--met:#0f6b66;--gat:#8a6410;--hum:#c8d0cf}
+ @media (prefers-color-scheme:dark){
+ :root{--pg:#0d1117;--card:#161d20;--bd:#2c393b;--ink:#e8efed;--mut:#93a3a6;
+       --tum:#e59083;--met:#63c2b8;--gat:#dcb060;--hum:#39424a}}
+ rect{stroke:var(--bd)} .tumS{stroke:var(--tum)} .metS{stroke:var(--met)} .gatS{stroke:var(--gat)}
+ .inkS{stroke:var(--ink)}
+ .t{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;font-weight:500;fill:var(--ink)}
+ .s{font-family:Helvetica,Arial,sans-serif;font-size:9.5px;fill:var(--mut)}
+ .e{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:9.5px;fill:var(--mut)}
+ .lane{font-family:Helvetica,Arial,sans-serif;font-size:12px;font-weight:700;letter-spacing:.6}
+ .rail{stroke:var(--bd);stroke-width:1.6;fill:none}
+ .railT{stroke:var(--tum);stroke-width:1.6;fill:none}
+ .railM{stroke:var(--met);stroke-width:1.6;fill:none}
+ .railG{stroke:var(--gat);stroke-width:1.8;fill:none}
+</style>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--mut)"/></marker></defs>
+<rect x="0" y="0" width="1180" height="1080" fill="var(--pg)" stroke="none"/>
+<rect x="472.0" y="22" width="236" height="50" rx="4" fill="var(--card)" class="" stroke-width="1"/><text class="t" x="590" y="43" text-anchor="middle">sequencing input</text><text class="s" x="590" y="59" text-anchor="middle">BAM · CRAM · FASTQ</text>
+<line x1="590" y1="72" x2="590" y2="92" class="rail" marker-end="url(#a)"/>
+<rect x="472.0" y="92" width="236" height="50" rx="4" fill="var(--card)" class="" stroke-width="1"/><text class="t" x="590" y="113" text-anchor="middle">extractReads</text><text class="s" x="590" y="129" text-anchor="middle">unmapped records</text>
+<line x1="590" y1="142" x2="590" y2="162" class="rail" marker-end="url(#a)"/>
+<rect x="472.0" y="162" width="236" height="50" rx="4" fill="var(--card)" class="" stroke-width="1"/><text class="t" x="590" y="183" text-anchor="middle">filterReads</text><text class="s" x="590" y="199" text-anchor="middle">fastp: adapters, quality</text>
+<line x1="590" y1="212" x2="590" y2="232" class="rail" marker-end="url(#a)"/>
+<rect x="472.0" y="232" width="236" height="50" rx="4" fill="var(--card)" class="" stroke-width="1"/><text class="t" x="590" y="253" text-anchor="middle">mapReads</text><text class="s" x="590" y="269" text-anchor="middle">GRCh38 → T2T+PhiX → pangenome</text>
+<line x1="590" y1="282" x2="590" y2="302" class="rail" marker-end="url(#a)"/>
+<rect x="456.0" y="302" width="268" height="54" rx="4" fill="var(--card)" class="inkS" stroke-width="1.8"/>
+<text class="t" x="590" y="323" text-anchor="middle" font-weight="600">MAPPED_READS</text>
+<text class="s" x="590" y="340" text-anchor="middle">complete host-depleted stream</text>
+<path class="rail" d="M 590 356 V 382"/>
+<path class="rail" d="M 232 382 H 948"/>
+<path class="railM" d="M 232 382 V 412" marker-end="url(#a)"/>
+<path class="rail"  d="M 590 382 V 412" marker-end="url(#a)"/>
+<path class="railT" d="M 948 382 V 412" marker-end="url(#a)"/>
+<text class="e" x="224" y="376" text-anchor="end" fill="var(--met)">metagenome</text>
+<text class="e" x="956" y="376" fill="var(--tum)">tumor_wgs</text>
+<text class="lane" x="114.0" y="408" fill="var(--met)">METAGENOME LANE</text>
+<text class="lane" x="472.0" y="408" fill="var(--mut)">PROFILING</text>
+<text class="lane" x="1066.0" y="408" text-anchor="end" fill="var(--tum)">TUMOUR LANE</text>
+<rect x="472.0" y="418" width="236" height="50" rx="4" fill="none" class="" stroke-width="1" stroke-dasharray="4 3"/><text class="t" x="590" y="439" text-anchor="middle">prefilter — optional</text><text class="s" x="590" y="455" text-anchor="middle">krakenuniq → DIAMOND rescue</text>
+<line x1="590" y1="468" x2="590" y2="488" class="rail" stroke-dasharray="4 3" marker-end="url(#a)"/>
+<rect x="472.0" y="488" width="236" height="50" rx="4" fill="var(--card)" class="" stroke-width="1"/><text class="t" x="590" y="509" text-anchor="middle">pksProfilerAlign</text><text class="s" x="590" y="525" text-anchor="middle">Bowtie2 → featureCounts</text>
+<line x1="590" y1="538" x2="590" y2="558" class="rail" marker-end="url(#a)"/>
+<rect x="472.0" y="558" width="236" height="50" rx="4" fill="var(--card)" class="" stroke-width="1"/><text class="t" x="590" y="579" text-anchor="middle">pksProfilerHMM</text><text class="s" x="590" y="595" text-anchor="middle">nhmmscan · population models</text>
+<line x1="590" y1="608" x2="590" y2="628" class="rail" marker-end="url(#a)"/>
+<rect x="472.0" y="628" width="236" height="50" rx="4" fill="var(--card)" class="" stroke-width="1.7"/><text class="t" x="590" y="649" text-anchor="middle">19 clb gene counts</text><text class="s" x="590" y="665" text-anchor="middle">+ circular coverage plot</text>
+<path class="railT" d="M 708.0 653.0 H 816.0" marker-end="url(#a)"/>
+<rect x="114.0" y="418" width="236" height="50" rx="4" fill="var(--card)" class="metS" stroke-width="1"/><text class="t" x="232" y="439" text-anchor="middle">megahitAssemble</text><text class="s" x="232" y="455" text-anchor="middle">de novo community contigs</text>
+<line x1="232" y1="468" x2="232" y2="488" class="railM" marker-end="url(#a)"/>
+<rect x="114.0" y="488" width="236" height="50" rx="4" fill="none" class="metS" stroke-width="1" stroke-dasharray="4 3"/><text class="t" x="232" y="509" text-anchor="middle">contig-count gate</text><text class="s" x="232" y="525" text-anchor="middle">0 contigs = a true negative</text>
+<line x1="232" y1="538" x2="232" y2="558" class="railM" marker-end="url(#a)"/>
+<rect x="114.0" y="558" width="236" height="50" rx="4" fill="var(--card)" class="metS" stroke-width="1"/><text class="t" x="232" y="579" text-anchor="middle">alignToContigs → depths</text><text class="s" x="232" y="595" text-anchor="middle">coverage for binning</text>
+<line x1="232" y1="608" x2="232" y2="628" class="railM" marker-end="url(#a)"/>
+<rect x="114.0" y="628" width="236" height="50" rx="4" fill="var(--card)" class="metS" stroke-width="1"/><text class="t" x="232" y="649" text-anchor="middle">metabat2Bin</text><text class="s" x="232" y="665" text-anchor="middle">contigs → draft genomes</text>
+<line x1="232" y1="678" x2="232" y2="698" class="railM" marker-end="url(#a)"/>
+<rect x="114.0" y="698" width="236" height="50" rx="4" fill="var(--card)" class="metS" stroke-width="1"/><text class="t" x="232" y="719" text-anchor="middle">checkm2 · gtdbtk</text><text class="s" x="232" y="735" text-anchor="middle">completeness · species</text>
+<line x1="232" y1="748" x2="232" y2="768" class="railM" marker-end="url(#a)"/>
+<rect x="114.0" y="768" width="236" height="50" rx="4" fill="var(--card)" class="metS" stroke-width="1"/><text class="t" x="232" y="789" text-anchor="middle">prokkaAnnotate</text><text class="s" x="232" y="805" text-anchor="middle">genes, consistent locus_tags</text>
+<line x1="232" y1="818" x2="232" y2="838" class="railM" marker-end="url(#a)"/>
+<rect x="114.0" y="838" width="236" height="50" rx="4" fill="var(--card)" class="metS" stroke-width="1"/><text class="t" x="232" y="859" text-anchor="middle">hmmsearchClb · geNomad</text><text class="s" x="232" y="875" text-anchor="middle">clb protein model · prophage</text>
+<line x1="232" y1="888" x2="232" y2="908" class="railM" marker-end="url(#a)"/>
+<rect x="114.0" y="908" width="236" height="50" rx="4" fill="var(--card)" class="metS" stroke-width="1"/><text class="t" x="232" y="929" text-anchor="middle">pks+ genome filter</text><text class="s" x="232" y="945" text-anchor="middle">hit_count > 0</text>
+<line x1="232" y1="958" x2="232" y2="978" class="railM" marker-end="url(#a)"/>
+<rect x="114.0" y="978" width="236" height="50" rx="4" fill="var(--card)" class="metS" stroke-width="1"/><text class="t" x="232" y="999" text-anchor="middle">extractGenomicContext</text><text class="s" x="232" y="1015" text-anchor="middle">±50 kb: integrase, tRNA, prophage</text>
+<line x1="232" y1="1028" x2="232" y2="1048" class="railM" marker-end="url(#a)"/>
+<rect x="114.0" y="1048" width="236" height="50" rx="4" fill="var(--card)" class="metS" stroke-width="1"/><text class="t" x="232" y="1069" text-anchor="middle">community tables</text><text class="s" x="232" y="1085" text-anchor="middle">inventory · interactions · mobility</text>
+<line x1="232" y1="1098" x2="232" y2="1118" class="railM" marker-end="url(#a)"/>
+<rect x="830.0" y="488" width="236" height="50" rx="4" fill="var(--card)" class="tumS" stroke-width="1"/><text class="t" x="948" y="509" text-anchor="middle">classifyPksReadEvidence</text><text class="s" x="948" y="525" text-anchor="middle">reads · genes · island breadth</text>
+<line x1="948" y1="538" x2="948" y2="558" class="railT" marker-end="url(#a)"/>
+<rect x="830.0" y="558" width="236" height="50" rx="4" fill="var(--card)" class="gatS" stroke-width="1.7"/><text class="t" x="948" y="579" text-anchor="middle">TIER GATE</text><text class="s" x="948" y="595" text-anchor="middle">broad_island · extensive_island</text>
+<line x1="948" y1="608" x2="948" y2="628" class="railG" marker-end="url(#a)"/>
+<rect x="830.0" y="628" width="236" height="50" rx="4" fill="var(--card)" class="tumS" stroke-width="1"/><text class="t" x="948" y="649" text-anchor="middle">re-join complete reads</text><text class="s" x="948" y="665" text-anchor="middle">assembly never sees a subset</text>
+<line x1="948" y1="678" x2="948" y2="698" class="railT" marker-end="url(#a)"/>
+<rect x="830.0" y="698" width="236" height="50" rx="4" fill="var(--card)" class="tumS" stroke-width="1"/><text class="t" x="948" y="719" text-anchor="middle">targetedPksRecruit</text><text class="s" x="948" y="735" text-anchor="middle">≥60 bp, ≥90% identity, mates kept</text>
+<line x1="948" y1="748" x2="948" y2="768" class="railT" marker-end="url(#a)"/>
+<rect x="830.0" y="768" width="236" height="50" rx="4" fill="var(--card)" class="tumS" stroke-width="1"/><text class="t" x="948" y="789" text-anchor="middle">MEGAHIT ∥ metaSPAdes</text><text class="s" x="948" y="805" text-anchor="middle">two independent assemblers</text>
+<line x1="948" y1="818" x2="948" y2="838" class="railT" marker-end="url(#a)"/>
+<rect x="830.0" y="838" width="236" height="50" rx="4" fill="var(--card)" class="tumS" stroke-width="1"/><text class="t" x="948" y="859" text-anchor="middle">align contigs → reference</text><text class="s" x="948" y="875" text-anchor="middle">canonical island, PAF</text>
+<line x1="948" y1="888" x2="948" y2="908" class="railT" marker-end="url(#a)"/>
+<rect x="830.0" y="908" width="236" height="50" rx="4" fill="var(--card)" class="tumS" stroke-width="1"/><text class="t" x="948" y="929" text-anchor="middle">structural evidence</text><text class="s" x="948" y="945" text-anchor="middle">complete → fragmented call</text>
+<line x1="948" y1="958" x2="948" y2="978" class="railT" marker-end="url(#a)"/>
+<rect x="830.0" y="978" width="236" height="50" rx="4" fill="none" class="tumS" stroke-width="1" stroke-dasharray="4 3"/><text class="t" x="948" y="999" text-anchor="middle">contig context — optional</text><text class="s" x="948" y="1015" text-anchor="middle">prokka · clb HMM · geNomad</text>
+<line x1="948" y1="1028" x2="948" y2="1048" class="railT" stroke-dasharray="4 3" marker-end="url(#a)"/>
+<path d="M 724.0 332 H 1154 V 583.0 H 1066.0" fill="none" stroke="var(--ink)" stroke-width="1.1" stroke-dasharray="5 3" marker-end="url(#a)"/>
+<text class="e" x="1164" y="457.0" text-anchor="middle" fill="var(--ink)" transform="rotate(-90 1164 457.0)">complete stream, not the profiled subset</text>
+<path class="railM" d="M 232 1098 V 1124"/>
+<path class="railT" d="M 948 1028 V 1124" stroke-dasharray="4 3"/>
+<path class="rail" d="M 232 1124 H 948"/>
+<rect x="114.0" y="1132" width="952" height="50" rx="4" fill="var(--card)" class="inkS" stroke-width="1.6"/>
+<text class="t" x="590.0" y="1153" text-anchor="middle">strainTyping — MLST → ST → clonal complex · phylogroup</text>
+<text class="s" x="590.0" y="1169" text-anchor="middle">assembled output only · &lt;7 loci → no call · non-B2 flagged</text>
+<path id="pTrunk" d="M 590 30 V 356" fill="none" stroke="none"/>
+<path id="pMeta"  d="M 590 356 V 382 H 232 V 1098" fill="none" stroke="none"/>
+<path id="pCtr"   d="M 590 356 V 678" fill="none" stroke="none"/>
+<path id="pTum"   d="M 708.0 653.0 H 948 V 1028" fill="none" stroke="none"/>
+<circle r="3" fill="var(--hum)"><animateMotion dur="11s" begin="0s" repeatCount="indefinite" keyPoints="0;0.62;0.62" keyTimes="0;0.30;1" calcMode="linear"><mpath href="#pTrunk"/></animateMotion><animate attributeName="opacity" dur="11s" begin="0s" repeatCount="indefinite" values="1;1;0;0" keyTimes="0;0.26;0.31;1"/></circle>
+<circle r="3" fill="var(--hum)"><animateMotion dur="11s" begin="0.9s" repeatCount="indefinite" keyPoints="0;0.62;0.62" keyTimes="0;0.30;1" calcMode="linear"><mpath href="#pTrunk"/></animateMotion><animate attributeName="opacity" dur="11s" begin="0.9s" repeatCount="indefinite" values="1;1;0;0" keyTimes="0;0.26;0.31;1"/></circle>
+<circle r="3" fill="var(--hum)"><animateMotion dur="11s" begin="1.8s" repeatCount="indefinite" keyPoints="0;0.62;0.62" keyTimes="0;0.30;1" calcMode="linear"><mpath href="#pTrunk"/></animateMotion><animate attributeName="opacity" dur="11s" begin="1.8s" repeatCount="indefinite" values="1;1;0;0" keyTimes="0;0.26;0.31;1"/></circle>
+<circle r="3" fill="var(--hum)"><animateMotion dur="11s" begin="2.7s" repeatCount="indefinite" keyPoints="0;0.62;0.62" keyTimes="0;0.30;1" calcMode="linear"><mpath href="#pTrunk"/></animateMotion><animate attributeName="opacity" dur="11s" begin="2.7s" repeatCount="indefinite" values="1;1;0;0" keyTimes="0;0.26;0.31;1"/></circle>
+<circle r="3" fill="var(--hum)"><animateMotion dur="11s" begin="3.6s" repeatCount="indefinite" keyPoints="0;0.62;0.62" keyTimes="0;0.30;1" calcMode="linear"><mpath href="#pTrunk"/></animateMotion><animate attributeName="opacity" dur="11s" begin="3.6s" repeatCount="indefinite" values="1;1;0;0" keyTimes="0;0.26;0.31;1"/></circle>
+<circle r="3.4" fill="var(--met)"><animateMotion dur="11s" begin="0.4s" repeatCount="indefinite"><mpath href="#pMeta"/></animateMotion></circle>
+<circle r="3.4" fill="var(--met)"><animateMotion dur="11s" begin="2.2s" repeatCount="indefinite"><mpath href="#pMeta"/></animateMotion></circle>
+<circle r="3.4" fill="var(--met)"><animateMotion dur="11s" begin="4.0s" repeatCount="indefinite"><mpath href="#pMeta"/></animateMotion></circle>
+<circle r="3.4" fill="var(--tum)"><animateMotion dur="11s" begin="0.6s" repeatCount="indefinite"><mpath href="#pCtr"/></animateMotion></circle>
+<circle r="3.4" fill="var(--tum)"><animateMotion dur="11s" begin="2.6s" repeatCount="indefinite"><mpath href="#pCtr"/></animateMotion></circle>
+<circle r="3.4" fill="var(--tum)"><animateMotion dur="11s" begin="1.4s" repeatCount="indefinite"><mpath href="#pTum"/></animateMotion></circle>
+<circle r="3.4" fill="var(--tum)"><animateMotion dur="11s" begin="3.4s" repeatCount="indefinite"><mpath href="#pTum"/></animateMotion></circle>
+<circle r="3.4" fill="var(--tum)"><animateMotion dur="11s" begin="5.4s" repeatCount="indefinite"><mpath href="#pTum"/></animateMotion></circle>
+<rect x="830.0" y="558" width="236" height="50" rx="4" fill="var(--gat)" stroke="none" opacity="0"><animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;.16;0;0" keyTimes="0;0.42;0.48;0.56;1"/></rect>
+<rect x="830.0" y="966" width="236" height="6" rx="3" fill="var(--bd)" stroke="none"/>
+<rect x="830.0" y="966" width="0" height="6" rx="3" fill="var(--tum)" stroke="none"><animate attributeName="width" dur="11s" repeatCount="indefinite" values="0;0;236;236;0" keyTimes="0;0.55;0.80;0.95;1"/></rect>
+<circle cx="198" cy="1110" r="5" fill="var(--met)" opacity=".28"/>
+<circle cx="220" cy="1110" r="5" fill="var(--met)" opacity=".28"/>
+<circle cx="242" cy="1110" r="6" fill="var(--tum)"><animate attributeName="opacity" dur="11s" repeatCount="indefinite" values=".22;.22;1;1;.22" keyTimes="0;0.62;0.72;0.95;1"/></circle>
+<circle cx="264" cy="1110" r="5" fill="var(--met)" opacity=".28"/>
+<text class="e" x="16" y="1066">grey = human reads, discarded at depletion   ·   coloured = survives into a lane   ·   loop 11s</text>
+</svg>

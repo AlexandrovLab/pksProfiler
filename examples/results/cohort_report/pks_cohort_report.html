@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pks cohort report</title>
+<style>
+  body { margin:0; padding:28px 16px; background:#f7f7f5; color:#111;
+          font:14px/1.5 Arial, Helvetica, sans-serif; }
+  main { max-width:1460px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .muted { color:#666; font-size:12px; }
+  .tiles { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; }
+  .tile { background:#fff; border:1px solid #ddd; border-radius:6px;
+           padding:8px 14px; min-width:118px; }
+  .tile .n { font-size:19px; font-weight:bold; }
+  .tile .l { font-size:11px; color:#666; }
+  .scroll { overflow-x:auto; background:#fff; border:1px solid #ddd;
+             border-radius:6px; padding:6px; }
+  #tip { position:fixed; pointer-events:none; opacity:0; transition:opacity .08s;
+          background:#111; color:#fff; font-size:12px; padding:6px 9px;
+          border-radius:4px; max-width:420px; z-index:10; }
+  code { font-size:12px; }
+  /* :target, not a click handler -- sandboxed viewers run no JavaScript. */
+  .figpanel { display:none; }
+  .figpanel:target { display:block; background:#fff; border:1px solid #ddd;
+                      border-radius:6px; margin:8px 0; padding:10px; }
+  .fighead { font-size:12px; color:#666; margin-bottom:8px; }
+  .figclose { float:right; }
+  .figpanel object { border:1px solid #eee; border-radius:4px; min-height:340px; }
+</style></head>
+<body><main id="top">
+  <h1>pks cohort report</h1>
+  <p class="muted">8 samples &middot; /scratch/amabbasi/job_12319115/tmpet19a1lq</p>
+  <div class="tiles"><div class="tile"><div class="n">2</div><div class="l">Extensive</div></div><div class="tile"><div class="n">2</div><div class="l">Broad</div></div><div class="tile"><div class="n">2</div><div class="l">Multi-gene</div></div><div class="tile"><div class="n">1</div><div class="l">Indeterminate</div></div><div class="tile"><div class="n">1</div><div class="l">Negative</div></div><div class="tile"><div class="n">4</div><div class="l">with contig analysis</div></div></div>
+  
+  <div class="scroll"><svg xmlns="http://www.w3.org/2000/svg" width="1270" height="286" viewBox="0 0 1270 286" role="img" aria-label="clb gene detection, evidence tier and contig support per sample">
+<rect width="100%" height="100%" fill="white"/>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#111}.h{font-size:13px;font-weight:bold}.n{font-size:9px}.note{font-size:10px;fill:#444}.row:hover .zebra{fill:#eef4fb}.cell{stroke:white}.cell:hover{stroke:#111;stroke-width:1.2}</style>
+<text x="15" y="22" class="h" font-size="16">pks cohort report</text>
+<text x="15" y="42" class="note">8 samples, ordered by evidence tier, then genes detected, then reads</text>
+<rect x="15" y="55" width="11" height="11" fill="#2166ac"/><text x="31" y="64" class="n">≥10 reads/gene</text>
+<rect x="126" y="55" width="11" height="11" fill="#67a9cf"/><text x="142" y="64" class="n">3–9</text>
+<rect x="192" y="55" width="11" height="11" fill="#d1e5f0"/><text x="208" y="64" class="n">1–2</text>
+<rect x="258" y="55" width="11" height="11" fill="#f2f2f2" stroke="#ccc"/><text x="274" y="64" class="n">0</text>
+<text x="15" y="100" class="h">Sample</text>
+<text x="215" y="103" class="n" transform="rotate(-55 215 103)">clbA</text>
+<text x="230" y="103" class="n" transform="rotate(-55 230 103)">clbB</text>
+<text x="245" y="103" class="n" transform="rotate(-55 245 103)">clbC</text>
+<text x="260" y="103" class="n" transform="rotate(-55 260 103)">clbD</text>
+<text x="275" y="103" class="n" transform="rotate(-55 275 103)">clbE</text>
+<text x="290" y="103" class="n" transform="rotate(-55 290 103)">clbF</text>
+<text x="305" y="103" class="n" transform="rotate(-55 305 103)">clbG</text>
+<text x="320" y="103" class="n" transform="rotate(-55 320 103)">clbH</text>
+<text x="335" y="103" class="n" transform="rotate(-55 335 103)">clbI</text>
+<text x="350" y="103" class="n" transform="rotate(-55 350 103)">clbJ</text>
+<text x="365" y="103" class="n" transform="rotate(-55 365 103)">clbK</text>
+<text x="380" y="103" class="n" transform="rotate(-55 380 103)">clbL</text>
+<text x="395" y="103" class="n" transform="rotate(-55 395 103)">clbM</text>
+<text x="410" y="103" class="n" transform="rotate(-55 410 103)">clbN</text>
+<text x="425" y="103" class="n" transform="rotate(-55 425 103)">clbO</text>
+<text x="440" y="103" class="n" transform="rotate(-55 440 103)">clbP</text>
+<text x="455" y="103" class="n" transform="rotate(-55 455 103)">clbQ</text>
+<text x="470" y="103" class="n" transform="rotate(-55 470 103)">clbR</text>
+<text x="485" y="103" class="n" transform="rotate(-55 485 103)">clbS</text>
+<text x="510" y="100" class="h">PKS reads</text>
+<text x="630" y="100" class="h">Breadth ≥1×</text>
+<text x="725" y="100" class="h">Read evidence</text>
+<text x="825" y="100" class="h">Contigs</text>
+<text x="925" y="100" class="h">Island recovered</text>
+<text x="1045" y="100" class="h">Assemblers</text>
+<text x="1145" y="100" class="h">Figures</text>
+<line x1="15" y1="113" x2="1255" y2="113" stroke="black"/>
+<g class="row" data-tip="SYNTHETIC_01 · Extensive · 412 reads across 14 genes · breadth 31.0% at ≥1×, 15.5% at ≥2×, 10.3% at ≥3×"><title>SYNTHETIC_01 · Extensive · 412 reads across 14 genes · breadth 31.0% at ≥1×, 15.5% at ≥2×, 10.3% at ≥3×</title>
+<rect class="zebra" x="1" y="131" width="1268" height="13" fill="white"/>
+<text x="15" y="142" class="n">SYNTHETIC_01</text>
+<rect class="cell" x="205" y="133" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_01 · clbA · 29 reads"><title>SYNTHETIC_01 · clbA · 29 reads</title></rect>
+<rect class="cell" x="220" y="133" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_01 · clbB · 29 reads"><title>SYNTHETIC_01 · clbB · 29 reads</title></rect>
+<rect class="cell" x="235" y="133" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_01 · clbC · 29 reads"><title>SYNTHETIC_01 · clbC · 29 reads</title></rect>
+<rect class="cell" x="250" y="133" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_01 · clbD · 29 reads"><title>SYNTHETIC_01 · clbD · 29 reads</title></rect>
+<rect class="cell" x="265" y="133" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_01 · clbE · 29 reads"><title>SYNTHETIC_01 · clbE · 29 reads</title></rect>
+<rect class="cell" x="280" y="133" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_01 · clbF · 29 reads"><title>SYNTHETIC_01 · clbF · 29 reads</title></rect>
+<rect class="cell" x="295" y="133" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_01 · clbG · 29 reads"><title>SYNTHETIC_01 · clbG · 29 reads</title></rect>
+<rect class="cell" x="310" y="133" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_01 · clbH · 29 reads"><title>SYNTHETIC_01 · clbH · 29 reads</title></rect>
+<rect class="cell" x="325" y="133" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_01 · clbI · 29 reads"><title>SYNTHETIC_01 · clbI · 29 reads</title></rect>
+<rect class="cell" x="340" y="133" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_01 · clbJ · 29 reads"><title>SYNTHETIC_01 · clbJ · 29 reads</title></rect>
+<rect class="cell" x="355" y="133" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_01 · clbK · 29 reads"><title>SYNTHETIC_01 · clbK · 29 reads</title></rect>
+<rect class="cell" x="370" y="133" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_01 · clbL · 29 reads"><title>SYNTHETIC_01 · clbL · 29 reads</title></rect>
+<rect class="cell" x="385" y="133" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_01 · clbM · 29 reads"><title>SYNTHETIC_01 · clbM · 29 reads</title></rect>
+<rect class="cell" x="400" y="133" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_01 · clbN · 29 reads"><title>SYNTHETIC_01 · clbN · 29 reads</title></rect>
+<rect class="cell" x="415" y="133" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_01 · clbO · 0 reads"><title>SYNTHETIC_01 · clbO · 0 reads</title></rect>
+<rect class="cell" x="430" y="133" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_01 · clbP · 0 reads"><title>SYNTHETIC_01 · clbP · 0 reads</title></rect>
+<rect class="cell" x="445" y="133" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_01 · clbQ · 0 reads"><title>SYNTHETIC_01 · clbQ · 0 reads</title></rect>
+<rect class="cell" x="460" y="133" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_01 · clbR · 0 reads"><title>SYNTHETIC_01 · clbR · 0 reads</title></rect>
+<rect class="cell" x="475" y="133" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_01 · clbS · 0 reads"><title>SYNTHETIC_01 · clbS · 0 reads</title></rect>
+<rect x="510" y="135" width="78.0" height="7" fill="#4d4d4d"/><text x="615" y="142" class="n" text-anchor="end">412</text>
+<rect x="630" y="135" width="17.1" height="7" fill="#636363"/><text x="708" y="142" class="n" text-anchor="end">31.0%</text>
+<rect x="725" y="133" width="88" height="11" rx="2" fill="#9e2a2b"/><text x="769" y="142" class="n" text-anchor="middle" style="fill:white">Extensive</text>
+<g data-tip="SYNTHETIC_01 · MEGAHIT 0 contigs, 93.0% · metaSPAdes 0 contigs, 91.0% · complete_island · concordant"><title>SYNTHETIC_01 · MEGAHIT 0 contigs, 93.0% · metaSPAdes 0 contigs, 91.0% · complete_island · concordant</title><text x="825" y="142" class="n">MH 0 / SP 0</text><rect x="925" y="135" width="83.7" height="7" fill="#2166ac"/><text x="1035" y="142" class="n" text-anchor="end">93.0%</text><rect x="1045" y="133" width="88" height="11" rx="2" fill="#4d7c5f"/><text x="1089" y="142" class="n" text-anchor="middle" style="fill:white">Concordant</text></g>
+<text x="1145" y="142" class="n" style="fill:#bbb">none</text>
+</g>
+<g class="row" data-tip="SYNTHETIC_02 · Extensive · 188 reads across 11 genes · breadth 19.0% at ≥1×, 9.5% at ≥2×, 6.3% at ≥3×"><title>SYNTHETIC_02 · Extensive · 188 reads across 11 genes · breadth 19.0% at ≥1×, 9.5% at ≥2×, 6.3% at ≥3×</title>
+<rect class="zebra" x="1" y="144" width="1268" height="13" fill="#fafafa"/>
+<text x="15" y="155" class="n">SYNTHETIC_02</text>
+<rect class="cell" x="205" y="146" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_02 · clbA · 17 reads"><title>SYNTHETIC_02 · clbA · 17 reads</title></rect>
+<rect class="cell" x="220" y="146" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_02 · clbB · 17 reads"><title>SYNTHETIC_02 · clbB · 17 reads</title></rect>
+<rect class="cell" x="235" y="146" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_02 · clbC · 17 reads"><title>SYNTHETIC_02 · clbC · 17 reads</title></rect>
+<rect class="cell" x="250" y="146" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_02 · clbD · 17 reads"><title>SYNTHETIC_02 · clbD · 17 reads</title></rect>
+<rect class="cell" x="265" y="146" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_02 · clbE · 17 reads"><title>SYNTHETIC_02 · clbE · 17 reads</title></rect>
+<rect class="cell" x="280" y="146" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_02 · clbF · 17 reads"><title>SYNTHETIC_02 · clbF · 17 reads</title></rect>
+<rect class="cell" x="295" y="146" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_02 · clbG · 17 reads"><title>SYNTHETIC_02 · clbG · 17 reads</title></rect>
+<rect class="cell" x="310" y="146" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_02 · clbH · 17 reads"><title>SYNTHETIC_02 · clbH · 17 reads</title></rect>
+<rect class="cell" x="325" y="146" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_02 · clbI · 17 reads"><title>SYNTHETIC_02 · clbI · 17 reads</title></rect>
+<rect class="cell" x="340" y="146" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_02 · clbJ · 17 reads"><title>SYNTHETIC_02 · clbJ · 17 reads</title></rect>
+<rect class="cell" x="355" y="146" width="13" height="11" fill="#2166ac" data-tip="SYNTHETIC_02 · clbK · 17 reads"><title>SYNTHETIC_02 · clbK · 17 reads</title></rect>
+<rect class="cell" x="370" y="146" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_02 · clbL · 0 reads"><title>SYNTHETIC_02 · clbL · 0 reads</title></rect>
+<rect class="cell" x="385" y="146" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_02 · clbM · 0 reads"><title>SYNTHETIC_02 · clbM · 0 reads</title></rect>
+<rect class="cell" x="400" y="146" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_02 · clbN · 0 reads"><title>SYNTHETIC_02 · clbN · 0 reads</title></rect>
+<rect class="cell" x="415" y="146" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_02 · clbO · 0 reads"><title>SYNTHETIC_02 · clbO · 0 reads</title></rect>
+<rect class="cell" x="430" y="146" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_02 · clbP · 0 reads"><title>SYNTHETIC_02 · clbP · 0 reads</title></rect>
+<rect class="cell" x="445" y="146" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_02 · clbQ · 0 reads"><title>SYNTHETIC_02 · clbQ · 0 reads</title></rect>
+<rect class="cell" x="460" y="146" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_02 · clbR · 0 reads"><title>SYNTHETIC_02 · clbR · 0 reads</title></rect>
+<rect class="cell" x="475" y="146" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_02 · clbS · 0 reads"><title>SYNTHETIC_02 · clbS · 0 reads</title></rect>
+<rect x="510" y="148" width="67.9" height="7" fill="#4d4d4d"/><text x="615" y="155" class="n" text-anchor="end">188</text>
+<rect x="630" y="148" width="10.5" height="7" fill="#636363"/><text x="708" y="155" class="n" text-anchor="end">19.0%</text>
+<rect x="725" y="146" width="88" height="11" rx="2" fill="#9e2a2b"/><text x="769" y="155" class="n" text-anchor="middle" style="fill:white">Extensive</text>
+<g data-tip="SYNTHETIC_02 · MEGAHIT 0 contigs, 93.0% · metaSPAdes 0 contigs, 91.0% · complete_island · concordant"><title>SYNTHETIC_02 · MEGAHIT 0 contigs, 93.0% · metaSPAdes 0 contigs, 91.0% · complete_island · concordant</title><text x="825" y="155" class="n">MH 0 / SP 0</text><rect x="925" y="148" width="83.7" height="7" fill="#2166ac"/><text x="1035" y="155" class="n" text-anchor="end">93.0%</text><rect x="1045" y="146" width="88" height="11" rx="2" fill="#4d7c5f"/><text x="1089" y="155" class="n" text-anchor="middle" style="fill:white">Concordant</text></g>
+<text x="1145" y="155" class="n" style="fill:#bbb">none</text>
+</g>
+<g class="row" data-tip="SYNTHETIC_03 · Broad · 64 reads across 9 genes · breadth 11.0% at ≥1×, 5.5% at ≥2×, 3.7% at ≥3×"><title>SYNTHETIC_03 · Broad · 64 reads across 9 genes · breadth 11.0% at ≥1×, 5.5% at ≥2×, 3.7% at ≥3×</title>
+<rect class="zebra" x="1" y="157" width="1268" height="13" fill="white"/>
+<text x="15" y="168" class="n">SYNTHETIC_03</text>
+<rect class="cell" x="205" y="159" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_03 · clbA · 7 reads"><title>SYNTHETIC_03 · clbA · 7 reads</title></rect>
+<rect class="cell" x="220" y="159" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_03 · clbB · 7 reads"><title>SYNTHETIC_03 · clbB · 7 reads</title></rect>
+<rect class="cell" x="235" y="159" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_03 · clbC · 7 reads"><title>SYNTHETIC_03 · clbC · 7 reads</title></rect>
+<rect class="cell" x="250" y="159" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_03 · clbD · 7 reads"><title>SYNTHETIC_03 · clbD · 7 reads</title></rect>
+<rect class="cell" x="265" y="159" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_03 · clbE · 7 reads"><title>SYNTHETIC_03 · clbE · 7 reads</title></rect>
+<rect class="cell" x="280" y="159" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_03 · clbF · 7 reads"><title>SYNTHETIC_03 · clbF · 7 reads</title></rect>
+<rect class="cell" x="295" y="159" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_03 · clbG · 7 reads"><title>SYNTHETIC_03 · clbG · 7 reads</title></rect>
+<rect class="cell" x="310" y="159" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_03 · clbH · 7 reads"><title>SYNTHETIC_03 · clbH · 7 reads</title></rect>
+<rect class="cell" x="325" y="159" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_03 · clbI · 7 reads"><title>SYNTHETIC_03 · clbI · 7 reads</title></rect>
+<rect class="cell" x="340" y="159" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_03 · clbJ · 0 reads"><title>SYNTHETIC_03 · clbJ · 0 reads</title></rect>
+<rect class="cell" x="355" y="159" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_03 · clbK · 0 reads"><title>SYNTHETIC_03 · clbK · 0 reads</title></rect>
+<rect class="cell" x="370" y="159" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_03 · clbL · 0 reads"><title>SYNTHETIC_03 · clbL · 0 reads</title></rect>
+<rect class="cell" x="385" y="159" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_03 · clbM · 0 reads"><title>SYNTHETIC_03 · clbM · 0 reads</title></rect>
+<rect class="cell" x="400" y="159" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_03 · clbN · 0 reads"><title>SYNTHETIC_03 · clbN · 0 reads</title></rect>
+<rect class="cell" x="415" y="159" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_03 · clbO · 0 reads"><title>SYNTHETIC_03 · clbO · 0 reads</title></rect>
+<rect class="cell" x="430" y="159" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_03 · clbP · 0 reads"><title>SYNTHETIC_03 · clbP · 0 reads</title></rect>
+<rect class="cell" x="445" y="159" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_03 · clbQ · 0 reads"><title>SYNTHETIC_03 · clbQ · 0 reads</title></rect>
+<rect class="cell" x="460" y="159" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_03 · clbR · 0 reads"><title>SYNTHETIC_03 · clbR · 0 reads</title></rect>
+<rect class="cell" x="475" y="159" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_03 · clbS · 0 reads"><title>SYNTHETIC_03 · clbS · 0 reads</title></rect>
+<rect x="510" y="161" width="54.1" height="7" fill="#4d4d4d"/><text x="615" y="168" class="n" text-anchor="end">64</text>
+<rect x="630" y="161" width="6.1" height="7" fill="#636363"/><text x="708" y="168" class="n" text-anchor="end">11.0%</text>
+<rect x="725" y="159" width="88" height="11" rx="2" fill="#e09f3e"/><text x="769" y="168" class="n" text-anchor="middle" style="fill:white">Broad</text>
+<g data-tip="SYNTHETIC_03 · MEGAHIT 0 contigs, 93.0% · metaSPAdes 0 contigs, 91.0% · complete_island · concordant"><title>SYNTHETIC_03 · MEGAHIT 0 contigs, 93.0% · metaSPAdes 0 contigs, 91.0% · complete_island · concordant</title><text x="825" y="168" class="n">MH 0 / SP 0</text><rect x="925" y="161" width="83.7" height="7" fill="#2166ac"/><text x="1035" y="168" class="n" text-anchor="end">93.0%</text><rect x="1045" y="159" width="88" height="11" rx="2" fill="#4d7c5f"/><text x="1089" y="168" class="n" text-anchor="middle" style="fill:white">Concordant</text></g>
+<text x="1145" y="168" class="n" style="fill:#bbb">none</text>
+</g>
+<g class="row" data-tip="SYNTHETIC_04 · Broad · 37 reads across 8 genes · breadth 8.2% at ≥1×, 4.1% at ≥2×, 2.7% at ≥3×"><title>SYNTHETIC_04 · Broad · 37 reads across 8 genes · breadth 8.2% at ≥1×, 4.1% at ≥2×, 2.7% at ≥3×</title>
+<rect class="zebra" x="1" y="170" width="1268" height="13" fill="#fafafa"/>
+<text x="15" y="181" class="n">SYNTHETIC_04</text>
+<rect class="cell" x="205" y="172" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_04 · clbA · 4 reads"><title>SYNTHETIC_04 · clbA · 4 reads</title></rect>
+<rect class="cell" x="220" y="172" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_04 · clbB · 4 reads"><title>SYNTHETIC_04 · clbB · 4 reads</title></rect>
+<rect class="cell" x="235" y="172" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_04 · clbC · 4 reads"><title>SYNTHETIC_04 · clbC · 4 reads</title></rect>
+<rect class="cell" x="250" y="172" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_04 · clbD · 4 reads"><title>SYNTHETIC_04 · clbD · 4 reads</title></rect>
+<rect class="cell" x="265" y="172" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_04 · clbE · 4 reads"><title>SYNTHETIC_04 · clbE · 4 reads</title></rect>
+<rect class="cell" x="280" y="172" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_04 · clbF · 4 reads"><title>SYNTHETIC_04 · clbF · 4 reads</title></rect>
+<rect class="cell" x="295" y="172" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_04 · clbG · 4 reads"><title>SYNTHETIC_04 · clbG · 4 reads</title></rect>
+<rect class="cell" x="310" y="172" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_04 · clbH · 4 reads"><title>SYNTHETIC_04 · clbH · 4 reads</title></rect>
+<rect class="cell" x="325" y="172" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_04 · clbI · 0 reads"><title>SYNTHETIC_04 · clbI · 0 reads</title></rect>
+<rect class="cell" x="340" y="172" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_04 · clbJ · 0 reads"><title>SYNTHETIC_04 · clbJ · 0 reads</title></rect>
+<rect class="cell" x="355" y="172" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_04 · clbK · 0 reads"><title>SYNTHETIC_04 · clbK · 0 reads</title></rect>
+<rect class="cell" x="370" y="172" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_04 · clbL · 0 reads"><title>SYNTHETIC_04 · clbL · 0 reads</title></rect>
+<rect class="cell" x="385" y="172" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_04 · clbM · 0 reads"><title>SYNTHETIC_04 · clbM · 0 reads</title></rect>
+<rect class="cell" x="400" y="172" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_04 · clbN · 0 reads"><title>SYNTHETIC_04 · clbN · 0 reads</title></rect>
+<rect class="cell" x="415" y="172" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_04 · clbO · 0 reads"><title>SYNTHETIC_04 · clbO · 0 reads</title></rect>
+<rect class="cell" x="430" y="172" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_04 · clbP · 0 reads"><title>SYNTHETIC_04 · clbP · 0 reads</title></rect>
+<rect class="cell" x="445" y="172" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_04 · clbQ · 0 reads"><title>SYNTHETIC_04 · clbQ · 0 reads</title></rect>
+<rect class="cell" x="460" y="172" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_04 · clbR · 0 reads"><title>SYNTHETIC_04 · clbR · 0 reads</title></rect>
+<rect class="cell" x="475" y="172" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_04 · clbS · 0 reads"><title>SYNTHETIC_04 · clbS · 0 reads</title></rect>
+<rect x="510" y="174" width="47.1" height="7" fill="#4d4d4d"/><text x="615" y="181" class="n" text-anchor="end">37</text>
+<rect x="630" y="174" width="4.5" height="7" fill="#636363"/><text x="708" y="181" class="n" text-anchor="end">8.2%</text>
+<rect x="725" y="172" width="88" height="11" rx="2" fill="#e09f3e"/><text x="769" y="181" class="n" text-anchor="middle" style="fill:white">Broad</text>
+<g data-tip="SYNTHETIC_04 · MEGAHIT 0 contigs, 93.0% · metaSPAdes 0 contigs, 91.0% · complete_island · concordant"><title>SYNTHETIC_04 · MEGAHIT 0 contigs, 93.0% · metaSPAdes 0 contigs, 91.0% · complete_island · concordant</title><text x="825" y="181" class="n">MH 0 / SP 0</text><rect x="925" y="174" width="83.7" height="7" fill="#2166ac"/><text x="1035" y="181" class="n" text-anchor="end">93.0%</text><rect x="1045" y="172" width="88" height="11" rx="2" fill="#4d7c5f"/><text x="1089" y="181" class="n" text-anchor="middle" style="fill:white">Concordant</text></g>
+<text x="1145" y="181" class="n" style="fill:#bbb">none</text>
+</g>
+<g class="row" data-tip="SYNTHETIC_05 · Multi-gene · 19 reads across 5 genes · breadth 4.1% at ≥1×, 2.1% at ≥2×, 1.4% at ≥3×"><title>SYNTHETIC_05 · Multi-gene · 19 reads across 5 genes · breadth 4.1% at ≥1×, 2.1% at ≥2×, 1.4% at ≥3×</title>
+<rect class="zebra" x="1" y="183" width="1268" height="13" fill="white"/>
+<text x="15" y="194" class="n">SYNTHETIC_05</text>
+<rect class="cell" x="205" y="185" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_05 · clbA · 3 reads"><title>SYNTHETIC_05 · clbA · 3 reads</title></rect>
+<rect class="cell" x="220" y="185" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_05 · clbB · 3 reads"><title>SYNTHETIC_05 · clbB · 3 reads</title></rect>
+<rect class="cell" x="235" y="185" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_05 · clbC · 3 reads"><title>SYNTHETIC_05 · clbC · 3 reads</title></rect>
+<rect class="cell" x="250" y="185" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_05 · clbD · 3 reads"><title>SYNTHETIC_05 · clbD · 3 reads</title></rect>
+<rect class="cell" x="265" y="185" width="13" height="11" fill="#67a9cf" data-tip="SYNTHETIC_05 · clbE · 3 reads"><title>SYNTHETIC_05 · clbE · 3 reads</title></rect>
+<rect class="cell" x="280" y="185" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_05 · clbF · 0 reads"><title>SYNTHETIC_05 · clbF · 0 reads</title></rect>
+<rect class="cell" x="295" y="185" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_05 · clbG · 0 reads"><title>SYNTHETIC_05 · clbG · 0 reads</title></rect>
+<rect class="cell" x="310" y="185" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_05 · clbH · 0 reads"><title>SYNTHETIC_05 · clbH · 0 reads</title></rect>
+<rect class="cell" x="325" y="185" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_05 · clbI · 0 reads"><title>SYNTHETIC_05 · clbI · 0 reads</title></rect>
+<rect class="cell" x="340" y="185" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_05 · clbJ · 0 reads"><title>SYNTHETIC_05 · clbJ · 0 reads</title></rect>
+<rect class="cell" x="355" y="185" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_05 · clbK · 0 reads"><title>SYNTHETIC_05 · clbK · 0 reads</title></rect>
+<rect class="cell" x="370" y="185" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_05 · clbL · 0 reads"><title>SYNTHETIC_05 · clbL · 0 reads</title></rect>
+<rect class="cell" x="385" y="185" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_05 · clbM · 0 reads"><title>SYNTHETIC_05 · clbM · 0 reads</title></rect>
+<rect class="cell" x="400" y="185" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_05 · clbN · 0 reads"><title>SYNTHETIC_05 · clbN · 0 reads</title></rect>
+<rect class="cell" x="415" y="185" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_05 · clbO · 0 reads"><title>SYNTHETIC_05 · clbO · 0 reads</title></rect>
+<rect class="cell" x="430" y="185" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_05 · clbP · 0 reads"><title>SYNTHETIC_05 · clbP · 0 reads</title></rect>
+<rect class="cell" x="445" y="185" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_05 · clbQ · 0 reads"><title>SYNTHETIC_05 · clbQ · 0 reads</title></rect>
+<rect class="cell" x="460" y="185" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_05 · clbR · 0 reads"><title>SYNTHETIC_05 · clbR · 0 reads</title></rect>
+<rect class="cell" x="475" y="185" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_05 · clbS · 0 reads"><title>SYNTHETIC_05 · clbS · 0 reads</title></rect>
+<rect x="510" y="187" width="38.8" height="7" fill="#4d4d4d"/><text x="615" y="194" class="n" text-anchor="end">19</text>
+<rect x="630" y="187" width="2.3" height="7" fill="#636363"/><text x="708" y="194" class="n" text-anchor="end">4.1%</text>
+<rect x="725" y="185" width="88" height="11" rx="2" fill="#f0c987"/><text x="769" y="194" class="n" text-anchor="middle" style="fill:#3b2a12">Multi-gene</text>
+<text x="825" y="194" class="n" style="fill:#999">assembly not run</text>
+<text x="1145" y="194" class="n" style="fill:#bbb">none</text>
+</g>
+<g class="row" data-tip="SYNTHETIC_06 · Multi-gene · 8 reads across 3 genes · breadth 1.3% at ≥1×, 0.7% at ≥2×, 0.4% at ≥3×"><title>SYNTHETIC_06 · Multi-gene · 8 reads across 3 genes · breadth 1.3% at ≥1×, 0.7% at ≥2×, 0.4% at ≥3×</title>
+<rect class="zebra" x="1" y="196" width="1268" height="13" fill="#fafafa"/>
+<text x="15" y="207" class="n">SYNTHETIC_06</text>
+<rect class="cell" x="205" y="198" width="13" height="11" fill="#d1e5f0" data-tip="SYNTHETIC_06 · clbA · 2 reads"><title>SYNTHETIC_06 · clbA · 2 reads</title></rect>
+<rect class="cell" x="220" y="198" width="13" height="11" fill="#d1e5f0" data-tip="SYNTHETIC_06 · clbB · 2 reads"><title>SYNTHETIC_06 · clbB · 2 reads</title></rect>
+<rect class="cell" x="235" y="198" width="13" height="11" fill="#d1e5f0" data-tip="SYNTHETIC_06 · clbC · 2 reads"><title>SYNTHETIC_06 · clbC · 2 reads</title></rect>
+<rect class="cell" x="250" y="198" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_06 · clbD · 0 reads"><title>SYNTHETIC_06 · clbD · 0 reads</title></rect>
+<rect class="cell" x="265" y="198" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_06 · clbE · 0 reads"><title>SYNTHETIC_06 · clbE · 0 reads</title></rect>
+<rect class="cell" x="280" y="198" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_06 · clbF · 0 reads"><title>SYNTHETIC_06 · clbF · 0 reads</title></rect>
+<rect class="cell" x="295" y="198" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_06 · clbG · 0 reads"><title>SYNTHETIC_06 · clbG · 0 reads</title></rect>
+<rect class="cell" x="310" y="198" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_06 · clbH · 0 reads"><title>SYNTHETIC_06 · clbH · 0 reads</title></rect>
+<rect class="cell" x="325" y="198" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_06 · clbI · 0 reads"><title>SYNTHETIC_06 · clbI · 0 reads</title></rect>
+<rect class="cell" x="340" y="198" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_06 · clbJ · 0 reads"><title>SYNTHETIC_06 · clbJ · 0 reads</title></rect>
+<rect class="cell" x="355" y="198" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_06 · clbK · 0 reads"><title>SYNTHETIC_06 · clbK · 0 reads</title></rect>
+<rect class="cell" x="370" y="198" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_06 · clbL · 0 reads"><title>SYNTHETIC_06 · clbL · 0 reads</title></rect>
+<rect class="cell" x="385" y="198" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_06 · clbM · 0 reads"><title>SYNTHETIC_06 · clbM · 0 reads</title></rect>
+<rect class="cell" x="400" y="198" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_06 · clbN · 0 reads"><title>SYNTHETIC_06 · clbN · 0 reads</title></rect>
+<rect class="cell" x="415" y="198" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_06 · clbO · 0 reads"><title>SYNTHETIC_06 · clbO · 0 reads</title></rect>
+<rect class="cell" x="430" y="198" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_06 · clbP · 0 reads"><title>SYNTHETIC_06 · clbP · 0 reads</title></rect>
+<rect class="cell" x="445" y="198" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_06 · clbQ · 0 reads"><title>SYNTHETIC_06 · clbQ · 0 reads</title></rect>
+<rect class="cell" x="460" y="198" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_06 · clbR · 0 reads"><title>SYNTHETIC_06 · clbR · 0 reads</title></rect>
+<rect class="cell" x="475" y="198" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_06 · clbS · 0 reads"><title>SYNTHETIC_06 · clbS · 0 reads</title></rect>
+<rect x="510" y="200" width="28.5" height="7" fill="#4d4d4d"/><text x="615" y="207" class="n" text-anchor="end">8</text>
+<rect x="630" y="200" width="0.7" height="7" fill="#636363"/><text x="708" y="207" class="n" text-anchor="end">1.3%</text>
+<rect x="725" y="198" width="88" height="11" rx="2" fill="#f0c987"/><text x="769" y="207" class="n" text-anchor="middle" style="fill:#3b2a12">Multi-gene</text>
+<text x="825" y="207" class="n" style="fill:#999">assembly not run</text>
+<text x="1145" y="207" class="n" style="fill:#bbb">none</text>
+</g>
+<g class="row" data-tip="SYNTHETIC_07 · Indeterminate · 3 reads across 2 genes · breadth 0.4% at ≥1×, 0.2% at ≥2×, 0.1% at ≥3×"><title>SYNTHETIC_07 · Indeterminate · 3 reads across 2 genes · breadth 0.4% at ≥1×, 0.2% at ≥2×, 0.1% at ≥3×</title>
+<rect class="zebra" x="1" y="209" width="1268" height="13" fill="white"/>
+<text x="15" y="220" class="n">SYNTHETIC_07</text>
+<rect class="cell" x="205" y="211" width="13" height="11" fill="#d1e5f0" data-tip="SYNTHETIC_07 · clbA · 1 reads"><title>SYNTHETIC_07 · clbA · 1 reads</title></rect>
+<rect class="cell" x="220" y="211" width="13" height="11" fill="#d1e5f0" data-tip="SYNTHETIC_07 · clbB · 1 reads"><title>SYNTHETIC_07 · clbB · 1 reads</title></rect>
+<rect class="cell" x="235" y="211" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_07 · clbC · 0 reads"><title>SYNTHETIC_07 · clbC · 0 reads</title></rect>
+<rect class="cell" x="250" y="211" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_07 · clbD · 0 reads"><title>SYNTHETIC_07 · clbD · 0 reads</title></rect>
+<rect class="cell" x="265" y="211" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_07 · clbE · 0 reads"><title>SYNTHETIC_07 · clbE · 0 reads</title></rect>
+<rect class="cell" x="280" y="211" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_07 · clbF · 0 reads"><title>SYNTHETIC_07 · clbF · 0 reads</title></rect>
+<rect class="cell" x="295" y="211" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_07 · clbG · 0 reads"><title>SYNTHETIC_07 · clbG · 0 reads</title></rect>
+<rect class="cell" x="310" y="211" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_07 · clbH · 0 reads"><title>SYNTHETIC_07 · clbH · 0 reads</title></rect>
+<rect class="cell" x="325" y="211" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_07 · clbI · 0 reads"><title>SYNTHETIC_07 · clbI · 0 reads</title></rect>
+<rect class="cell" x="340" y="211" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_07 · clbJ · 0 reads"><title>SYNTHETIC_07 · clbJ · 0 reads</title></rect>
+<rect class="cell" x="355" y="211" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_07 · clbK · 0 reads"><title>SYNTHETIC_07 · clbK · 0 reads</title></rect>
+<rect class="cell" x="370" y="211" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_07 · clbL · 0 reads"><title>SYNTHETIC_07 · clbL · 0 reads</title></rect>
+<rect class="cell" x="385" y="211" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_07 · clbM · 0 reads"><title>SYNTHETIC_07 · clbM · 0 reads</title></rect>
+<rect class="cell" x="400" y="211" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_07 · clbN · 0 reads"><title>SYNTHETIC_07 · clbN · 0 reads</title></rect>
+<rect class="cell" x="415" y="211" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_07 · clbO · 0 reads"><title>SYNTHETIC_07 · clbO · 0 reads</title></rect>
+<rect class="cell" x="430" y="211" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_07 · clbP · 0 reads"><title>SYNTHETIC_07 · clbP · 0 reads</title></rect>
+<rect class="cell" x="445" y="211" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_07 · clbQ · 0 reads"><title>SYNTHETIC_07 · clbQ · 0 reads</title></rect>
+<rect class="cell" x="460" y="211" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_07 · clbR · 0 reads"><title>SYNTHETIC_07 · clbR · 0 reads</title></rect>
+<rect class="cell" x="475" y="211" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_07 · clbS · 0 reads"><title>SYNTHETIC_07 · clbS · 0 reads</title></rect>
+<rect x="510" y="213" width="18.0" height="7" fill="#4d4d4d"/><text x="615" y="220" class="n" text-anchor="end">3</text>
+<rect x="630" y="213" width="0.2" height="7" fill="#636363"/><text x="708" y="220" class="n" text-anchor="end">0.4%</text>
+<rect x="725" y="211" width="88" height="11" rx="2" fill="#8c8c8c"/><text x="769" y="220" class="n" text-anchor="middle" style="fill:white">Indeterminate</text>
+<text x="825" y="220" class="n" style="fill:#999">assembly not run</text>
+<text x="1145" y="220" class="n" style="fill:#bbb">none</text>
+</g>
+<g class="row" data-tip="SYNTHETIC_08 · Negative · 0 reads across 0 genes · breadth 0.0% at ≥1×, 0.0% at ≥2×, 0.0% at ≥3×"><title>SYNTHETIC_08 · Negative · 0 reads across 0 genes · breadth 0.0% at ≥1×, 0.0% at ≥2×, 0.0% at ≥3×</title>
+<rect class="zebra" x="1" y="222" width="1268" height="13" fill="#fafafa"/>
+<text x="15" y="233" class="n">SYNTHETIC_08</text>
+<rect class="cell" x="205" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbA · 0 reads"><title>SYNTHETIC_08 · clbA · 0 reads</title></rect>
+<rect class="cell" x="220" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbB · 0 reads"><title>SYNTHETIC_08 · clbB · 0 reads</title></rect>
+<rect class="cell" x="235" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbC · 0 reads"><title>SYNTHETIC_08 · clbC · 0 reads</title></rect>
+<rect class="cell" x="250" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbD · 0 reads"><title>SYNTHETIC_08 · clbD · 0 reads</title></rect>
+<rect class="cell" x="265" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbE · 0 reads"><title>SYNTHETIC_08 · clbE · 0 reads</title></rect>
+<rect class="cell" x="280" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbF · 0 reads"><title>SYNTHETIC_08 · clbF · 0 reads</title></rect>
+<rect class="cell" x="295" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbG · 0 reads"><title>SYNTHETIC_08 · clbG · 0 reads</title></rect>
+<rect class="cell" x="310" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbH · 0 reads"><title>SYNTHETIC_08 · clbH · 0 reads</title></rect>
+<rect class="cell" x="325" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbI · 0 reads"><title>SYNTHETIC_08 · clbI · 0 reads</title></rect>
+<rect class="cell" x="340" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbJ · 0 reads"><title>SYNTHETIC_08 · clbJ · 0 reads</title></rect>
+<rect class="cell" x="355" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbK · 0 reads"><title>SYNTHETIC_08 · clbK · 0 reads</title></rect>
+<rect class="cell" x="370" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbL · 0 reads"><title>SYNTHETIC_08 · clbL · 0 reads</title></rect>
+<rect class="cell" x="385" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbM · 0 reads"><title>SYNTHETIC_08 · clbM · 0 reads</title></rect>
+<rect class="cell" x="400" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbN · 0 reads"><title>SYNTHETIC_08 · clbN · 0 reads</title></rect>
+<rect class="cell" x="415" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbO · 0 reads"><title>SYNTHETIC_08 · clbO · 0 reads</title></rect>
+<rect class="cell" x="430" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbP · 0 reads"><title>SYNTHETIC_08 · clbP · 0 reads</title></rect>
+<rect class="cell" x="445" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbQ · 0 reads"><title>SYNTHETIC_08 · clbQ · 0 reads</title></rect>
+<rect class="cell" x="460" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbR · 0 reads"><title>SYNTHETIC_08 · clbR · 0 reads</title></rect>
+<rect class="cell" x="475" y="224" width="13" height="11" fill="#f2f2f2" data-tip="SYNTHETIC_08 · clbS · 0 reads"><title>SYNTHETIC_08 · clbS · 0 reads</title></rect>
+<rect x="510" y="226" width="0.0" height="7" fill="#4d4d4d"/><text x="615" y="233" class="n" text-anchor="end">0</text>
+<rect x="630" y="226" width="0.0" height="7" fill="#636363"/><text x="708" y="233" class="n" text-anchor="end">0.0%</text>
+<rect x="725" y="224" width="88" height="11" rx="2" fill="#d9d9d9"/><text x="769" y="233" class="n" text-anchor="middle" style="fill:#4d4d4d">Negative</text>
+<text x="825" y="233" class="n" style="fill:#999">assembly not run</text>
+<text x="1145" y="233" class="n" style="fill:#bbb">none</text>
+</g>
+<text x="15" y="270" class="note">Breadth is the pipeline's own ≥1×/≥2×/≥3× over the island at MAPQ ≥40. Tiers and contig calls are read from the run's own outputs, not recomputed here. Tiers rank how strong the evidence is; they are not a validated positive/negative test.</text>
+</svg></div>
+  
+  <h2 style="font-size:15px;margin:26px 0 6px">Where these numbers come from</h2>
+  <ul class="muted">
+    <li><code>cohort/gene_counts/pks.gene.counts.align.txt</code> &mdash; the gene matrix</li>
+    <li><code>by_sample/&lt;sample&gt;/read_evidence.tsv</code> &mdash; tier, reads, genes, breadth</li>
+    <li><code>by_sample/&lt;sample&gt;/contigs/final_pks_evidence.tsv</code> &mdash; contig columns</li>
+    <li><code>RUN_REPORT.txt</code> &mdash; the code, parameters and references behind them</li>
+    <li><code>by_sample/&lt;sample&gt;/figures/</code> &mdash; what the Figures links open;
+        they are relative, so this page has to stay in <code>cohort/</code></li>
+  </ul>
+  <p class="muted">This page reads and arranges; it derives nothing.</p>
+</main>
+<div id="tip"></div>
+<script>
+  // Hover anywhere with a data-tip: a gene cell, a whole row, the contig group.
+  var tip = document.getElementById('tip');
+  document.addEventListener('mouseover', function (event) {
+    var node = event.target.closest('[data-tip]');
+    if (!node) { tip.style.opacity = 0; return; }
+    tip.textContent = node.getAttribute('data-tip');
+    tip.style.opacity = 1;
+  });
+  document.addEventListener('mousemove', function (event) {
+    var pad = 14;
+    var x = Math.min(event.clientX + pad, window.innerWidth - tip.offsetWidth - 8);
+    var y = Math.min(event.clientY + pad, window.innerHeight - tip.offsetHeight - 8);
+    tip.style.left = x + 'px';
+    tip.style.top = y + 'px';
+  });
+  document.addEventListener('mouseleave', function () { tip.style.opacity = 0; });
+</script>
+</body></html>

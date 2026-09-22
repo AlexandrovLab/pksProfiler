@@ -195,3 +195,11 @@ requested resources with elapsed time, CPU utilization, peak RSS, and disk I/O.
 
 Nextflow executor documentation:
 <https://www.nextflow.io/docs/latest/executor.html>
+
+## Two things that catch people out
+
+- **Nextflow needs Java 17 or newer on the compute nodes**, not only on the login node. A
+  scheduler that exports your login environment can hide this until it suddenly does not.
+- **Give each concurrent run its own launch directory.** Nextflow keeps its session cache in
+  the directory you launch from, not the work directory, so two pipelines started from one
+  place will fight over the same session lock.

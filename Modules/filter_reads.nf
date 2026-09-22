@@ -4,7 +4,7 @@ process filterReads {
     scratch true
     label 'filter_reads'
 	publishDir(
-	    "${params.unmapped_bam_dir}",
+	    { "${params.sample_dir}/${sampleID}/intermediates" },
 	    mode: 'copy',
 	    enabled: params.save_intermediates
 	)
@@ -20,6 +20,9 @@ process filterReads {
 	tuple val(sampleID), path("${sampleID}.filter.qc.tsv"), emit: qc
 
 	script:
+	// Empty unless --adapters is given: fastp falls back to its own detection, which
+	// is what it does best and costs nothing per read.
+	def adapter_arg = params.adapters ? "--adapter_fasta \"${params.adapters}\"" : ""
 	def input_list = fastq_files instanceof Collection ? fastq_files : [fastq_files]
 	def inputs = input_list.collect { input_fastq -> "\"${input_fastq}\"" }.join(' ')
 	def tagged_input_commands = input_list.withIndex().collect { input_fastq, index ->
@@ -47,6 +50,8 @@ process filterReads {
 	    "{\n${tagged_input_commands}\n} |"
 
 	"""
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # adapters ${params.dep_digest?.adapters}
 	set -euo pipefail
 
 	FILTERED="${sampleID}.UNMAPPED.FASTP.FILTERED.fastq.gz"
@@ -65,7 +70,7 @@ process filterReads {
 	# unpaired input after mate suffixes are added; no merged file is written.
 	${fastp_prefix} fastp \
 	        -l 45 \
-	        --adapter_fasta "${params.adapters}" \
+	        ${adapter_arg} \
 	        --cut_tail \
 	        ${fastp_input} \
 	        -w "${task.cpus}" \

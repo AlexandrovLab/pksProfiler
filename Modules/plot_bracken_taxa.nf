@@ -3,7 +3,7 @@ nextflow.enable.dsl = 2
 process plotBrackenTaxa {
   label 'process_medium'
   scratch true
-  publishDir "${params.pks_taxonomy_plots_dir}", mode: 'copy'
+  publishDir { "${params.sample_dir}/${sampleID}/figures" }, mode: 'copy', saveAs: { "taxa_barplots.pdf" }
   conda "${params.krakenuniq_bracken_env}"   // must include python + pandas + matplotlib
 
   input:
@@ -14,6 +14,8 @@ process plotBrackenTaxa {
 
   script:
   """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # scripts ${params.dep_digest?.scripts}
   set -euo pipefail
 
   python3 "${params.scripts}/plot_bracken_taxa.py" \

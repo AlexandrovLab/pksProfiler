@@ -3,10 +3,16 @@ library(circlize)
 library(Cairo)
 library(dplyr)
 
+# F12: the contig and the island offset used to be written into this script, while
+# the pipeline held them as parameters. They are arguments now, so there is one
+# source of truth. The interval is 0-based half-open, as the bedgraph is.
 args <- commandArgs(trailingOnly = TRUE)
 coverage_file <- args[1]
 cytoband_file <- args[2]
-output_pdf <- args[3]
+output_pdf    <- args[3]
+contig        <- if (length(args) >= 4) args[4] else "NC_017628.1"
+island_start  <- if (length(args) >= 5) as.numeric(args[5]) else 2193827
+island_end    <- if (length(args) >= 6) as.numeric(args[6]) else 2244594
 
 
 # Read cytoband data
@@ -14,8 +20,10 @@ cytoband.df <- read.csv(cytoband_file, sep = "\t")
 cytoband.df$start <- as.numeric(cytoband.df$start)
 cytoband.df$end <- as.numeric(cytoband.df$end)
 cytoband.df <- cytoband.df[, c('chrom', 'start', 'end', 'Name', 'gieStain')]
-cytoband.df <- mutate(cytoband.df, start = as.integer(start) +2193827)
-cytoband.df <- mutate(cytoband.df, end = as.integer(end) + 2193827)
+# Gene coordinates in the cytoband file are island-relative; shift them onto the
+# reference using the same island start the rest of the pipeline uses.
+cytoband.df <- mutate(cytoband.df, start = as.integer(start) + island_start)
+cytoband.df <- mutate(cytoband.df, end   = as.integer(end)   + island_start)
 
 # Hard fail if the file is missing or empty
 if (!file.exists(coverage_file) || file.info(coverage_file)$size == 0) {
@@ -35,12 +43,23 @@ coverage <- read.csv(coverage_file, sep = "\t", header = FALSE)
 colnames(coverage) <- c('chr', 'start', 'end', 'value')
 coverage <- coverage[, c('chr', 'start', 'end', 'value')]
 
-# Subset to region of interest
+# F12: keep every bin that INTERSECTS the island and clip it to the island, rather
+# than keeping only bins wholly inside it. A bedgraph bin that straddles either edge
+# -- starting before the island and ending inside, or the reverse -- was dropped
+# entirely, so coverage at the first and last bins never reached the plot. Those are
+# exactly the boundaries the mobility context cares about.
 coverage <- coverage[
-  (coverage$chr == 'NC_017628.1') &
-  (coverage$start >= min(cytoband.df$start)) &
-  (coverage$end <= max(cytoband.df$end)),
+  (coverage$chr == contig) &
+  (coverage$end   > island_start) &
+  (coverage$start < island_end),
 ]
+if (nrow(coverage) > 0) {
+  coverage$start <- pmax(coverage$start, island_start)
+  coverage$end   <- pmin(coverage$end,   island_end)
+  coverage <- coverage[coverage$end > coverage$start, ]
+}
+message(sprintf("plotPKS.R: %d coverage bins in %s:%d-%d",
+                nrow(coverage), contig, island_start, island_end))
 
  
 
@@ -82,8 +101,10 @@ if(length(unique(coverage$value)) == 1){
     })
 }
 
-max_y_value <- max(coverage$value) + 100
-y_axis_breaks <- seq(0, max_y_value, by = 1e5)
+# F13: the track is raw depth now, so fixed 1e5 steps -- sized for RPKM values --
+# would leave a single tick at zero. Let the breaks follow the data.
+max_y_value <- max(coverage$value)
+y_axis_breaks <- pretty(c(0, max(max_y_value, 1)), n = 4)
 
 circos.yaxis(
   side = "left",

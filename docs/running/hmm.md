@@ -20,7 +20,7 @@ nextflow run main.nf \
 The combined output is:
 
 ```text
-results_hmm/pks_summary/gene_counts/pks.gene.counts.hmm.txt
+results_hmm/cohort/gene_counts/pks.gene.counts.hmm.txt
 ```
 
 ## Alignment plus HMM mode
@@ -55,6 +55,26 @@ nextflow run main.nf \
     --outdir results_hmm_chunked
 ```
 
-The default HMM E-value threshold is `1e-10`. See the parameter table in the [main README](../../README.md#parameters) before changing it.
+The default HMM E-value threshold is `1e-10`. See the parameter table in the [main README](../../README.md#adding-capabilities) before changing it.
 
 [Return to the main README](../../README.md)
+
+## Alignment versus profile models
+
+`--profiling_method bowtie2 | hmm | both`
+
+**Alignment** (the default) lines each read up against a single reference *E. coli* genome and
+counts how many land on each gene. A read spanning two genes is credited to the one it covers
+most, rather than being thrown away. Strict, and easy to explain.
+
+**Profile models** (`hmm`) compare reads against a statistical description of what each *clb* gene
+looks like across 2,868 different colibactin-producing genomes, instead of one reference. Better
+at spotting versions that have drifted from the reference, and fragments too short to align
+confidently.
+
+They are not meant to give identical numbers. `both` runs them side by side, which is the honest
+option when you care about divergent strains.
+
+Models ship with the repository; see [`ref/hmm/PROVENANCE.md`](../../ref/hmm/PROVENANCE.md) for how they
+were built and validated. They carry no pre-set score cutoffs, so detection depends on
+`--hmm_evalue` and `--hmm_protein_evalue`.

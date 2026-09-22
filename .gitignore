@@ -20,3 +20,18 @@ results/
 # Ignore Nextflow temporary and config files
 **/.nextflow.*
 **/.nextflow/
+
+# Ignore editor/tooling caches
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Ignore dated working backups (git is the backup)
+*.bak
+*.bak.*
+
+# Lab-internal MAG smoke test: pinned to absolute TSCC paths and to the
+# pksProfiler-v3-working tree, so it is not usable outside the lab and is
+# deliberately not published. Preserved in ../dev-scripts/.
+scripts/run_mag_smoke.sbatch

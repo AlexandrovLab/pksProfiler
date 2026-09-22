@@ -8,42 +8,56 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
 
+# Bracken writes these. Nothing else is a Bracken report, and guessing which other
+# column might be the abundance is how a taxonomy id gets plotted as a read count.
+REQUIRED_COLUMNS = ("name", "new_est_reads")
+
+
 def read_bracken_report(path: Path) -> pd.DataFrame:
+    """
+    Read a Bracken report, or refuse it.
+
+    F11. This used to fall back to "a column that looks numeric" when new_est_reads
+    was absent, and to the first column when name was. A file carrying only name and
+    taxonomy_id was therefore accepted, and plotted Escherichia coli at 562 reads --
+    562 being its taxonomy id. It also caught every parse error and returned an empty
+    frame, which draws as "No taxa (empty or 0 reads)": a malformed file and a sample
+    with nothing in it produced the same picture.
+
+    An absent or empty file still reads as no taxa, because the workflow writes
+    zero-byte reports deliberately for samples with no hits. A file with content that
+    is not a Bracken report is an error.
+    """
     if (not path.exists()) or path.stat().st_size == 0:
         return pd.DataFrame(columns=["taxon", "reads"])
 
     try:
         df = pd.read_csv(path, sep="\t", dtype=str)
-    except Exception:
-        return pd.DataFrame(columns=["taxon", "reads"])
+    except Exception as problem:
+        raise ValueError(f"{path}: not readable as a Bracken report: {problem}") from problem
 
     if df.empty:
         return pd.DataFrame(columns=["taxon", "reads"])
 
-    # Bracken typical columns include 'name' and 'new_est_reads'
-    col_lower = {c.lower(): c for c in df.columns}
-    taxon_col = col_lower.get("name", df.columns[0])
+    columns = {str(c).lower(): c for c in df.columns}
+    missing = [name for name in REQUIRED_COLUMNS if name not in columns]
+    if missing:
+        raise ValueError(
+            f"{path}: not a Bracken report -- missing {', '.join(missing)}. "
+            f"Columns present: {', '.join(str(c) for c in df.columns)}. "
+            "Refusing to guess which column holds the abundance."
+        )
 
-    if "new_est_reads" in col_lower:
-        reads_col = col_lower["new_est_reads"]
-    else:
-        # fallback: find a column that looks numeric
-        reads_col = None
-        for c in reversed(df.columns):
-            s = pd.to_numeric(df[c], errors="coerce")
-            if s.notna().any():
-                reads_col = c
-                break
-        if reads_col is None:
-            return pd.DataFrame(columns=["taxon", "reads"])
+    reads = pd.to_numeric(df[columns["new_est_reads"]], errors="coerce")
+    if reads.notna().sum() == 0:
+        raise ValueError(
+            f"{path}: new_est_reads holds no numbers, so this is not an abundance "
+            "column."
+        )
 
-    out = pd.DataFrame({
-        "taxon": df[taxon_col].astype(str),
-        "reads": pd.to_numeric(df[reads_col], errors="coerce"),
-    })
+    out = pd.DataFrame({"taxon": df[columns["name"]].astype(str), "reads": reads})
     out = out.dropna(subset=["taxon", "reads"])
-    out = out[out["reads"] > 0]
-    return out
+    return out[out["reads"] > 0]
 
 
 def barplot(ax, df: pd.DataFrame, title: str, top_n: int):

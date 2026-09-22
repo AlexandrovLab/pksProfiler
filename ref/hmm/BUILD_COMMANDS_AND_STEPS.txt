@@ -1,0 +1,67 @@
+=======================================================================
+NOTE ADDED ON PUBLICATION (2026-09-17) -- READ FIRST
+=======================================================================
+This is the verbatim build record from the reference-build tree, kept
+unedited below. Two things a reader needs in order to use it correctly:
+
+1. WHICH BUILD SHIPPED. The models in this directory
+   (clb_population_{protein,dna}_exact_v1.hmm) are the exact_v1 models,
+   described in the final section, "EXACT-DEDUPLICATED REBUILD". The
+   "FILTERS/STEPS" section below describes the ORIGINAL build, which
+   clustered each gene at 99% identity with CD-HIT. That build is
+   SUPERSEDED and its models are NOT shipped -- see PROVENANCE.md for
+   why (99% clustering left five protein models trained on a single
+   sequence each).
+
+2. WHAT IS NOT INCLUDED. The seed HMM, the build scripts
+   (train_array.sbatch, process_training_genome.py,
+   aggregate_and_build.sh, build_models_exact.sbatch), the per-gene
+   alignments and the genome partition lists are not part of this
+   repository. Absolute paths, Slurm QOS names and job IDs below are a
+   historical record of where and how the build ran; they are not paths
+   or settings any user needs to supply. Contact the authors for the
+   full build tree.
+
+Per-gene audit tables backing the exact_v1 retention counts are in
+audit/. Checksums for the shipped models are in audit/SHA256SUMS and
+inline in PROVENANCE.md.
+=======================================================================
+
+Population protein and DNA clb HMM build provenance (initiated 2026-09-02)
+
+INPUT: Lawley/Maklin 45,761-genome AGC archive and metadata (Zenodo 13374348).
+The 4,760 pks-positive genomes were split without lineage leakage: 2,868 train,
+964 validation, 928 test. Only training genomes fit the models.
+
+SEED: /tscc/nfs/home/amabbasi/pksProfiler_v3_workflow/protein_hmm/build/curated/clb_all_protein.hmm
+
+FILTERS/STEPS: Prodigal 2.6.3 -p single; HMMER 3.3.2 candidate i-E-value
+<=1e-10 and >=70% model coverage; best candidate per clbA-clbS; admit genomes
+recovering >=17/19 genes; retain paired Prodigal protein and CDS; cluster each
+gene at 99% identity with CD-HIT/CD-HIT-EST; align with MAFFT 7.526; build 19
+amino and 19 DNA profiles with hmmbuild; concatenate clbA-clbS; hmmpress; SHA256.
+
+EXACT LAUNCH COMMANDS (cluster MaxArraySize=1001 required offsets):
+sbatch --qos=hcp-ddp302 --array=0-999%80 scripts/train_array.sbatch
+sbatch --qos=hcp-ddp302 --array=0-999%80 --export=ALL,INDEX_OFFSET=1000 scripts/train_array.sbatch
+sbatch --qos=hcp-ddp302 --array=0-867%80 --export=ALL,INDEX_OFFSET=2000 scripts/train_array.sbatch
+sbatch --qos=hcp-ddp302 --dependency=afterok:12083563:12083701:12083702 scripts/build_models.sbatch
+
+Submitted job IDs: training 12083563, 12083701, 12083702; dependent build 12083703.
+
+Exact per-tool arguments are preserved in process_training_genome.py and
+aggregate_and_build.sh. Outputs: models/protein/clb_population_protein.hmm,
+models/dna/clb_population_dna.hmm, their .h3 indexes, and models/SHA256SUMS.
+Validation/test partitions remain reserved for subsequent calibration.
+
+EXACT-DEDUPLICATED REBUILD (requested 2026-09-02)
+The original 99%-clustered models are preserved. Version exact_v1 independently
+deduplicates amino-acid and nucleotide sequences at 100% identity. Before exact
+deduplication, sequences outside 80%-120% of each gene's modal raw length are
+excluded as likely truncations/misassignments. Per-gene audit tables record raw,
+retained, length-rejected, and duplicate counts.
+
+Command: sbatch scripts/build_models_exact.sbatch
+Outputs: models/exact_v1/protein/clb_population_protein_exact_v1.hmm and
+models/exact_v1/dna/clb_population_dna_exact_v1.hmm, pressed indexes, checksums,
+alignments, individual models, and training/exact_v1/audit/*.tsv.
