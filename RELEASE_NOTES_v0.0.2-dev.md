@@ -7,9 +7,13 @@ control.
 
 ## What is new
 
-**Sample-type routing.** `--sample_type auto | metagenome | tumor_wgs | tumor_wes | tumor_rna`.
-Routing is explicit; the metagenome MAG path is branched off the **complete** host-depleted
-read stream before profiling, so genome-resolved analysis sees every host-depleted read.
+**Sample-type routing.** `--sample_type metagenome | tumor_wgs | tumor_wes | tumor_rna`, required,
+no default. `auto` was accepted through the v0.0.2dev cycle but never resolved to a lane -- every
+routing decision tests for a concrete value, so `auto` matched none of them and the read-tier,
+contig-analysis, and MAG/taxonomy lanes silently never ran. Removed rather than wired up: an
+unresolved auto-detect is worse than an explicit requirement. Routing itself is explicit; the
+metagenome MAG path is branched off the **complete** host-depleted read stream before profiling,
+so genome-resolved analysis sees every host-depleted read.
 
 **Tumour contig analysis** (`--sample_type tumor_wgs`). `classifyTumorPksEvidence` assigns each
 sample an evidence tier from read count, clb genes detected at >=1 assigned read, and canonical

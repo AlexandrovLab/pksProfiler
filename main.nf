@@ -23,7 +23,14 @@ params.hmm_model        = "${projectDir}/ref/hmm/clb_population_dna_exact_v1.hmm
 params.bracken_read_length = null // Must match a read length supported by the selected Bracken database.
 
 // ---------------- v0.0.2: sample-type routing ----------------
-params.sample_type = "auto"   // auto | metagenome | tumor_wgs | tumor_wes | tumor_rna
+// Ludmil, revised report finding 9: "auto" was accepted here and by the
+// --sample_type validation below, but nothing ever resolved it to a biological
+// lane -- every branch that reads params.sample_type tests for a concrete value
+// ("metagenome", "tumor_wgs"), so "auto" matched none of them and the read-tier
+// classification, contig analysis and MAG/taxonomy lanes silently never ran,
+// with no error and a gene-count table that looked like a normal, if evidence-
+// free, result. His own first preference: no default: required, and explicit.
+params.sample_type = null     // required: metagenome | tumor_wgs | tumor_wes | tumor_rna
 
 // ---------------- v0.0.2: optional taxonomic prefilter + clb homology rescue ----------------
 // off      -> host-depleted reads go straight to profiling (v0.0.1 behaviour, the default)
@@ -321,8 +328,8 @@ workflow {
 
         Common:
           --input_data_type   auto | bam | cram | fastq            (default: auto)
-          --sample_type       auto | metagenome | tumor_wgs |
-                              tumor_wes | tumor_rna                (default: auto)
+          --sample_type       metagenome | tumor_wgs |
+                              tumor_wes | tumor_rna                (required, no default)
           --profiling_method  bowtie2 | hmm | both                 (default: bowtie2)
           --outdir            results directory                    (default: ./results)
           --save_intermediates  publish extracted/filtered/host-depleted FASTQs
@@ -468,6 +475,12 @@ workflow {
 
     if (!params.t2t_phix_db) {
         exit 1, "Missing required parameter: --t2t_phix_db"
+    }
+
+    // Ludmil, revised report finding 9: fail loudly before any task runs, rather
+    // than accept "auto" and silently resolve it to nothing.
+    if (!params.sample_type) {
+        exit 1, "Missing required parameter: --sample_type. Supported: metagenome, tumor_wgs, tumor_wes, tumor_rna"
     }
 
     if (pks_taxa_b && !params.kraken_db) {
@@ -680,7 +693,7 @@ workflow {
     }
 
 	// ---------- v0.0.2: sample-type and contig-analysis validation ----------
-    def valid_sample_types = ["auto", "metagenome", "tumor_wgs", "tumor_wes", "tumor_rna"]
+    def valid_sample_types = ["metagenome", "tumor_wgs", "tumor_wes", "tumor_rna"]
     if (!(params.sample_type in valid_sample_types)) {
         exit 1, "Unknown --sample_type: ${params.sample_type}. Supported: ${valid_sample_types.join(', ')}"
     }
