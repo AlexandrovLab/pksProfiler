@@ -136,11 +136,73 @@ class PreflightTests(unittest.TestCase):
         self.assertIn("bam does not exist", result.stdout)
 
     def test_cram_input_without_a_reference_is_caught(self):
+        # main.nf resolves the alignment path from an `alignment` (or legacy
+        # `bam`) column only -- a `cram` column is never read there, so the
+        # fixture below matches what a real CRAM sheet actually looks like.
+        (self.d / "s.cram").write_text("x")
+        (self.d / "sheet.csv").write_text(f"patient,alignment\nCASE_01,{self.d}/s.cram\n")
+        result = self.run_preflight(input_data_type="cram")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("--cram_reference", result.stdout)
+
+    def test_a_cram_only_column_is_not_a_supported_alignment_column(self):
+        # Ludmil, revised report finding 10: preflight used to accept a `cram`
+        # column as satisfying the alignment requirement, but main.nf only ever
+        # reads `alignment`/`bam`. A cram-only sheet must be caught here, at the
+        # same check as a sheet with no alignment column at all, not waved
+        # through only to fail main.nf's own separate column check later.
         (self.d / "s.cram").write_text("x")
         (self.d / "sheet.csv").write_text(f"patient,cram\nCASE_01,{self.d}/s.cram\n")
         result = self.run_preflight(input_data_type="cram")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("--cram_reference", result.stdout)
+        self.assertIn("needs an alignment or bam column", result.stdout)
+
+    def test_a_sam_alignment_is_a_hard_problem_not_a_note(self):
+        # extractReads.nf's htsfile check rejects anything that is not BAM or
+        # CRAM outright; a .sam input is a certain failure, not a style note.
+        (self.d / "s.sam").write_text("x")
+        (self.d / "sheet.csv").write_text(f"patient,bam\nCASE_01,{self.d}/s.sam\n")
+        result = self.run_preflight()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("extraction only supports BAM/CRAM", result.stdout)
+
+    def test_an_uncompressed_fastq_is_a_hard_problem_not_a_note(self):
+        # filterReads.nf runs `gzip -t` on the raw input before fastp starts;
+        # a plain, uncompressed FASTQ is a certain failure there.
+        (self.d / "reads.fastq").write_text("x")
+        (self.d / "sheet.csv").write_text(f"patient,fastq1\nCASE_01,{self.d}/reads.fastq\n")
+        result = self.run_preflight(input_data_type="fastq")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("must be gzip-compressed", result.stdout)
+
+    def test_a_gzipped_fastq_passes(self):
+        (self.d / "reads.fastq.gz").write_text("x")
+        (self.d / "sheet.csv").write_text(f"patient,fastq1\nCASE_01,{self.d}/reads.fastq.gz\n")
+        result = self.run_preflight(input_data_type="fastq")
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_pangenome_db_as_a_directory_of_mmi_files_is_accepted(self):
+        # map_reads.nf supports either a single .mmi file or a directory of
+        # them (`find ... -name '*.mmi'`); kind="file" used to reject every
+        # directory outright.
+        pangenome = self.d / "pangenome"
+        pangenome.mkdir()
+        (pangenome / "chm13.mmi").write_text("x")
+        result = self.run_preflight(pangenome_db=str(pangenome))
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_pangenome_db_directory_with_no_mmi_files_is_caught(self):
+        pangenome = self.d / "empty_pangenome"
+        pangenome.mkdir()
+        result = self.run_preflight(pangenome_db=str(pangenome))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("contains no .mmi files", result.stdout)
+
+    def test_pangenome_db_as_a_single_file_is_still_accepted(self):
+        pangenome_file = self.d / "chm13.mmi"
+        pangenome_file.write_text("x")
+        result = self.run_preflight(pangenome_db=str(pangenome_file))
+        self.assertEqual(result.returncode, 0, result.stdout)
 
     def test_mag_stages_require_their_databases_to_exist(self):
         result = self.run_preflight(enable_mags=True, gtdbtk_db=str(self.d / "gtdb"),

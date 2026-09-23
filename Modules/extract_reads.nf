@@ -46,7 +46,19 @@ process extractReads {
 		fi
 
 		REFERENCE_ARGS=()
-		if [[ "\$DETECTED" == "cram" && -n "${params.cram_reference ?: ''}" ]]; then
+		if [[ "\$DETECTED" == "cram" ]]; then
+		    # Ludmil, revised report finding 10: this used to fall through to a
+		    # referenceless decode whenever --cram_reference was unset, which
+		    # could succeed on an embedded/cached reference or fail with the
+		    # generic decode error below -- unpredictable, and stricter than
+		    # preflight's own sample-sheet check, which already requires
+		    # --cram_reference for anything that looks like CRAM input. Both now
+		    # agree: CRAM always requires it, checked here before decode is even
+		    # attempted rather than left to samtools to fail on.
+		    if [[ -z "${params.cram_reference ?: ''}" ]]; then
+		        echo "ERROR: ${sampleID}: CRAM input requires --cram_reference" >&2
+		        exit 1
+		    fi
 		    if [[ ! -f "${params.cram_reference ?: ''}" ]]; then
 		        echo "ERROR: CRAM reference does not exist: ${params.cram_reference ?: ''}" >&2
 		        exit 1

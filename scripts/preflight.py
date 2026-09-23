@@ -28,8 +28,13 @@ BOWTIE2_SUFFIXES = (".1.bt2", ".2.bt2", ".3.bt2", ".4.bt2", ".rev.1.bt2", ".rev.
 CLB_GENES = [f"clb{letter}" for letter in "ABCDEFGHIJKLMNOPQRS"]
 SAMPLE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
-ALIGNMENT_SUFFIXES = (".bam", ".cram", ".sam")
+ALIGNMENT_SUFFIXES = (".bam", ".cram")
 FASTQ_SUFFIXES = (".fastq", ".fq", ".fastq.gz", ".fq.gz")
+# Ludmil, revised report finding 10: extraction only supports BAM/CRAM (a .sam
+# input is a hard error in extractReads.nf), and filterReads.nf requires every
+# FASTQ to already be gzip-compressed (gzip -t on the raw input, before fastp
+# ever runs). Both were previously accepted here as merely unusual names.
+GZIP_FASTQ_SUFFIXES = (".fastq.gz", ".fq.gz")
 
 
 class Report:
@@ -60,6 +65,9 @@ class Report:
         if kind == "file" and not path.is_file():
             self.problem(section, f"{label} is not a file: {path}")
             return None
+        if kind == "file_or_dir" and not (path.is_file() or path.is_dir()):
+            self.problem(section, f"{label} is neither a file nor a directory: {path}")
+            return None
         return path
 
 
@@ -79,8 +87,13 @@ def check_sample_sheet(config, report):
     input_type = str(config.get("input_data_type", "auto"))
     if "patient" not in columns:
         report.problem(section, "missing the required `patient` column")
-    if input_type in ("bam", "cram", "auto") and not ({"alignment", "bam", "cram"} & columns):
-        report.problem(section, f"input_data_type={input_type} needs an alignment, bam or cram column")
+    # Ludmil, revised report finding 10: main.nf resolves the alignment path with
+    # `row.alignment ?: row.bam` only -- a `cram` column was never read there, so
+    # a cram-only sheet passed this check and then failed main.nf's own,
+    # independent column check moments later. Not accepted here either now, so
+    # both checks agree and the failure surfaces at the same point either way.
+    if input_type in ("bam", "cram", "auto") and not ({"alignment", "bam"} & columns):
+        report.problem(section, f"input_data_type={input_type} needs an alignment or bam column")
     if input_type == "fastq" and "fastq1" not in columns:
         report.problem(section, "input_data_type=fastq needs a fastq1 column")
 
@@ -99,7 +112,7 @@ def check_sample_sheet(config, report):
                                     f"(already on row {seen[sample]})")
         seen[sample] = number
 
-        for column in ("alignment", "bam", "cram", "fastq1", "fastq2"):
+        for column in ("alignment", "bam", "fastq1", "fastq2"):
             value = str(row.get(column, "") or "").strip()
             if not value:
                 continue
@@ -110,14 +123,26 @@ def check_sample_sheet(config, report):
             if path.stat().st_size == 0:
                 report.problem(section, f"row {number}: {column} is empty: {value}")
             name = path.name.lower()
-            if column in ("alignment", "bam", "cram") and not name.endswith(ALIGNMENT_SUFFIXES):
-                report.note(section, f"row {number}: {column} is not .bam/.cram/.sam: {path.name}")
-            if column.startswith("fastq") and not name.endswith(FASTQ_SUFFIXES):
-                report.note(section, f"row {number}: {column} is not a FASTQ name: {path.name}")
+            if column in ("alignment", "bam"):
+                if name.endswith(".sam"):
+                    # extractReads.nf's own htsfile check hard-rejects anything
+                    # that is not BAM or CRAM; a .sam input is not a stylistic
+                    # mismatch, it is a certain runtime failure.
+                    report.problem(section, f"row {number}: {column} is .sam, but "
+                                            f"extraction only supports BAM/CRAM: {path.name}")
+                elif not name.endswith(ALIGNMENT_SUFFIXES):
+                    report.note(section, f"row {number}: {column} is not .bam/.cram: {path.name}")
+            if column.startswith("fastq"):
+                if not name.endswith(FASTQ_SUFFIXES):
+                    report.note(section, f"row {number}: {column} is not a FASTQ name: {path.name}")
+                elif not name.endswith(GZIP_FASTQ_SUFFIXES):
+                    # filterReads.nf runs `gzip -t` on the raw input before fastp
+                    # ever starts; a plain, uncompressed FASTQ fails that check.
+                    report.problem(section, f"row {number}: {column} must be "
+                                            f"gzip-compressed (.fastq.gz/.fq.gz): {path.name}")
 
-        cram = str(row.get("cram", "") or "").strip()
-        alignment = str(row.get("alignment", "") or "").strip()
-        looks_cram = cram or alignment.lower().endswith(".cram")
+        alignment_value = str(row.get("alignment", "") or row.get("bam", "") or "").strip()
+        looks_cram = alignment_value.lower().endswith(".cram")
         if looks_cram and not config.get("cram_reference"):
             report.problem(section, f"row {number}: CRAM input needs --cram_reference")
 
@@ -131,7 +156,14 @@ def check_references(config, report):
     report.require_path(section, "--hg38_db", config.get("hg38_db"))
     report.require_path(section, "--t2t_phix_db", config.get("t2t_phix_db"))
     if config.get("pangenome_db"):
-        report.require_path(section, "--pangenome_db", config.get("pangenome_db"))
+        # map_reads.nf accepts either one .mmi file or a directory of them
+        # (find ... -name '*.mmi'); kind="file" here used to reject every
+        # directory form outright.
+        pangenome = report.require_path(section, "--pangenome_db",
+                                        config.get("pangenome_db"), kind="file_or_dir")
+        if pangenome and pangenome.is_dir() and not list(pangenome.rglob("*.mmi")):
+            report.problem(section, f"--pangenome_db {pangenome} is a directory "
+                                    "but contains no .mmi files")
     if config.get("cram_reference"):
         report.require_path(section, "--cram_reference", config.get("cram_reference"))
 
