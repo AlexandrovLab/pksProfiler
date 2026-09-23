@@ -351,6 +351,10 @@ workflow {
     def diamond_rescue_b            = params.diamond_rescue.toString().toBoolean()
     def pks_community_taxa_b        = params.pks_community_taxa.toString().toBoolean()
     def enable_strain_typing_b      = params.enable_strain_typing.toString().toBoolean()
+    // Ludmil, revised report finding 7: everywhere else tested through its normalized
+    // local; this one was still tested as params.pks_taxa directly at five call sites,
+    // so a CLI --pks_taxa false built the same workflow as --pks_taxa true.
+    def pks_taxa_b                  = params.pks_taxa.toString().toBoolean()
 
     // ---------- Equivalence record (F16) ----------
     // Written now, before any task runs, so a run that dies still leaves a record of
@@ -439,7 +443,7 @@ workflow {
         genomad_db               : params.genomad_db,
         gtdbtk_db                : params.gtdbtk_db,
         checkm2_db               : params.checkm2_db,
-        pks_taxa                 : params.pks_taxa.toString().toBoolean(),
+        pks_taxa                 : pks_taxa_b,
         pks_community_taxa       : pks_community_taxa_b,
         enable_mags              : enable_mags_b,
         tumor_enable_mags        : tumor_enable_mags_b,
@@ -466,13 +470,13 @@ workflow {
         exit 1, "Missing required parameter: --t2t_phix_db"
     }
 
-    if (params.pks_taxa && !params.kraken_db) {
+    if (pks_taxa_b && !params.kraken_db) {
         exit 1, "Taxonomic profiling requires: --kraken_db"
     }
-	if (params.pks_taxa && !params.bracken_read_length) {
+	if (pks_taxa_b && !params.bracken_read_length) {
 	    exit 1, "Taxonomic profiling requires: --bracken_read_length"
 	}
-	if (params.pks_taxa && (
+	if (pks_taxa_b && (
         !(params.bracken_read_length.toString() ==~ /^[0-9]+$/) ||
         params.bracken_read_length.toString().toInteger() <= 0
     )) {
@@ -787,7 +791,7 @@ workflow {
         exit 1, "Unknown --profiling_method: ${params.profiling_method}. Supported: bowtie2, hmm, both"
     }
 
-    if (params.pks_taxa && params.profiling_method == "hmm") {
+    if (pks_taxa_b && params.profiling_method == "hmm") {
         exit 1, "--pks_taxa requires alignment profiling. Use --profiling_method bowtie2 or both."
     }
 
@@ -931,7 +935,7 @@ workflow {
     }
 
 	// ---------- STEP 3b: Optional PKS-island taxa profiling (align only) ----------
-    if (do_align && params.pks_taxa) {
+    if (do_align && pks_taxa_b) {
         PKS_ALIGN_OUT
 			.map { sampleID, _covtxt, _bedgraph, _counts, bam, bai ->
 			    tuple(sampleID, bam, bai)

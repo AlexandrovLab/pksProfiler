@@ -9,7 +9,7 @@ process megahitAssemble {
     label 'mag_assembly'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/genomes/assembly" },
-        mode: 'copy', enabled: params.save_intermediates
+        mode: 'copy', enabled: params.save_intermediates.toString().toBoolean()
     conda "${projectDir}/conda_envs/megahit_env.yml"
 
     input:
@@ -91,7 +91,7 @@ process metabat2Bin {
     label 'mag_binning'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/genomes/bins" },
-        mode: 'copy', enabled: params.save_intermediates
+        mode: 'copy', enabled: params.save_intermediates.toString().toBoolean()
     conda "${projectDir}/conda_envs/metabat2_env.yml"
 
     input:

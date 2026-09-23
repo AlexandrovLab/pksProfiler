@@ -90,7 +90,7 @@ process mergePksCandidates {
     tag "$sampleID"
     label 'process_low'
     scratch true
-    publishDir { "${params.sample_dir}/${sampleID}/prefilter" }, mode: 'copy', enabled: params.save_intermediates, saveAs: { fn -> fn - "${sampleID}." }
+    publishDir { "${params.sample_dir}/${sampleID}/prefilter" }, mode: 'copy', enabled: params.save_intermediates.toString().toBoolean(), saveAs: { fn -> fn - "${sampleID}." }
     conda "${params.fastp_env}"
     input:
     tuple val(sampleID), path(primary), path(rescued)

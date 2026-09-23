@@ -6,7 +6,7 @@ process extractReads {
     publishDir(
         { "${params.sample_dir}/${sampleID}/intermediates" },
         mode: 'copy',
-        enabled: params.save_intermediates
+        enabled: params.save_intermediates.toString().toBoolean()
     )
     conda "${params.samtools_env}"
 
