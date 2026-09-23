@@ -101,11 +101,22 @@ def number(value, default=0.0):
         return default
 
 
-def collect(results):
+def expected_sample_ids(path):
+    if path is None:
+        return None
+    return {line.strip() for line in path.read_text().splitlines() if line.strip()}
+
+
+def collect(results, expected=None):
     counts = gene_counts(results / "cohort/gene_counts/pks.gene.counts.align.txt")
     by_sample = results / "by_sample"
     samples = sorted({p.name for p in by_sample.iterdir() if p.is_dir()} | set(counts)) \
         if by_sample.is_dir() else sorted(counts)
+    # Ludmil, revised report finding 5: this directory is the published tree, not a
+    # manifest of the current run, so a sample left over from an older run at the same
+    # --outdir was indistinguishable from one this run produced.
+    if expected is not None:
+        samples = [sample for sample in samples if sample in expected]
 
     records = []
     for sample in samples:
@@ -409,9 +420,12 @@ def main():
     parser.add_argument("--results", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--table", default=None, type=Path)
+    parser.add_argument("--expected-samples", default=None, type=Path,
+                         help="one sample ID per line; samples outside this list "
+                              "are dropped even if their directory is still on disk")
     args = parser.parse_args()
 
-    records = collect(args.results)
+    records = collect(args.results, expected_sample_ids(args.expected_samples))
     if not records:
         raise SystemExit(f"[ERROR] no samples found under {args.results}")
 

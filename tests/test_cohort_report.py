@@ -168,6 +168,110 @@ class Wiring(unittest.TestCase):
         self.assertLess(body.index("masterQCSummary("), body.index("cohortReport("))
 
 
+class TheReportNeverShowsAStaleSample(unittest.TestCase):
+    """Ludmil, revised report finding 5.
+
+    The report scans by_sample/ in the published tree by path, not by consuming the
+    current run's channels, so a directory left over from an older run at the same
+    --outdir was indistinguishable from a sample this run produced. --expected-samples
+    is the filter: everything on disk still gets read, but only IDs the current run
+    actually named are reported.
+
+    His acceptance test: place a stale fake sample in outdir and delay one optional
+    branch. The stale sample must never appear, and the report must not start until
+    the delayed enabled branch completes. This class covers the first half; the
+    Wiring class below covers the second.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.results = build_results(self.tmp.name, COHORT)
+        # A leftover directory from an earlier run at this same --outdir, complete
+        # with its own read_evidence.tsv -- exactly what a stale sample looks like.
+        stale = self.results / "by_sample" / "S_stale_old_run"
+        stale.mkdir(parents=True)
+        (stale / "read_evidence.tsv").write_text(
+            "sample\tread_evidence\tpks_reads\tclb_genes_detected\t"
+            "island_breadth_1x\tisland_breadth_2x\tisland_breadth_3x\n"
+            "S_stale_old_run\textensive_island\t9999\t19\t0.99\t0.9\t0.8\n")
+        self.expected = Path(self.tmp.name) / "expected_samples.txt"
+        self.expected.write_text("\n".join(name for name, *_ in COHORT) + "\n")
+
+    def test_without_the_filter_the_stale_sample_leaks_through(self):
+        names = {r["sample"] for r in report.collect(self.results)}
+        self.assertIn("S_stale_old_run", names,
+                       "fixture assumption: an unfiltered scan does pick it up")
+
+    def test_with_the_filter_the_stale_sample_is_gone(self):
+        expected = report.expected_sample_ids(self.expected)
+        names = {r["sample"] for r in report.collect(self.results, expected)}
+        self.assertNotIn("S_stale_old_run", names)
+        self.assertEqual(names, {name for name, *_ in COHORT})
+
+    def test_the_cli_flag_drops_it_from_the_written_table(self):
+        html = Path(self.tmp.name) / "report.html"
+        tsv = Path(self.tmp.name) / "report.tsv"
+        run = subprocess.run(
+            [sys.executable, str(SCRIPT), "--results", str(self.results),
+             "--output", str(html), "--table", str(tsv),
+             "--expected-samples", str(self.expected)],
+            capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        with tsv.open(newline="") as handle:
+            rows = list(csv.DictReader(handle, delimiter="\t"))
+        self.assertEqual({r["sample"] for r in rows}, {name for name, *_ in COHORT})
+        self.assertNotIn("S_stale_old_run", html.read_text())
+
+    def test_omitting_the_flag_still_works(self):
+        # The flag is optional so existing manual invocations are not broken by it.
+        html = Path(self.tmp.name) / "report.html"
+        run = subprocess.run(
+            [sys.executable, str(SCRIPT), "--results", str(self.results),
+             "--output", str(html)],
+            capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("S_stale_old_run", html.read_text())
+
+
+class TheCohortReportTaskWaitsForWhatItReads(unittest.TestCase):
+    """The second half of finding 5's acceptance test.
+
+    cohort_report_gate previously only tracked classifyPksReadEvidence -- the
+    per-sample read-tier file -- so a run could reach cohortReport before
+    pks.gene.counts.align.txt (masterTableAlign) or, worse, before targeted assembly
+    published contigs/final_evidence/final_pks_evidence.tsv, since assembly is the
+    slowest lane in the pipeline. Both are now mixed into the same gate.
+    """
+
+    def test_the_gene_matrix_task_feeds_the_gate(self):
+        body = MAIN.split("workflow {", 1)[1]
+        align_block = body.split("masterTableAlign(", 1)[1].split("\n    }", 1)[0]
+        self.assertIn("cohort_report_gate = cohort_report_gate.mix(masterTableAlign.out)",
+                      align_block)
+
+    def test_targeted_assembly_feeds_the_gate_only_when_it_runs(self):
+        body = MAIN.split("workflow {", 1)[1]
+        assembly_block = body.split("if (tumor_targeted_assembly_b) {", 1)[1] \
+                              .split("\n            }", 1)[0]
+        self.assertIn("targetedPksAssembly(tumor_assembly_reads_ch, targeted_profiles_ch)",
+                      assembly_block)
+        self.assertIn("cohort_report_gate = cohort_report_gate.mix(", assembly_block)
+        self.assertIn("targetedPksAssembly.out.evidence", assembly_block)
+
+    def test_expected_sample_ids_is_the_same_file_masterQCSummary_already_uses(self):
+        body = MAIN.split("workflow {", 1)[1]
+        qc_pos = body.index("masterQCSummary(")
+        self.assertIn("EXPECTED_SAMPLE_IDS", body[qc_pos:qc_pos + 300])
+        report_pos = body.index("cohortReport(")
+        self.assertIn("EXPECTED_SAMPLE_IDS", body[report_pos:report_pos + 150])
+
+    def test_the_process_declares_and_passes_the_expected_samples_input(self):
+        process = PLOTTING.split("process cohortReport {", 1)[1].split("\nprocess ", 1)[0]
+        self.assertIn("path(expected_samples)", process)
+        self.assertIn('--expected-samples "${expected_samples}"', process)
+
+
 if __name__ == "__main__":
     unittest.main()
 

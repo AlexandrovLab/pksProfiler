@@ -893,6 +893,14 @@ workflow {
                 targeted_profiles_ch = tumor_eligible_profiles_ch
                     .map { sampleID, rawCoverage, counts, evidenceFile -> tuple(sampleID, rawCoverage, evidenceFile) }
                 targetedPksAssembly(tumor_assembly_reads_ch, targeted_profiles_ch)
+                // Ludmil, revised report finding 5: the cohort report reads
+                // contigs/final_evidence/final_pks_evidence.tsv directly from the
+                // published tree. Assembly is the slowest lane in the pipeline, so
+                // without this the report could start, and publish, before it lands.
+                cohort_report_gate = cohort_report_gate.mix(
+                    targetedPksAssembly.out.evidence
+                        .map { _sampleID, evidenceFile -> evidenceFile }
+                )
             }
             if (tumor_full_contig_context_b) {
                 tumorWGS(tumor_assembly_reads_ch)
@@ -1007,6 +1015,11 @@ workflow {
             ALIGN_MERGE.rows.collectFile(name: 'pks.align.counts.manifest.tsv',
                                          newLine: true, sort: true)
         )
+        // Ludmil, revised report finding 5: pks.gene.counts.align.txt is the first
+        // thing build_cohort_report.py reads. Nothing previously made cohortReport
+        // wait for it -- only for the per-sample read-evidence tier -- so the cohort
+        // report could start, and publish an empty gene matrix, before this landed.
+        cohort_report_gate = cohort_report_gate.mix(masterTableAlign.out)
     }
 
     if (do_hmm) {
@@ -1054,5 +1067,6 @@ workflow {
     def cohort_report_script = file("${params.scripts}/build_cohort_report.py",
                                     checkIfExists: true)
     cohortReport(masterQCSummary.out.mix(cohort_report_gate).collect(),
-                 cohort_report_script)
+                 cohort_report_script,
+                 EXPECTED_SAMPLE_IDS)
 }

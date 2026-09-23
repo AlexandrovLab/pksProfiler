@@ -120,6 +120,7 @@ process cohortReport {
     input:
     path(results_marker)
     path(report_script)
+    path(expected_samples)
 
     output:
     path "pks_cohort_report.html", emit: report
@@ -133,11 +134,16 @@ process cohortReport {
     // params.cohort_dir. An earlier version also wrote them into a `cohort/` subdirectory,
     // which put them one level below where the output declarations look: the script
     // exited 0, the report existed, and Nextflow failed the task for a missing output.
+    // Ludmil, revised report finding 5: `results_marker` makes the task wait for the
+    // channels mixed into it (see main.nf's cohort_report_gate); `expected_samples` is
+    // that same wait turned into a filter, so a directory left over from an earlier
+    // run at this --outdir can be waited past but never reported on.
     """
     set -euo pipefail
     python3 "${report_script}" \
         --results "${params.outdir}" \
         --output pks_cohort_report.html \
-        --table  pks_cohort_report.tsv
+        --table  pks_cohort_report.tsv \
+        --expected-samples "${expected_samples}"
     """
 }
