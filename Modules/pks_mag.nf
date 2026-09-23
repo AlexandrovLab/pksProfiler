@@ -229,10 +229,8 @@ process hmmsearchClb {
     output:
     tuple val(sampleID), val(binID), path("${binID}.tblout"), emit: tblout
     tuple val(sampleID), val(binID), path("${binID}.clb_gene_count.txt"), emit: clb_gene_count
-    tuple val(sampleID), val(binID), path("${binID}.has_specific_clb.txt"), emit: has_specific_clb
 
     script:
-    def specific_regex = params.mag_specific_clb_genes.tokenize(',').join('|')
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # clb_protein_hmm ${params.dep_digest?.clb_protein_hmm}
@@ -246,20 +244,73 @@ process hmmsearchClb {
     # protein-to-model match, so one gene matched by three predicted proteins counted
     # three times and a single line anywhere made the bin pks-positive. This counts the
     # same quantity build_mag_summary.py reports as clb_genes_detected -- field 3 is the
-    # query model, field 5 the E-value -- so the two agree by construction.
-    # M1: also flag whether any hit is one of the specific, low-homology genes
-    # (params.mag_specific_clb_genes) -- the promiscuous megasynthases alone are not
-    # evidence of island carriage, only of a shared NRPS/PKS domain.
-    awk -v specific="${specific_regex}" \
-        '!/^#/ && NF>=19 && (\$5+0) <= ${params.hmm_protein_evalue} {
-             genes[\$3]=1
-             if (\$3 ~ "^(" specific ")\$") has_specific=1
-         }
-         END {
-             print length(genes)+0 > "${binID}.clb_gene_count.txt"
-             print (has_specific ? 1 : 0) > "${binID}.has_specific_clb.txt"
-         }' ${binID}.tblout \
-      || { echo 0 > ${binID}.clb_gene_count.txt; echo 0 > ${binID}.has_specific_clb.txt; }
+    # query model, field 5 the E-value -- so the two agree by construction. This count is
+    # a cheap pre-filter only (which bins are worth annotating context for); M1's
+    # positivity call is decided by magBinLocusEvidence below, not by this count alone.
+    awk '!/^#/ && NF>=19 && (\$5+0) <= ${params.hmm_protein_evalue} { genes[\$3]=1 }
+         END { print length(genes)+0 }' ${binID}.tblout > ${binID}.clb_gene_count.txt \
+      || echo 0 > ${binID}.clb_gene_count.txt
+    """
+}
+
+// ─── Canonical-locus alignment (per bin): is the island actually IN this bin? ─
+
+process alignMagBinToCanonicalReference {
+    tag "${sampleID}:${binID}"
+    label 'targeted_alignment'
+    scratch true
+    publishDir { "${params.sample_dir}/${sampleID}/genomes/locus_alignment" }, mode: 'copy'
+    conda "${params.targeted_alignment_env}"
+
+    input:
+    tuple val(sampleID), val(binID), path(bin_fa)
+    path reference
+
+    output:
+    tuple val(sampleID), val(binID), path("${binID}.vs_IHE3034.paf"), emit: paf
+
+    script:
+    """
+    set -euo pipefail
+    paf="${binID}.vs_IHE3034.paf"
+    if [[ -s "${bin_fa}" ]]; then
+        minimap2 -x asm10 -c -t ${task.cpus} "${reference}" "${bin_fa}" > "\$paf"
+    else
+        : > "\$paf"
+    fi
+    """
+}
+
+process magBinLocusEvidence {
+    tag "${sampleID}:${binID}"
+    label 'mag_hmm'
+    publishDir { "${params.sample_dir}/${sampleID}/genomes/locus_alignment" }, mode: 'copy'
+    conda "${params.pks_align_env}"
+
+    input:
+    tuple val(sampleID), val(binID), path(paf)
+
+    output:
+    tuple val(sampleID), val(binID), path("${binID}.locus_evidence.tsv"), emit: evidence
+
+    script:
+    """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # pks_annotation ${params.dep_digest?.pks_annotation}
+    set -euo pipefail
+    python ${projectDir}/scripts/summarize_mag_bin_locus_evidence.py \
+        --sample ${sampleID} --bin-id ${binID} --paf ${paf} \
+        --gff ${params.pks_genome_annotation} --contig ${params.pks_contig} \
+        --island-start ${params.pks_shift} \
+        --island-end \$(( ${params.pks_shift} + ${params.pks_island_len} )) \
+        --min-identity ${params.mag_locus_min_identity} --min-mapq ${params.mag_locus_min_mapq} \
+        --multi-gene-genes ${params.mag_locus_multi_gene_min_genes} \
+        --multi-gene-breadth ${params.mag_locus_multi_gene_min_breadth} \
+        --broad-island-genes ${params.mag_locus_broad_island_min_genes} \
+        --broad-island-breadth ${params.mag_locus_broad_island_min_breadth} \
+        --extensive-island-genes ${params.mag_locus_extensive_island_min_genes} \
+        --extensive-island-breadth ${params.mag_locus_extensive_island_min_breadth} \
+        --output ${binID}.locus_evidence.tsv
     """
 }
 
@@ -302,7 +353,7 @@ process communityProphageSummary {
     conda "${params.pks_hmm_env}"
 
     input:
-    tuple val(sampleID), path(gtdbtk_summary), path(gffs), path(tblouts), path(virus_summaries)
+    tuple val(sampleID), path(gtdbtk_summary), path(gffs), path(tblouts), path(virus_summaries), path(locus_evidence)
 
     output:
     path "${sampleID}.community_prophage_inventory.tsv", emit: inventory
@@ -312,16 +363,18 @@ process communityProphageSummary {
     script:
     """
     set -euo pipefail
-    mkdir -p gff_dir tblout_dir genomad_dir
+    mkdir -p gff_dir tblout_dir genomad_dir locus_dir
     for f in ${gffs}; do ln -s \$(realpath \$f) gff_dir/; done
     for f in ${tblouts}; do ln -s \$(realpath \$f) tblout_dir/; done
     for f in ${virus_summaries}; do ln -s \$(realpath \$f) genomad_dir/; done
+    for f in ${locus_evidence}; do ln -s \$(realpath \$f) locus_dir/; done
     python ${projectDir}/scripts/build_community_prophage.py \
         --sample ${sampleID} \
         --gtdbtk ${gtdbtk_summary} \
         --gff-dir gff_dir \
         --tblout-dir tblout_dir \
         --genomad-dir genomad_dir \
+        --locus-dir locus_dir \
         --evalue ${params.hmm_protein_evalue} \
         --min-clb-genes ${params.mag_min_clb_genes} \
         --min-provirus-length ${params.provirus_min_length_bp} \
@@ -397,22 +450,26 @@ process magSummaryTable {
     conda "${params.pks_hmm_env}"
     input:
     tuple val(sampleID), path(checkm2_report), path(gtdbtk_summary),
-          path(tblouts), path(contexts)
+          path(tblouts), path(contexts), path(locus_evidence)
 
     output:
     path "${sampleID}.pks_mag_summary.tsv", emit: summary
 
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # pks_reference_fasta ${params.dep_digest?.pks_reference_fasta}
     set -euo pipefail
-    mkdir -p tblout_dir context_dir
+    mkdir -p tblout_dir context_dir locus_dir
     for f in ${tblouts}; do ln -s "\$(realpath "\$f")" "tblout_dir/\$(basename "\$f")"; done
     for f in ${contexts}; do ln -s "\$(realpath "\$f")" "context_dir/\$(basename "\$f")"; done
+    for f in ${locus_evidence}; do ln -s "\$(realpath "\$f")" "locus_dir/\$(basename "\$f")"; done
     python ${projectDir}/scripts/build_mag_summary.py \
         --checkm2 ${checkm2_report} \
         --gtdbtk ${gtdbtk_summary} \
         --tblout_dir tblout_dir \
         --context_dir context_dir \
+        --locus_dir locus_dir \
         --sample ${sampleID} \
         --evalue ${params.hmm_protein_evalue} \
         --out ${sampleID}.pks_mag_summary.tsv
@@ -474,6 +531,17 @@ workflow pksMAG {
     // 6. GTDB-Tk taxonomy (all bins together per sample)
     gtdbtkClassify(metabat2Bin.out.bins)
 
+    // 6b. M1: is the colibactin island actually IN this bin? Align every bin's own
+    // assembly to the canonical IHE3034 locus and score it the same way read-level
+    // evidence already is -- genes an alignment actually covers, and breadth of the
+    // island those alignments span -- rather than trusting HMM domain hits alone.
+    // Runs for every bin, not only HMM-flagged ones: it is cheap next to
+    // CheckM2/GTDB-Tk/Prokka, and a bin whose true positive genes fell just under
+    // params.mag_min_clb_genes should not be invisible to this check.
+    pks_reference_ch = Channel.value(file(params.pks_reference_fasta, checkIfExists: true))
+    alignMagBinToCanonicalReference(bins_flat_ch, pks_reference_ch)
+    magBinLocusEvidence(alignMagBinToCanonicalReference.out.paf)
+
     // 7. Prokka annotation (ALL bins — before hmmsearch so locus_tags are consistent)
     prokkaAnnotate(bins_flat_ch)
 
@@ -490,17 +558,15 @@ workflow pksMAG {
 
     // 9. Filter to pks+ bins on the distinct-gene count (avoids reading tblouts in the
     // driver JVM). M3: one definition of pks-positive, shared with the status count
-    // below and with community producer selection -- params.mag_min_clb_genes.
-    // M1: also require the specific-gene flag from hmmsearchClb, so a bin cleared on
-    // megasynthase homology alone does not get genomic-context extraction.
+    // below and with community producer selection -- params.mag_min_clb_genes. This is
+    // a cheap HMM pre-filter for which bins are worth genomic-context extraction; the
+    // actual positivity call is magBinLocusEvidence's alignment-confirmed tier, below.
     pks_pos_tblout_ch = hmmsearchClb.out.tblout
         .join(hmmsearchClb.out.clb_gene_count, by: [0, 1])
-        .join(hmmsearchClb.out.has_specific_clb, by: [0, 1])
-        .filter { sampleID, binID, tblout, gene_count, has_specific ->
-            (gene_count.text.trim() as Integer) >= (params.mag_min_clb_genes as Integer) &&
-            (has_specific.text.trim() as Integer) == 1
+        .filter { sampleID, binID, tblout, gene_count ->
+            (gene_count.text.trim() as Integer) >= (params.mag_min_clb_genes as Integer)
         }
-        .map { sampleID, binID, tblout, gene_count, has_specific -> tuple(sampleID, binID, tblout) }
+        .map { sampleID, binID, tblout, gene_count -> tuple(sampleID, binID, tblout) }
 
     // 10. Genomic context (prokka GFF + tblout joined per pks+ bin; locus_tags now match)
     extractGenomicContext(prokkaAnnotate.out.gff.join(pks_pos_tblout_ch, by: [0, 1]))
@@ -522,6 +588,10 @@ workflow pksMAG {
         .map { sampleID, binID, summary -> tuple(sampleID, summary) }
         .groupTuple(by: 0)
 
+    locus_evidence_per_sample_ch = magBinLocusEvidence.out.evidence
+        .map { sampleID, binID, evidence -> tuple(sampleID, evidence) }
+        .groupTuple(by: 0)
+
     binned_assembly_counts_ch = metabat2Bin.out.status
         .map { sampleID, status_file ->
             def lines = status_file.text.readLines().findAll { it.trim() }
@@ -540,14 +610,18 @@ workflow pksMAG {
     assembly_binning_counts_ch = no_contig_counts_ch
         .mix(binned_assembly_counts_ch)
 
-    // M1: a bin only counts toward pks_positive_bin_count when it also clears the
-    // specific-gene requirement -- the same gate as pks_pos_tblout_ch above.
-    pks_positive_bin_counts_ch = hmmsearchClb.out.clb_gene_count
-        .join(hmmsearchClb.out.has_specific_clb, by: [0, 1])
-        .map { sampleID, _binID, gene_count, has_specific ->
-            tuple(sampleID,
-                  (gene_count.text.trim().toInteger() >= (params.mag_min_clb_genes as Integer) &&
-                   has_specific.text.trim().toInteger() == 1) ? 1 : 0)
+    // M1: a bin counts toward pks_positive_bin_count only when magBinLocusEvidence's
+    // alignment-confirmed tier clears the same bar read-level evidence uses to call a
+    // sample positive (multi_gene or above) -- not on the HMM gene count alone, which
+    // domain-homology hits to the megasynthases can clear without island carriage.
+    pks_positive_bin_counts_ch = magBinLocusEvidence.out.evidence
+        .map { sampleID, _binID, evidence_file ->
+            def lines = evidence_file.text.readLines().findAll { it.trim() }
+            if (lines.size() != 2) {
+                error "Malformed locus evidence for ${sampleID}: ${evidence_file}"
+            }
+            def tier = lines[1].split("\\t", -1)[2]
+            tuple(sampleID, (tier in ["multi_gene", "broad_island", "extensive_island"]) ? 1 : 0)
         }
         .groupTuple(by: 0)
         .map { sampleID, flags -> tuple(sampleID, flags.sum() as Integer) }
@@ -567,8 +641,9 @@ workflow pksMAG {
         .join(gtdbtkClassify.out.summary, by: 0)
         .join(tblouts_per_sample_ch, by: 0)
         .join(contexts_per_sample_ch, by: 0, remainder: true)
-        .map { sampleID, checkm2, gtdbtk, tblouts, contexts ->
-            tuple(sampleID, checkm2, gtdbtk, tblouts, contexts ?: [])
+        .join(locus_evidence_per_sample_ch, by: 0, remainder: true)
+        .map { sampleID, checkm2, gtdbtk, tblouts, contexts, locus_evidence ->
+            tuple(sampleID, checkm2, gtdbtk, tblouts, contexts ?: [], locus_evidence ?: [])
         }
 
     magSummaryTable(summary_input_ch)
@@ -577,6 +652,10 @@ workflow pksMAG {
         .join(gffs_per_sample_ch, by: 0)
         .join(tblouts_per_sample_ch, by: 0)
         .join(virus_summaries_per_sample_ch, by: 0)
+        .join(locus_evidence_per_sample_ch, by: 0, remainder: true)
+        .map { sampleID, gtdbtk, gffs, tblouts, virus_summaries, locus_evidence ->
+            tuple(sampleID, gtdbtk, gffs, tblouts, virus_summaries, locus_evidence ?: [])
+        }
 
     communityProphageSummary(community_input_ch)
 }

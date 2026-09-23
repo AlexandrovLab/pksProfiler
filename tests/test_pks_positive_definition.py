@@ -102,8 +102,12 @@ class OneThresholdEverywhere(unittest.TestCase):
         self.assertEqual([l for l in MAG_CODE.splitlines() if "hit_count" in l], [])
 
     def test_every_consumer_reads_the_same_parameter(self):
-        # which bins get genomic context, the status count, and producer selection
-        self.assertEqual(MAG_CODE.count("params.mag_min_clb_genes"), 3)
+        # which bins get genomic context (this HMM pre-filter), and community producer
+        # selection's HMM leg. mag_status's positivity count no longer reads this
+        # parameter at all -- see LocusEvidenceDecidesPositivity below -- so the
+        # invariant this test protects is now "the two remaining HMM-count consumers
+        # agree", not "all three positivity consumers agree".
+        self.assertEqual(MAG_CODE.count("params.mag_min_clb_genes"), 2)
 
     def test_the_parameter_is_declared_once_and_the_old_one_is_gone(self):
         self.assertIn("params.mag_min_clb_genes = 3", MAIN_CODE)
@@ -114,63 +118,53 @@ class OneThresholdEverywhere(unittest.TestCase):
         self.assertIn("emit: clb_gene_count", MAG)
 
 
-# The specific-gene gate exactly as hmmsearchClb ships it, with Nextflow's
-# interpolation of params.hmm_protein_evalue (1e-5) resolved. `specific` is passed in
-# with -v, matching params.mag_specific_clb_genes' default of "clbA,clbD,clbP,clbQ".
-SPECIFIC_REGEX = "clbA|clbD|clbP|clbQ"
-SPECIFIC_AWK = r"""!/^#/ && NF>=19 && ($5+0) <= 1e-5 {
-         genes[$3]=1
-         if ($3 ~ "^(" specific ")$") has_specific=1
-     }
-     END {
-         print length(genes)+0 > "count.out"
-         print (has_specific ? 1 : 0) > "specific.out"
-     }"""
-
-
-def run_specific_gate(text):
-    with tempfile.TemporaryDirectory() as tmp:
-        tblout_path = Path(tmp) / "bin.tblout"
-        tblout_path.write_text(text)
-        subprocess.run(
-            ["awk", "-v", f"specific={SPECIFIC_REGEX}", SPECIFIC_AWK, str(tblout_path)],
-            cwd=tmp, capture_output=True, text=True, check=True,
-        )
-        count = int((Path(tmp) / "count.out").read_text().strip())
-        has_specific = int((Path(tmp) / "specific.out").read_text().strip())
-        return count, has_specific
-
-
-class SpecificGeneRequiredForPositive(unittest.TestCase):
-    """M1: the gene count alone still admits ERR525841's Bifidobacterium bins --
+class LocusEvidenceDecidesPositivity(unittest.TestCase):
+    """M1: the HMM gene count alone still admits ERR525841's Bifidobacterium bins --
     clbB/clbH/clbK domain homology clears mag_min_clb_genes with no island-specific
-    evidence. A bin must also carry one of the small, low-homology genes named by
-    params.mag_specific_clb_genes.
+    evidence. Positivity is decided by aligning each bin's own assembly to the
+    canonical locus (alignMagBinToCanonicalReference/magBinLocusEvidence) and scoring
+    it the same way read-level evidence already is, not by picking specific genes out
+    of the HMM hits.
     """
 
-    def test_megasynthase_only_hits_do_not_set_the_specific_flag(self):
-        text = tblout([("p1", "clbB", "1e-30"), ("p2", "clbK", "1e-28"),
-                       ("p3", "clbH", "1e-22")])
-        count, has_specific = run_specific_gate(text)
-        self.assertEqual(count, 3)
-        self.assertEqual(has_specific, 0)
+    def test_the_locus_tier_params_are_declared_with_the_read_level_values(self):
+        # Same numbers as classify_tumor_pks_evidence.py's tier thresholds (minus the
+        # read-count criterion, which has no bin-level analogue) -- one evidentiary
+        # standard whether the evidence is reads or an assembled bin.
+        for line in (
+            "params.mag_locus_multi_gene_min_genes         = 3",
+            "params.mag_locus_multi_gene_min_breadth       = .01",
+            "params.mag_locus_broad_island_min_genes       = 8",
+            "params.mag_locus_broad_island_min_breadth     = .075",
+            "params.mag_locus_extensive_island_min_genes   = 10",
+            "params.mag_locus_extensive_island_min_breadth = .15",
+        ):
+            self.assertIn(line, MAIN_CODE)
 
-    def test_a_specific_gene_hit_sets_the_flag(self):
-        text = tblout([("p1", "clbB", "1e-30"), ("p2", "clbA", "1e-28")])
-        count, has_specific = run_specific_gate(text)
-        self.assertEqual(count, 2)
-        self.assertEqual(has_specific, 1)
+    def test_pks_reference_fasta_feeds_the_bin_alignment(self):
+        self.assertIn("alignMagBinToCanonicalReference(bins_flat_ch, pks_reference_ch)", MAG_CODE)
 
-    def test_the_specific_gene_param_is_declared(self):
-        self.assertIn('params.mag_specific_clb_genes = "clbA,clbD,clbP,clbQ"', MAIN_CODE)
+    def test_every_bin_is_aligned_not_only_hmm_candidates(self):
+        # bins_flat_ch, not pks_pos_tblout_ch or any HMM-filtered channel.
+        self.assertIn("Channel.value(file(params.pks_reference_fasta", MAG_CODE)
 
-    def test_both_positive_consumers_join_the_specific_gate(self):
-        # pks_pos_tblout_ch (genomic-context extraction) and pks_positive_bin_counts_ch
-        # (mag_status) -- the same two consumers OneThresholdEverywhere checks above.
-        self.assertEqual(MAG_CODE.count("hmmsearchClb.out.has_specific_clb"), 2)
+    def test_mag_status_count_reads_the_locus_tier_not_the_hmm_count(self):
+        self.assertIn("pks_positive_bin_counts_ch = magBinLocusEvidence.out.evidence", MAG_CODE)
+        self.assertNotIn("pks_positive_bin_counts_ch = hmmsearchClb.out.clb_gene_count", MAG_CODE)
 
-    def test_has_specific_clb_is_emitted(self):
-        self.assertIn("emit: has_specific_clb", MAG)
+    def test_positive_tiers_exclude_negative_and_indeterminate(self):
+        self.assertIn(
+            '(tier in ["multi_gene", "broad_island", "extensive_island"]) ? 1 : 0', MAG_CODE,
+        )
+
+    def test_community_and_summary_both_receive_locus_evidence(self):
+        # communityProphageSummary and magSummaryTable each take a locus-evidence
+        # channel, joined the same remainder-safe way contexts_per_sample_ch is.
+        self.assertEqual(MAG_CODE.count(".join(locus_evidence_per_sample_ch, by: 0, remainder: true)"), 2)
+
+    def test_the_specific_gene_mechanism_is_gone(self):
+        self.assertEqual([l for l in MAG_CODE.splitlines() if "has_specific_clb" in l], [])
+        self.assertEqual([l for l in MAIN_CODE.splitlines() if "mag_specific_clb_genes" in l], [])
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ import os
 import re
 from pathlib import Path
 
-from mag_utils import parse_hmmsearch_tblout, SPECIFIC_CLB
+from mag_utils import parse_hmmsearch_tblout, read_locus_evidence, POSITIVE_LOCUS_TIERS
 
 PROPHAGE_FIELDS = [
     "sample", "bin_id", "host_taxonomy", "prophage_id", "host_contig",
@@ -23,9 +23,10 @@ INTERACTION_FIELDS = [
 ]
 MOBILITY_FIELDS = [
     "sample", "bin_id", "host_taxonomy", "distinct_clb_genes", "clb_genes",
-    "provisional_pks_class", "biosynthetic_clb_detected", "specific_clb_detected",
-    "clbP_detected", "clbS_detected", "clb_contig_count", "same_contig_clb_span",
-    "nearby_integrase", "nearby_trna", "mobility_interpretation",
+    "provisional_pks_class", "biosynthetic_clb_detected", "locus_tier",
+    "locus_genes_detected", "locus_breadth", "clbP_detected", "clbS_detected",
+    "clb_contig_count", "same_contig_clb_span", "nearby_integrase", "nearby_trna",
+    "mobility_interpretation",
 ]
 BIOSYNTHETIC_CLB = {"clbB", "clbC", "clbH", "clbI", "clbJ", "clbK", "clbN", "clbO"}
 
@@ -160,6 +161,7 @@ def main():
     parser.add_argument("--gff-dir", required=True)
     parser.add_argument("--tblout-dir", required=True)
     parser.add_argument("--genomad-dir", required=True)
+    parser.add_argument("--locus-dir", required=True)
     parser.add_argument("--evalue", type=float, default=1e-5)
     parser.add_argument("--min-clb-genes", type=int, default=3)
     parser.add_argument("--min-provirus-length", type=int, default=3000)
@@ -170,6 +172,7 @@ def main():
     args = parser.parse_args()
 
     taxonomy = parse_gtdbtk(args.gtdbtk)
+    locus_evidence = read_locus_evidence(args.locus_dir)
     bins = {}
     for tblout in glob.glob(os.path.join(args.tblout_dir, "*.tblout")):
         bin_id = Path(tblout).stem
@@ -177,12 +180,15 @@ def main():
         gff = os.path.join(args.gff_dir, f"{bin_id}.gff")
         rec_a, lex_a = annotation_flags(gff)
         summary = os.path.join(args.genomad_dir, f"{bin_id}.virus_summary.tsv")
+        locus = locus_evidence.get(bin_id, {"locus_tier": "NA", "locus_genes_detected": "NA",
+                                             "locus_breadth": "NA"})
         bins[bin_id] = {
             "taxonomy": taxonomy.get(bin_id, "unclassified"),
             "clb_genes": genes, "clbS_like": clb_s,
             "recA": rec_a, "lexA": lex_a, "prophages": read_prophages(summary, args.min_provirus_length,
                                         args.min_provirus_hallmarks),
             "mobility": mobility_evidence(gff, tblout, args.evalue),
+            "locus": locus,
         }
 
     inventory = []
@@ -197,15 +203,17 @@ def main():
             })
 
     interactions = []
-    # M1: also require a specific, low-homology gene -- BIOSYNTHETIC_CLB alone is the
-    # promiscuous megasynthase domains that a bare E-value cut lets any bacterium hit
+    # M1: also require the bin's own assembly to align across the canonical locus
+    # (magBinLocusEvidence's tier, computed independently of these HMM hits) --
+    # BIOSYNTHETIC_CLB and the gene-count floor alone are the promiscuous megasynthase
+    # domains that a bare E-value cut lets any bacterium hit
     # (v0.0.2_functional_test_20260910, ERR525841: 7 of 8 bins otherwise qualified,
     # including two Bifidobacterium bins).
     producers = {
         key: val for key, val in bins.items()
         if len(val["clb_genes"]) >= args.min_clb_genes
         and val["clb_genes"] & BIOSYNTHETIC_CLB
-        and val["clb_genes"] & SPECIFIC_CLB
+        and val["locus"]["locus_tier"] in POSITIVE_LOCUS_TIERS
     }
     recipients = {key: val for key, val in bins.items() if val["prophages"]}
     for producer_id, producer in sorted(producers.items()):
@@ -232,15 +240,17 @@ def main():
         if not genes:
             continue
         count = len(genes)
+        locus = data["locus"]
         if genes == {"clbS"}:
             provisional = "clbS_only_possible_resistance"
         elif count < args.min_clb_genes:
             provisional = "isolated_or_low_evidence_clb_hits"
-        elif not (genes & SPECIFIC_CLB):
-            # M1: clears the gene-count floor on megasynthase homology alone
-            # (clbB/clbC/clbH/clbI/clbJ/clbK/clbN/clbO) with none of the specific,
-            # low-homology genes -- domain cross-reactivity, not a confirmed carrier.
-            provisional = "megasynthase_only_low_specificity"
+        elif locus["locus_tier"] not in POSITIVE_LOCUS_TIERS:
+            # M1: clears the HMM gene-count floor but the bin's own assembly does not
+            # align across the canonical locus at a positive tier -- domain homology to
+            # the megasynthases (clbB/clbC/clbH/clbI/clbJ/clbK/clbN/clbO), not a
+            # sequence-confirmed carrier.
+            provisional = "hmm_candidate_locus_not_confirmed"
         elif count < 15:
             provisional = "partial_pks_candidate"
         elif count < 19:
@@ -256,7 +266,9 @@ def main():
             "clb_genes": ",".join(sorted(genes)),
             "provisional_pks_class": provisional,
             "biosynthetic_clb_detected": bool(genes & BIOSYNTHETIC_CLB),
-            "specific_clb_detected": bool(genes & SPECIFIC_CLB),
+            "locus_tier": locus["locus_tier"],
+            "locus_genes_detected": locus["locus_genes_detected"],
+            "locus_breadth": locus["locus_breadth"],
             "clbP_detected": "clbP" in genes,
             "clbS_detected": "clbS" in genes,
             **mobility,

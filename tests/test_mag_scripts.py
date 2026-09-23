@@ -156,6 +156,14 @@ locus_tag\tclb_gene\tevalue\tcontig\thas_integrase\thas_transposase\tflanking_ge
 bin_001_1\tclbA\t1e-10\tbin_001\tTrue\tFalse\tgyrB;fliA
 """
 
+# magBinLocusEvidence's output for a bin whose own assembly aligns across the
+# canonical locus -- the alignment-confirmed call build_mag_summary.py and
+# build_community_prophage.py now join in, instead of trusting HMM gene count alone.
+LOCUS_EVIDENCE_POSITIVE = """\
+sample\tbin_id\tlocus_tier\tlocus_genes_detected\tlocus_genes\tlocus_breadth
+SAMPLE1\tbin_001\tmulti_gene\t5\tclbA,clbB,clbD,clbP,clbQ\t0.020000
+"""
+
 
 class TestBuildMagSummary(unittest.TestCase):
     def setUp(self):
@@ -216,11 +224,15 @@ class TestBuildMagSummary(unittest.TestCase):
             context_dir = os.path.join(tmp, "context")
             os.makedirs(context_dir)
             self._write(context_dir, "bin_001.context.tsv", CONTEXT_CONTENT)
+            locus_dir = os.path.join(tmp, "locus")
+            os.makedirs(locus_dir)
+            self._write(locus_dir, "bin_001.locus_evidence.tsv", LOCUS_EVIDENCE_POSITIVE)
             out = os.path.join(tmp, "summary.tsv")
             import sys
             sys.argv = ["build_mag_summary.py",
                         "--checkm2", checkm2, "--gtdbtk", gtdbtk,
                         "--tblout_dir", tblout_dir, "--context_dir", context_dir,
+                        "--locus_dir", locus_dir,
                         "--sample", "SAMPLE1", "--evalue", "1e-5", "--out", out]
             self.mod.main()
             with open(out) as fh:
@@ -234,37 +246,32 @@ class TestBuildMagSummary(unittest.TestCase):
         self.assertIn("clbB", rows[0]["clb_genes"])
         self.assertEqual(rows[0]["has_integrase"], "True")
         self.assertEqual(rows[0]["unexpected_taxon_flag"], "False")
-        self.assertEqual(rows[0]["specific_clb_detected"], "True")  # clbA is in SPECIFIC_CLB
+        self.assertEqual(rows[0]["locus_tier"], "multi_gene")
+        self.assertEqual(rows[0]["locus_genes_detected"], "5")
 
-    def test_specific_clb_detected_false_on_megasynthase_only_hits(self):
-        """M1: clbB/clbK alone (no clbA/clbD/clbP/clbQ) must not read as specific."""
-        megasynthase_only_tblout = (
-            "#\n"
-            "bin_002_1\t-\tclbB\t-\t1e-10\t35.0\t0.0\t1.5e-10\t34.8\t0.0\t1.0\t1\t1"
-            "\t1\t200\t10\t205\t8\t207\t0.95\thit\n"
-            "bin_002_2\t-\tclbK\t-\t2e-08\t30.0\t0.0\t2.5e-08\t29.8\t0.0\t1.0\t1\t1"
-            "\t1\t200\t10\t205\t8\t207\t0.95\thit\n"
-        )
+    def test_missing_locus_evidence_reads_as_unmeasured_not_negative(self):
+        """A bin absent from locus_dir was never aligned -- NA, not a failed tier."""
         with tempfile.TemporaryDirectory() as tmp:
             checkm2 = self._write(tmp, "quality.tsv", CHECKM2_CONTENT)
             gtdbtk = self._write(tmp, "gtdbtk.tsv", GTDBTK_CONTENT)
             tblout_dir = os.path.join(tmp, "tblout")
             os.makedirs(tblout_dir)
-            self._write(tblout_dir, "bin_002.tblout", megasynthase_only_tblout)
+            self._write(tblout_dir, "bin_001.tblout", TBLOUT_PKS_CONTENT)
             context_dir = os.path.join(tmp, "context")
             os.makedirs(context_dir)
+            locus_dir = os.path.join(tmp, "locus")
+            os.makedirs(locus_dir)
             out = os.path.join(tmp, "summary.tsv")
             import sys
             sys.argv = ["build_mag_summary.py",
                         "--checkm2", checkm2, "--gtdbtk", gtdbtk,
                         "--tblout_dir", tblout_dir, "--context_dir", context_dir,
+                        "--locus_dir", locus_dir,
                         "--sample", "SAMPLE1", "--evalue", "1e-5", "--out", out]
             self.mod.main()
             with open(out) as fh:
                 rows = list(csv.DictReader(fh, delimiter="\t"))
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["clb_genes_detected"], "2")
-        self.assertEqual(rows[0]["specific_clb_detected"], "False")
+        self.assertEqual(rows[0]["locus_tier"], "NA")
 
 
 # ---------------------------------------------------------------------------
@@ -314,22 +321,23 @@ c1\tProkka\tCDS\t200\t300\t.\t+\t.\tID=x2;gene=lexA;product=LexA repressor
 c1\tProkka\tCDS\t1\t100\t.\t+\t.\tID=x1;gene=recA;product=recombinase A
 c1\tProkka\tCDS\t200\t300\t.\t+\t.\tID=x2;gene=lexA;product=LexA repressor
 """
-        # M1: a producer now also needs a SPECIFIC_CLB gene (clbA here) on top of the
-        # BIOSYNTHETIC_CLB gene(s) -- clbB/clbC alone would no longer qualify.
-        four_hits = """#
+        three_hits = """#
 x1\t-\tclbB\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
 x2\t-\tclbC\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
 x3\t-\tclbS\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
-x4\t-\tclbA\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
 """
         with tempfile.TemporaryDirectory() as tmp:
             gff_dir = os.path.join(tmp, "gff")
             tbl_dir = os.path.join(tmp, "tbl")
             virus_dir = os.path.join(tmp, "virus")
-            os.makedirs(gff_dir); os.makedirs(tbl_dir); os.makedirs(virus_dir)
+            locus_dir = os.path.join(tmp, "locus")
+            os.makedirs(gff_dir); os.makedirs(tbl_dir); os.makedirs(virus_dir); os.makedirs(locus_dir)
             self._write(gff_dir, "bin_001.gff", gff)
-            self._write(tbl_dir, "bin_001.tblout", four_hits)
+            self._write(tbl_dir, "bin_001.tblout", three_hits)
             self._write(virus_dir, "bin_001.virus_summary.tsv", GENOMAD_CONTENT)
+            # M1: a producer now also needs its own assembly to align across the
+            # canonical locus at a positive tier -- clbB/clbC alone would not qualify.
+            self._write(locus_dir, "bin_001.locus_evidence.tsv", LOCUS_EVIDENCE_POSITIVE)
             taxonomy = self._write(
                 tmp, "taxonomy.tsv",
                 "user_genome\tclassification\nbin_001\td__Bacteria;o__Enterobacterales\n",
@@ -343,6 +351,7 @@ x4\t-\tclbA\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
                     "build_community_prophage.py", "--sample", "S1",
                     "--gtdbtk", taxonomy, "--gff-dir", gff_dir,
                     "--tblout-dir", tbl_dir, "--genomad-dir", virus_dir,
+                    "--locus-dir", locus_dir,
                     "--prophage-out", inventory, "--interaction-out", interactions,
                     "--mobility-out", mobility,
                 ]
@@ -359,11 +368,13 @@ x4\t-\tclbA\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
         self.assertEqual(rows[0]["interpretation"], "co-occurrence_only_not_evidence_of_induction")
         self.assertEqual(mobility_rows[0]["provisional_pks_class"], "partial_pks_candidate")
         self.assertEqual(mobility_rows[0]["mobility_interpretation"], "no_local_HGT_marker_detected")
+        self.assertEqual(mobility_rows[0]["locus_tier"], "multi_gene")
 
     def test_megasynthase_only_bin_is_not_a_producer(self):
-        """M1: clbB/clbK/clbH clear BIOSYNTHETIC_CLB and the gene-count floor with no
-        SPECIFIC_CLB gene -- the ERR525841 Bifidobacterium pattern. Must not produce
-        an interaction row, and must read as low-specificity, not a pks candidate.
+        """M1: clbB/clbK/clbH clear BIOSYNTHETIC_CLB and the gene-count floor, but the
+        bin's own assembly does not align across the canonical locus (the ERR525841
+        Bifidobacterium pattern) -- must not produce an interaction row, and must read
+        as HMM-only, not a confirmed pks candidate.
         """
         gff = """##gff-version 3
 c1\tProkka\tCDS\t1\t100\t.\t+\t.\tID=x1;gene=hypothetical;product=hypothetical protein
@@ -373,14 +384,20 @@ x1\t-\tclbB\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
 x2\t-\tclbK\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
 x3\t-\tclbH\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
 """
+        locus_negative = (
+            "sample\tbin_id\tlocus_tier\tlocus_genes_detected\tlocus_genes\tlocus_breadth\n"
+            "S1\tbin_002\tnegative\t0\t\t0.000000\n"
+        )
         with tempfile.TemporaryDirectory() as tmp:
             gff_dir = os.path.join(tmp, "gff")
             tbl_dir = os.path.join(tmp, "tbl")
             virus_dir = os.path.join(tmp, "virus")
-            os.makedirs(gff_dir); os.makedirs(tbl_dir); os.makedirs(virus_dir)
+            locus_dir = os.path.join(tmp, "locus")
+            os.makedirs(gff_dir); os.makedirs(tbl_dir); os.makedirs(virus_dir); os.makedirs(locus_dir)
             self._write(gff_dir, "bin_002.gff", gff)
             self._write(tbl_dir, "bin_002.tblout", megasynthase_only)
             self._write(virus_dir, "bin_002.virus_summary.tsv", GENOMAD_CONTENT)
+            self._write(locus_dir, "bin_002.locus_evidence.tsv", locus_negative)
             taxonomy = self._write(
                 tmp, "taxonomy.tsv",
                 "user_genome\tclassification\n"
@@ -396,6 +413,7 @@ x3\t-\tclbH\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
                     "build_community_prophage.py", "--sample", "S1",
                     "--gtdbtk", taxonomy, "--gff-dir", gff_dir,
                     "--tblout-dir", tbl_dir, "--genomad-dir", virus_dir,
+                    "--locus-dir", locus_dir,
                     "--prophage-out", inventory, "--interaction-out", interactions,
                     "--mobility-out", mobility,
                 ]
@@ -407,9 +425,111 @@ x3\t-\tclbH\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
             with open(mobility) as fh:
                 mobility_rows = list(csv.DictReader(fh, delimiter="\t"))
         self.assertEqual(rows, [])  # bin_002 hits a recipient (itself) but is no producer
-        self.assertEqual(mobility_rows[0]["provisional_pks_class"], "megasynthase_only_low_specificity")
+        self.assertEqual(mobility_rows[0]["provisional_pks_class"], "hmm_candidate_locus_not_confirmed")
         self.assertEqual(mobility_rows[0]["biosynthetic_clb_detected"], "True")
-        self.assertEqual(mobility_rows[0]["specific_clb_detected"], "False")
+        self.assertEqual(mobility_rows[0]["locus_tier"], "negative")
+
+
+# ---------------------------------------------------------------------------
+# summarize_mag_bin_locus_evidence / mag_utils.read_locus_evidence
+# ---------------------------------------------------------------------------
+
+# island-start=0, island-end=1000 in these tests (real coordinates aren't the point).
+LOCUS_GFF = """\
+##gff-version 3
+c1\tRefSeq\tgene\t1\t100\t.\t+\t.\tID=g1;Name=clbA
+c1\tRefSeq\tgene\t200\t400\t.\t+\t.\tID=g2;Name=clbB
+c1\tRefSeq\tgene\t600\t900\t.\t+\t.\tID=g3;Name=clbC
+"""
+
+
+def paf_line(contig="c1", qlen=1000, ts=0, te=1000, aligned=1000, identity=1.0, mapq=60):
+    nm = int(round(aligned * (1 - identity)))
+    return "\t".join(str(x) for x in (
+        contig, qlen, 0, aligned, "+", "ref", 1000, ts, te, aligned - nm, aligned, mapq,
+    ))
+
+
+class TestMagBinLocusEvidence(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_script("summarize_mag_bin_locus_evidence")
+
+    def _write(self, tmp, name, content):
+        p = os.path.join(tmp, name)
+        with open(p, "w") as f:
+            f.write(content)
+        return p
+
+    def test_no_alignment_is_negative(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paf = self._write(tmp, "empty.paf", "")
+            gff = self._write(tmp, "ref.gff", LOCUS_GFF)
+            hits = self.mod.paf_hits(paf, 0, 1000, 0.90, 20)
+        self.assertEqual(hits, [])
+        self.assertEqual(self.mod.classify(0, 0.0, {
+            "multi_gene": (3, .01), "broad_island": (8, .075), "extensive_island": (10, .15),
+        }), "negative")
+
+    def test_full_length_alignment_covers_all_genes_and_full_breadth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paf = self._write(tmp, "full.paf", paf_line() + "\n")
+            gff = self._write(tmp, "ref.gff", LOCUS_GFF)
+            hits = self.mod.paf_hits(paf, 0, 1000, 0.90, 20)
+            genes = self.mod.genes_covered(gff, "c1", 0, 1000, hits)
+        self.assertEqual(self.mod.union_length(hits), 1000)
+        self.assertEqual(genes, {"clbA", "clbB", "clbC"})
+
+    def test_low_identity_alignment_is_dropped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paf = self._write(tmp, "low_identity.paf", paf_line(identity=0.5) + "\n")
+            hits = self.mod.paf_hits(paf, 0, 1000, 0.90, 20)
+        self.assertEqual(hits, [])
+
+    def test_partial_alignment_covers_only_overlapping_genes(self):
+        # Covers clbA (1-100) and part of clbB (200-400) but not clbC (600-900).
+        with tempfile.TemporaryDirectory() as tmp:
+            paf = self._write(tmp, "partial.paf", paf_line(te=300, aligned=300) + "\n")
+            gff = self._write(tmp, "ref.gff", LOCUS_GFF)
+            hits = self.mod.paf_hits(paf, 0, 1000, 0.90, 20)
+            genes = self.mod.genes_covered(gff, "c1", 0, 1000, hits)
+        self.assertEqual(genes, {"clbA", "clbB"})
+
+    def test_classify_picks_the_highest_tier_that_holds(self):
+        thresholds = {"multi_gene": (3, .01), "broad_island": (8, .075), "extensive_island": (10, .15)}
+        self.assertEqual(self.mod.classify(10, 0.20, thresholds), "extensive_island")
+        self.assertEqual(self.mod.classify(8, 0.08, thresholds), "broad_island")
+        self.assertEqual(self.mod.classify(3, 0.02, thresholds), "multi_gene")
+        self.assertEqual(self.mod.classify(1, 0.005, thresholds), "localized_indeterminate")
+        self.assertEqual(self.mod.classify(0, 0.0, thresholds), "negative")
+
+    def test_end_to_end_bifidobacterium_pattern_is_negative_not_positive(self):
+        """The ERR525841 false positive: HMM hits to megasynthase domains with no
+        actual alignment to the reference locus (a different genus, no shared synteny).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            paf = self._write(tmp, "bin.paf", "")  # no alignment survives at all
+            gff = self._write(tmp, "ref.gff", LOCUS_GFF)
+            out = os.path.join(tmp, "evidence.tsv")
+            import sys
+            sys.argv = ["summarize_mag_bin_locus_evidence.py",
+                        "--sample", "ERR525841", "--bin-id", "bin.1", "--paf", paf,
+                        "--gff", gff, "--contig", "c1",
+                        "--island-start", "0", "--island-end", "1000", "--output", out]
+            self.mod.main()
+            with open(out) as fh:
+                rows = list(csv.DictReader(fh, delimiter="\t"))
+        self.assertEqual(rows[0]["locus_tier"], "negative")
+        self.assertEqual(rows[0]["locus_genes_detected"], "0")
+
+    def test_read_locus_evidence_keys_by_bin_id(self):
+        mag_utils = load_script("mag_utils")
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write(tmp, "bin.1.locus_evidence.tsv",
+                        "sample\tbin_id\tlocus_tier\tlocus_genes_detected\tlocus_genes\tlocus_breadth\n"
+                        "S1\tbin.1\textensive_island\t12\tclbA,clbB\t0.900000\n")
+            result = mag_utils.read_locus_evidence(tmp)
+        self.assertIn("bin.1", result)
+        self.assertEqual(result["bin.1"]["locus_tier"], "extensive_island")
 
 
 if __name__ == "__main__":

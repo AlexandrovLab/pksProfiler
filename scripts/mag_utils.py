@@ -1,14 +1,28 @@
 """Shared parsing utilities for MAG-module scripts."""
 
-# M1: clbA, clbD, clbP and clbQ are small, single-domain tailoring genes that showed
-# no cross-reactivity against the promiscuous megasynthase domains (clbB, clbC, clbH,
-# clbI, clbJ, clbK, clbN, clbO) that a bare hmmsearch E-value cut lets any bacterium
-# hit (v0.0.2_functional_test_20260910, ERR525841: 7 of 8 bins, including two
-# Bifidobacterium bins, called pks-positive on megasynthase hits alone). A bin must
-# carry at least one of these on top of the gene-count floor to be called positive.
-# Kept in sync with main.nf's params.mag_specific_clb_genes default -- see
-# tests/test_pks_positive_definition.py.
-SPECIFIC_CLB = {"clbA", "clbD", "clbP", "clbQ"}
+# M1: a bin is called pks-positive by its magBinLocusEvidence tier (an alignment of
+# the bin's own assembly against the canonical IHE3034 locus, scored on genes an
+# alignment covers and breadth of the island it spans), not by HMM gene count alone.
+# See Modules/pks_mag.nf's alignMagBinToCanonicalReference/magBinLocusEvidence and
+# scripts/summarize_mag_bin_locus_evidence.py.
+POSITIVE_LOCUS_TIERS = {"multi_gene", "broad_island", "extensive_island"}
+
+
+def read_locus_evidence(locus_dir):
+    """{bin_id: {"locus_tier": ..., "locus_genes_detected": ..., "locus_breadth": ...}}
+    from a directory of `{bin_id}.locus_evidence.tsv` files (magBinLocusEvidence's
+    output, one per bin). A bin absent from the directory has not been aligned.
+    """
+    import csv
+    import glob
+    import os
+
+    result = {}
+    for path in glob.glob(os.path.join(locus_dir, "*.locus_evidence.tsv")):
+        bin_id = os.path.basename(path)[: -len(".locus_evidence.tsv")]
+        with open(path) as fh:
+            result[bin_id] = next(csv.DictReader(fh, delimiter="\t"))
+    return result
 
 
 def parse_hmmsearch_tblout(tblout_path, evalue_threshold=1e-5):

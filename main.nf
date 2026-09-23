@@ -112,14 +112,23 @@ params.mag_min_clb_genes = 3
 // cut alone let a non-Enterobacterales bin clear mag_min_clb_genes on megasynthase
 // hits by domain homology, not island carriage (v0.0.2_functional_test_20260910,
 // ERR525841: 7 of 8 bins called pks-positive this way, including two Bifidobacterium
-// bins). clbA, clbD, clbP and clbQ are small, single-domain tailoring genes that
-// showed no such cross-reactivity there and appeared only in the one credible E. coli
-// bin. A bin must now carry at least one of them, on top of mag_min_clb_genes,
-// everywhere positivity is decided: mag_status, genomic-context extraction and
-// community producer selection (scripts/mag_utils.SPECIFIC_CLB). Per-model HMMER
-// gathering thresholds (--cut_ga on the profile itself) would fix this at the source
-// and remain the better long-term fix; this is the code-only stopgap until those exist.
-params.mag_specific_clb_genes = "clbA,clbD,clbP,clbQ"
+// bins). Rather than requiring specific genes by name, each bin's own assembly is
+// aligned to the canonical IHE3034 locus (params.pks_reference_fasta,
+// alignMagBinToCanonicalReference/magBinLocusEvidence in Modules/pks_mag.nf) and
+// scored the same way read-level evidence already is: genes an alignment actually
+// covers, and breadth of the island those alignments span. Tier names and threshold
+// values below are deliberately the same as classify_tumor_pks_evidence.py's read-level
+// tiers, so "positive" means the same thing whether the evidence is reads or a bin.
+// hmmsearchClb (mag_min_clb_genes, above) stays a cheap HMM pre-filter for which bins
+// get genomic-context extraction; it does not decide positivity.
+params.mag_locus_min_identity = 0.90
+params.mag_locus_min_mapq     = 20
+params.mag_locus_multi_gene_min_genes         = 3
+params.mag_locus_multi_gene_min_breadth       = .01
+params.mag_locus_broad_island_min_genes       = 8
+params.mag_locus_broad_island_min_breadth     = .075
+params.mag_locus_extensive_island_min_genes   = 10
+params.mag_locus_extensive_island_min_breadth = .15
 
 // T3: a geNomad provirus must clear both floors to be reported. geNomad called 134
 // "viral contigs" on AA-3850 whose top hits were 369 bp with one gene and one

@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-from mag_utils import parse_hmmsearch_tblout, SPECIFIC_CLB
+from mag_utils import parse_hmmsearch_tblout, read_locus_evidence
 
 ENTEROBACTERALES = "o__Enterobacterales"
 
@@ -16,7 +16,7 @@ FIELDNAMES = [
     "sample", "bin_id", "taxonomy", "completeness", "contamination",
     "genome_size", "contig_n50", "clb_genes_detected", "clb_genes", "best_evalue",
     "has_integrase", "has_transposase", "flanking_genes", "unexpected_taxon_flag",
-    "specific_clb_detected",
+    "locus_tier", "locus_genes_detected", "locus_breadth",
 ]
 
 
@@ -90,6 +90,7 @@ def main():
     parser.add_argument("--gtdbtk", required=True)
     parser.add_argument("--tblout_dir", required=True)
     parser.add_argument("--context_dir", required=True)
+    parser.add_argument("--locus_dir", required=True)
     parser.add_argument("--sample", required=True)
     parser.add_argument("--evalue", type=float, default=1e-5)
     parser.add_argument("--out", required=True)
@@ -97,6 +98,7 @@ def main():
 
     checkm2 = parse_checkm2(args.checkm2)
     gtdbtk = parse_gtdbtk(args.gtdbtk)
+    locus_evidence = read_locus_evidence(args.locus_dir)
 
     rows = []
     for tblout_path in sorted(glob.glob(os.path.join(args.tblout_dir, "*.tblout"))):
@@ -118,10 +120,11 @@ def main():
                                   "genome_size": "NA", "contig_n50": "NA"})
         taxonomy = gtdbtk.get(bin_id, "unclassified")
         unexpected = is_unexpected_taxon(taxonomy)
-        # M1: visible here even though this table doesn't itself gate on it -- the
-        # gate lives in Modules/pks_mag.nf and build_community_prophage.py, both
-        # keyed on the same mag_utils.SPECIFIC_CLB set.
-        specific_detected = bool(SPECIFIC_CLB & set(clb_genes))
+        # M1: the alignment-confirmed call for this bin -- see mag_utils.read_locus_evidence.
+        # Absent means the bin was never aligned (should not happen once magBinLocusEvidence
+        # runs for every bin), not that it failed the tier.
+        locus = locus_evidence.get(bin_id, {"locus_tier": "NA", "locus_genes_detected": "NA",
+                                             "locus_breadth": "NA"})
 
         context_path = os.path.join(args.context_dir, f"{bin_id}.context.tsv")
         if os.path.exists(context_path):
@@ -144,7 +147,9 @@ def main():
             "has_transposase": has_tra,
             "flanking_genes": flanking,
             "unexpected_taxon_flag": unexpected,
-            "specific_clb_detected": specific_detected,
+            "locus_tier": locus["locus_tier"],
+            "locus_genes_detected": locus["locus_genes_detected"],
+            "locus_breadth": locus["locus_breadth"],
         })
 
     with open(args.out, "w", newline="") as fh:
