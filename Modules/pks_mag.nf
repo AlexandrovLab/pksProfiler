@@ -298,11 +298,17 @@ process magBinLocusEvidence {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # pks_annotation ${params.dep_digest?.pks_annotation}
     set -euo pipefail
+    # Ludmil, revised report finding 6: island-start/-end here are 0-based
+    # half-open (PAF's own convention, matching summarize_tumor_pks_contigs.py) --
+    # the correct conversion from the 1-based inclusive annotation is
+    # pks_start_1based-1 .. pks_end_1based, not the bare pks_shift this used to
+    # pass, which was a 5th call site sharing the same off-by-one his report
+    # found in the other four.
     python ${projectDir}/scripts/summarize_mag_bin_locus_evidence.py \
         --sample ${sampleID} --bin-id ${binID} --paf ${paf} \
         --gff ${params.pks_genome_annotation} --contig ${params.pks_contig} \
-        --island-start ${params.pks_shift} \
-        --island-end \$(( ${params.pks_shift} + ${params.pks_island_len} )) \
+        --island-start \$(( ${params.pks_start_1based} - 1 )) \
+        --island-end ${params.pks_end_1based} \
         --min-identity ${params.mag_locus_min_identity} --min-mapq ${params.mag_locus_min_mapq} \
         --multi-gene-genes ${params.mag_locus_multi_gene_min_genes} \
         --multi-gene-breadth ${params.mag_locus_multi_gene_min_breadth} \

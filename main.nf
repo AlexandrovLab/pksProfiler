@@ -154,6 +154,21 @@ params.pks_contig = 'NC_017628.1'   // contig name in BAM
 params.pks_plot_region_start = 2183826   // plotting window around the island
 params.pks_plot_region_end   = 2254594
 
+// Ludmil, revised report finding 6: the annotation spans 2,193,827-2,244,594
+// inclusive (50,768 bp), but pks_shift/pks_island_len above got a different
+// +/-1 adjustment in every module that turned them into a region -- correct in
+// pks_taxa.nf (pks_shift-1 for a 0-based BED start), off by one bp at the start
+// everywhere else (pksProfiler_align.nf, pks_targeted.nf's two call sites, and
+// this session's own pks_mag.nf locus alignment), silently dropping the true
+// first base of the island. These two values are the single authoritative
+// definition; every correctness-sensitive call site below now derives its own
+// coordinate representation (1-based samtools region, or 0-based BED/PAF start)
+// from them directly. pks_shift/pks_island_len are UNCHANGED, and still used by
+// plotting.nf's coverage-plot window, where a 1 bp offset has no numeric effect.
+params.pks_start_1based    = 2193827   // first base of the annotated island (1-based, inclusive)
+params.pks_end_1based      = 2244594   // last base of the annotated island (1-based, inclusive)
+params.pks_island_len_1based = params.pks_end_1based - params.pks_start_1based + 1   // 50768, not 50767
+
 // Output directories
 params.outdir = "${launchDir}/results"
 

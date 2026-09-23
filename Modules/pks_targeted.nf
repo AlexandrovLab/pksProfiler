@@ -10,13 +10,17 @@ process classifyPksReadEvidence {
     output:
     tuple val(sampleID), path(raw_coverage), path(counts), path("${sampleID}.read_evidence.tsv"), emit: evidence
     script:
-    def islandEnd = params.pks_shift.toString().toInteger() + params.pks_island_len.toString().toInteger()
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # scripts ${params.dep_digest?.scripts}
     set -euo pipefail
-    samtools depth -aa -s -Q 40 -r "${params.pks_contig}:${params.pks_shift.toString().toInteger() + 1}-${islandEnd}" "${bam}" > "${sampleID}.island.raw_depth.tsv"
-    python "${params.scripts}/classify_tumor_pks_evidence.py" --sample "${sampleID}" --qc "${qc}" --counts "${counts}" --depth "${sampleID}.island.raw_depth.tsv" --island-length "${params.pks_island_len}" --multi-gene-reads "${params.tumor_multi_gene_min_pks_reads}" --multi-gene-genes "${params.tumor_multi_gene_min_clb_genes}" --multi-gene-breadth "${params.tumor_multi_gene_min_breadth}" --broad-island-reads "${params.tumor_broad_island_min_pks_reads}" --broad-island-genes "${params.tumor_broad_island_min_clb_genes}" --broad-island-breadth "${params.tumor_broad_island_min_breadth}" --extensive-island-reads "${params.tumor_extensive_island_min_pks_reads}" --extensive-island-genes "${params.tumor_extensive_island_min_clb_genes}" --extensive-island-breadth "${params.tumor_extensive_island_min_breadth}" --output "${sampleID}.read_evidence.tsv"
+    # Ludmil, revised report finding 6: pks_shift+1 dropped the true first base of
+    # the island. pks_start_1based/pks_end_1based are already correct 1-based
+    # inclusive bounds; --island-length must match the row count this now produces
+    # (50768, not the old pks_island_len=50767), or classify_tumor_pks_evidence.py's
+    # own row-count check raises rather than silently disagreeing.
+    samtools depth -aa -s -Q 40 -r "${params.pks_contig}:${params.pks_start_1based}-${params.pks_end_1based}" "${bam}" > "${sampleID}.island.raw_depth.tsv"
+    python "${params.scripts}/classify_tumor_pks_evidence.py" --sample "${sampleID}" --qc "${qc}" --counts "${counts}" --depth "${sampleID}.island.raw_depth.tsv" --island-length "${params.pks_island_len_1based}" --multi-gene-reads "${params.tumor_multi_gene_min_pks_reads}" --multi-gene-genes "${params.tumor_multi_gene_min_clb_genes}" --multi-gene-breadth "${params.tumor_multi_gene_min_breadth}" --broad-island-reads "${params.tumor_broad_island_min_pks_reads}" --broad-island-genes "${params.tumor_broad_island_min_clb_genes}" --broad-island-breadth "${params.tumor_broad_island_min_breadth}" --extensive-island-reads "${params.tumor_extensive_island_min_pks_reads}" --extensive-island-genes "${params.tumor_extensive_island_min_clb_genes}" --extensive-island-breadth "${params.tumor_extensive_island_min_breadth}" --output "${sampleID}.read_evidence.tsv"
     """
 }
 
@@ -132,7 +136,12 @@ process summarizeTargetedPksEvidence {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # pks_annotation ${params.dep_digest?.pks_annotation}  pks_reference_fasta ${params.dep_digest?.pks_reference_fasta}  scripts ${params.dep_digest?.scripts}
     set -euo pipefail
-    python "${params.scripts}/summarize_tumor_pks_contigs.py" --sample "${sampleID}" --megahit-contigs "${megahit_contigs}" --metaspades-contigs "${metaspades_contigs}" --megahit-paf "${megahit_paf}" --metaspades-paf "${metaspades_paf}" --raw-depth "${raw_coverage}" --read-evidence "${read_evidence}" --gff "${params.pks_genome_annotation}" --contig "${params.pks_contig}" --region-start "${params.pks_plot_region_start}" --region-end "${params.pks_plot_region_end}" --island-start "${params.pks_shift}" --island-end "${params.pks_shift.toString().toInteger() + params.pks_island_len.toString().toInteger()}" --min-aligned-bp "${params.tumor_contig_min_aligned_bp}" --output-tsv "${sampleID}.final_pks_evidence.tsv" --output-svg "${sampleID}.raw_depth_megahit_metaspades_IHE3034.svg"
+    # Ludmil, revised report finding 6: island-start/-end here are 0-based half-open
+    # (PAF's own convention -- summarize_tumor_pks_contigs.py takes ts/te straight
+    # from PAF fields with no adjustment), so the correct conversion from the
+    # 1-based inclusive annotation is pks_start_1based-1 .. pks_end_1based, not the
+    # bare pks_shift this used to pass, which silently dropped the first base.
+    python "${params.scripts}/summarize_tumor_pks_contigs.py" --sample "${sampleID}" --megahit-contigs "${megahit_contigs}" --metaspades-contigs "${metaspades_contigs}" --megahit-paf "${megahit_paf}" --metaspades-paf "${metaspades_paf}" --raw-depth "${raw_coverage}" --read-evidence "${read_evidence}" --gff "${params.pks_genome_annotation}" --contig "${params.pks_contig}" --region-start "${params.pks_plot_region_start}" --region-end "${params.pks_plot_region_end}" --island-start "${params.pks_start_1based.toString().toInteger() - 1}" --island-end "${params.pks_end_1based}" --min-aligned-bp "${params.tumor_contig_min_aligned_bp}" --output-tsv "${sampleID}.final_pks_evidence.tsv" --output-svg "${sampleID}.raw_depth_megahit_metaspades_IHE3034.svg"
     """
 }
 
