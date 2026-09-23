@@ -58,10 +58,11 @@ def publish_targets():
 TARGETS = publish_targets()
 
 # Processes whose output spans samples, so they belong in cohort/, not by_sample/.
+# tumorEligibilityStatus used to be here too; removed as dead code (finding d-1),
+# it was never invoked and its publishDir target no longer exists.
 COHORT_PROCESSES = ("masterTableAlign", "masterTableHMM", "masterQCSummary",
-                    "cohortReport",
-                    "process_bracken", "combineClbTaxonomySupport",
-                    "tumorEligibilityStatus")
+                    "cohortReport", "masterSummary",
+                    "process_bracken", "combineClbTaxonomySupport")
 
 
 class LayoutParamsTests(unittest.TestCase):
@@ -137,7 +138,7 @@ class ArmLevelTests(unittest.TestCase):
 
     def test_nothing_from_the_tumour_lane_lands_in_the_genomes_tree(self):
         # mags/tumor_wgs was a misnomer: nothing in the tumour lane is a draft genome.
-        for process in self.TUMOUR + ("tumorEligibilityStatus",):
+        for process in self.TUMOUR:
             for target in TARGETS[process]:
                 self.assertNotIn("/genomes", target,
                                  f"{process} is not a draft genome")

@@ -126,5 +126,139 @@ class MasterSummaryTests(unittest.TestCase):
         self.assertIn("No per-sample results", r.stderr)
 
 
+class TheSummaryNeverShowsAStaleSample(unittest.TestCase):
+    """Automating this script (dead-code item d-2) reintroduces finding 5's exact
+    bug class -- glob-by-path admits a directory left over from an older run at
+    the same --results -- unless it gets the same --expected-samples filter
+    build_cohort_report.py already has.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        minimal(self.root)
+        stale = self.root / "by_sample/S_stale_old_run"
+        write(stale / "read_evidence.tsv",
+              ["sample", "read_evidence", "pks_reads", "clb_genes_detected", "island_breadth_1x"],
+              [["S_stale_old_run", "extensive_island", "9999", "19", "0.99"]])
+        self.expected = self.root / "expected_samples.txt"
+        self.expected.write_text("S1\nS2\n")
+
+    def run_with_expected(self):
+        out = self.root / "master.tsv"
+        r = subprocess.run(
+            [sys.executable, str(SCRIPT), "--results", str(self.root), "--output", str(out),
+             "--expected-samples", str(self.expected)],
+            capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with out.open() as fh:
+            return list(csv.DictReader(fh, delimiter="\t"))
+
+    def test_without_the_flag_the_stale_sample_leaks_through(self):
+        out = self.root / "master.tsv"
+        r = subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.root),
+                            "--output", str(out)], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with out.open() as fh:
+            rows = list(csv.DictReader(fh, delimiter="\t"))
+        self.assertIn("S_stale_old_run", {r["sample"] for r in rows},
+                      "fixture assumption: an unfiltered scan does pick it up")
+
+    def test_with_the_flag_the_stale_sample_is_gone(self):
+        rows = self.run_with_expected()
+        self.assertEqual({r["sample"] for r in rows}, {"S1", "S2"})
+
+    def test_the_flag_is_optional(self):
+        # Still safe to run by hand against a finished tree, exactly as before.
+        out = self.root / "master.tsv"
+        r = subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.root),
+                            "--output", str(out)], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
+class Wiring(unittest.TestCase):
+    """The process is now automatic, gated on the lanes it actually reads from."""
+
+    PLOTTING = (ROOT / "Modules/plotting.nf").read_text()
+    MAIN = (ROOT / "main.nf").read_text()
+    PKS_MAG = (ROOT / "Modules/pks_mag.nf").read_text()
+
+    def test_the_process_exists_and_is_invoked(self):
+        self.assertIn("process masterSummary", self.PLOTTING)
+        self.assertIn("masterSummary(", self.MAIN)
+
+    def test_it_takes_the_same_three_inputs_as_cohortReport(self):
+        process = self.PLOTTING.split("process masterSummary {", 1)[1]
+        self.assertIn("path(results_marker)", process)
+        self.assertIn("path(report_script)", process)
+        self.assertIn("path(expected_samples)", process)
+        self.assertIn('--expected-samples "${expected_samples}"', process)
+
+    def test_it_runs_after_the_cohort_report(self):
+        body = self.MAIN.split("workflow {", 1)[1]
+        self.assertLess(body.index("cohortReport("), body.index("masterSummary("))
+
+    def test_its_gate_covers_cohort_report_gate_plus_the_optional_lanes(self):
+        body = self.MAIN.split("workflow {", 1)[1]
+        call = body[body.index("masterSummary("):body.index("masterSummary(") + 300]
+        self.assertIn("masterQCSummary.out", call)
+        self.assertIn("cohort_report_gate", call)
+        self.assertIn("optional_lane_gate", call)
+        self.assertIn("EXPECTED_SAMPLE_IDS", call)
+
+    def test_optional_lane_gate_defaults_empty_outside_if_do_align(self):
+        # Declared where cohort_report_gate is, for the identical reason: an
+        # HMM-only run enables none of these lanes and genuinely has nothing to
+        # wait on.
+        body = self.MAIN.split("workflow {", 1)[1]
+        decl = body.index("def optional_lane_gate = channel.empty()")
+        first_if_do_align = body.index("if (do_align) {")
+        self.assertLess(decl, first_if_do_align)
+
+    def test_all_three_optional_lanes_feed_the_gate(self):
+        body = self.MAIN.split("workflow {", 1)[1]
+
+        mag_block = body[body.index("if (enable_mags_b) {"):]
+        mag_block = mag_block[:mag_block.index("\n    }")]
+        self.assertIn("pksMAG.out.mag_summary", mag_block)
+        self.assertIn("pksMAG.out.community_summary", mag_block)
+        self.assertIn("pksMAG.out.strain_summary", mag_block)
+
+        context_block = body[body.index("if (tumor_full_contig_context_b) {"):]
+        context_block = context_block[:context_block.index("\n            }")]
+        self.assertIn("tumorWGS.out.community_summary", context_block)
+        self.assertIn("tumorWGS.out.strain_summary", context_block)
+
+        tumor_mag_block = body[body.index("if (tumor_enable_mags_b) {"):]
+        tumor_mag_block = tumor_mag_block[:tumor_mag_block.index("\n            }")]
+        self.assertIn("tumorPksMAG.out.mag_summary", tumor_mag_block)
+        self.assertIn("tumorPksMAG.out.community_summary", tumor_mag_block)
+        self.assertIn("tumorPksMAG.out.strain_summary", tumor_mag_block)
+
+    def test_pksMAG_emits_what_the_gate_and_the_script_both_need(self):
+        workflow = self.PKS_MAG[self.PKS_MAG.index("workflow pksMAG {"):]
+        emit_block = workflow[workflow.index("\n    emit:"):]
+        self.assertIn("mag_summary       = magSummaryTable.out.summary", emit_block)
+        self.assertIn("community_summary = communityProphageSummary.out.inventory", emit_block)
+        self.assertIn("strain_summary    = strain_typing_summary_ch", emit_block)
+
+    def test_pksMAG_strain_summary_is_empty_when_typing_is_off(self):
+        workflow = self.PKS_MAG[self.PKS_MAG.index("workflow pksMAG {"):
+                               self.PKS_MAG.index("\n    emit:", self.PKS_MAG.index("workflow pksMAG {"))]
+        self.assertIn("def strain_typing_summary_ch = Channel.empty()", workflow)
+        # Assigned only inside the flag check, matching cohort_report_gate's own pattern.
+        flag_block = workflow[workflow.index("if (params.enable_strain_typing"):]
+        self.assertIn("strain_typing_summary_ch = magStrainTyping.out.summary", flag_block)
+
+    def test_tumorWGS_emits_community_and_strain_summary(self):
+        workflow = self.PKS_MAG[self.PKS_MAG.index("workflow tumorWGS {"):]
+        self.assertIn("community_summary = tumorContigContext.out.summary", workflow)
+        self.assertIn("strain_summary     = strain_typing_summary_ch", workflow)
+
+    def test_tumorPksMAG_is_pksMAG_aliased_so_it_carries_the_same_emits(self):
+        self.assertIn("include { pksMAG as tumorPksMAG } from './Modules/pks_mag.nf'", self.MAIN)
+
+
 if __name__ == "__main__":
     unittest.main()

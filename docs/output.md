@@ -66,7 +66,6 @@ cohort/
 ├── gene_counts/            pks.gene.counts.align.txt, pks.gene.counts.hmm.txt
 ├── qc/                     pks.qc.summary.tsv — read attrition through every stage
 ├── taxonomy/               combined bracken tables, clb taxonomy support
-├── tumor_eligibility/      per-sample tumour screen
 └── pks.master_summary.tsv  written by build_master_summary.py (see below)
 ```
 
@@ -86,7 +85,17 @@ figures should come from.
 
 ## One table with everything
 
-`scripts/build_master_summary.py` joins every stage into one row per sample:
+`cohort/pks.master_summary.tsv`, written automatically at the end of every run by the
+`masterSummary` process, which wraps `scripts/build_master_summary.py` and joins every
+stage into one row per sample. It waits on every optional lane it reads from (MAG,
+community/prophage context, strain typing) in addition to the align and targeted-
+assembly lanes `pks_cohort_report.html` already waits on, so it never starts before a
+slower stage has finished publishing, and it never carries a sample left over from an
+older run at the same `--outdir`.
+
+It is still safe to run by hand against a finished (or partly finished) results
+directory, exactly as before -- it only reads published output and does not require
+re-running the pipeline:
 
 ```bash
 python3 scripts/build_master_summary.py --results results \
@@ -108,18 +117,16 @@ Where a sample has several draft genomes, the reported one is the *pks*-positive
 carrying the most *clb* genes. A sample that was profiled and found negative keeps its
 row, with `NA` in the later groups.
 
-It only reads published output, so it is safe to re-run at any time.
-
 ## Primary result files
 
-Every table carries a header row. The two tables produced by every run are specified
+Every table carries a header row. The three tables produced by every run are specified
 below; the pages under `docs/running/` describe the files each optional mode adds.
 
 | File | Produced by | One row per |
 |---|---|---|
 | `cohort/gene_counts/pks.gene.counts.*.txt` | every run | *clb* gene |
 | `cohort/qc/pks.qc.summary.tsv` | every run | sample |
-| `cohort/pks.master_summary.tsv` | `build_master_summary.py` | sample — every stage joined |
+| `cohort/pks.master_summary.tsv` | every run | sample — every stage joined |
 | `by_sample/*/read_evidence.tsv` | `--sample_type tumor_wgs` or `metagenome` | sample |
 | `by_sample/*/contigs/final_evidence/final_pks_evidence.tsv` | targeted reassembly | sample |
 

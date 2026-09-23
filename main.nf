@@ -96,12 +96,13 @@ params.targeted_min_contig_len = 300
 // lower value makes metaSPAdes look artificially divergent.
 params.tumor_contig_min_aligned_bp = 200   // T1: total island bases a contig must carry to count as supporting; below clbR (213 bp)
 
-// Legacy read-level eligibility screen inside tumorWGS. Undefined upstream (latent NPE);
-// aligned here with the lowest positive tier. Non-host floor disabled by default -- the
-// tier classifier is the authoritative gate.
+// Minimum distinct clb genes on one contig for tumorContigContext to call it
+// "partial" pks coverage (19 genes is "complete"). tumor_min_pks_reads and
+// tumor_min_nonhost_reads, its former companions in a now-removed, unwired
+// tumorEligibilityStatus screen, were removed with it (dead-code item d-1):
+// the tier classifier (classifyPksReadEvidence + contig_tiers) is the one
+// authoritative eligibility gate.
 params.tumor_min_clb_genes    = 3
-params.tumor_min_pks_reads    = 5
-params.tumor_min_nonhost_reads = 0
 
 // ---------------- v0.0.2: MAG / prophage ----------------
 params.gtdbtk_db               = null
@@ -289,7 +290,7 @@ include { filterReads } from './Modules/filter_reads.nf'
 include { mapReads } from './Modules/map_reads.nf'
 include { pksProfiler_align as pksProfilerAlign } from './Modules/pksProfiler_align.nf'
 include { pksProfiler_hmm as pksProfilerHMM } from './Modules/pksProfiler_hmm.nf'
-include { plotPKS; masterTableAlign; masterTableHMM; masterQCSummary; cohortReport } from './Modules/plotting.nf'
+include { plotPKS; masterTableAlign; masterTableHMM; masterQCSummary; cohortReport; masterSummary } from './Modules/plotting.nf'
 include { extractPksIslandReads; Bracken; process_bracken as combinePKSTaxa; combineClbTaxonomySupport } from './Modules/pks_taxa.nf'
 include { plotBrackenTaxa as plotPKSTaxa } from './Modules/plot_bracken_taxa.nf'
 include { plotBrackenTaxa as plotCommunityTaxa } from './Modules/plot_bracken_taxa.nf'
@@ -652,6 +653,15 @@ workflow {
         MAP_OUT.qc.map { _sampleID, qc_file -> qc_file }
     )
 
+    // masterSummary's own gate: build_master_summary.py also reads MAG,
+    // community/prophage, and strain-typing output, which cohortReport never
+    // needs to wait on. Declared before the earliest branch that can mix into
+    // it (this MAG-assembly one, ahead of even cohort_report_gate's own
+    // reassignment further down) -- masterSummary reads it unconditionally,
+    // and a run with none of these optional lanes enabled genuinely has
+    // nothing to wait on.
+    def optional_lane_gate = channel.empty()
+
     // ---------- v0.0.2: preserve the complete host-depleted stream for MAG assembly ----------
     // Branched before profiling so genome-resolved analysis sees every host-depleted read.
     MAPPED_READS
@@ -660,6 +670,8 @@ workflow {
 
     if (enable_mags_b) {
         pksMAG(MAG_ASSEMBLY_READS)
+        optional_lane_gate = optional_lane_gate.mix(
+            pksMAG.out.mag_summary, pksMAG.out.community_summary, pksMAG.out.strain_summary)
     }
 
 	// ---------- v0.0.2: prefilter validation ----------
@@ -921,9 +933,14 @@ workflow {
             }
             if (tumor_full_contig_context_b) {
                 tumorWGS(tumor_assembly_reads_ch)
+                optional_lane_gate = optional_lane_gate.mix(
+                    tumorWGS.out.community_summary, tumorWGS.out.strain_summary)
             }
             if (tumor_enable_mags_b) {
                 tumorPksMAG(tumor_assembly_reads_ch)
+                optional_lane_gate = optional_lane_gate.mix(
+                    tumorPksMAG.out.mag_summary, tumorPksMAG.out.community_summary,
+                    tumorPksMAG.out.strain_summary)
             }
         }
     }
@@ -1086,4 +1103,16 @@ workflow {
     cohortReport(masterQCSummary.out.mix(cohort_report_gate).collect(),
                  cohort_report_script,
                  EXPECTED_SAMPLE_IDS)
+
+    // ---------- STEP 7: One table with every stage joined ----------
+    // Dead-or-unwired-code item d-2: this used to be a documented, manual,
+    // post-run script. Automated on the same pattern as cohortReport above --
+    // cohort_report_gate covers the align + targeted-assembly lanes it shares
+    // with the HTML report; optional_lane_gate covers the MAG/community/
+    // strain-typing lanes the HTML report never reads.
+    def master_summary_script = file("${params.scripts}/build_master_summary.py",
+                                     checkIfExists: true)
+    masterSummary(masterQCSummary.out.mix(cohort_report_gate).mix(optional_lane_gate).collect(),
+                  master_summary_script,
+                  EXPECTED_SAMPLE_IDS)
 }

@@ -57,7 +57,9 @@ SAMPLE_STAGE_PROCESSES = {
 # resource: failure there is not something to carry on past, so the default
 # strict 'finish' behaviour is deliberate, not an oversight.
 EXCLUDED = {
-    "pks_mag.nf": ["tumorEligibilityStatus"],   # dead code (finding d-1); not invoked either way
+    # tumorEligibilityStatus used to be here (dead code, finding d-1); it has
+    # since been removed from pks_mag.nf entirely, so there is nothing left to
+    # exclude it from.
     "pks_prefilter.nf": ["buildClbDiamondDb"],  # shared DB every sample's rescue depends on
     "pks_taxa.nf": ["process_bracken", "combineClbTaxonomySupport"],
 }

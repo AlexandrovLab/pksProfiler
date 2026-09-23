@@ -162,8 +162,10 @@ than silently absent.
 
 ### One table with everything
 
-Each stage writes its own results, which is awkward to read across. This joins them into one row
-per sample — whatever ran, with `NA` where a stage did not:
+Each stage writes its own results, which is awkward to read across. `cohort/pks.master_summary.tsv`
+joins them into one row per sample — whatever ran, with `NA` where a stage did not — and is written
+automatically at the end of every run. You can also run it by hand against a finished (or partly
+finished) results directory, since it only reads published output:
 
 ```bash
 python3 scripts/build_master_summary.py --results results \
@@ -173,8 +175,7 @@ python3 scripts/build_master_summary.py --results results \
 The width of the table tells you what the run did: with everything enabled you get read counts,
 the evidence tier and breadth, the structural call from reassembly, the *pks*-positive genome's
 species and completeness, prophage and neighbour counts, island mobility flags, and the sequence
-type and phylogroup — about 30 columns. It reads only published output, so it is safe to re-run
-at any time without re-running the pipeline.
+type and phylogroup — about 30 columns.
 
 ### What the output looks like, and what it answers
 

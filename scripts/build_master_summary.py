@@ -198,6 +198,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", required=True, help="a pksProfiler results directory")
     ap.add_argument("--output", required=True)
+    ap.add_argument("--expected-samples", default=None,
+                    help="one sample ID per line; samples outside this list are "
+                         "dropped even if their directory is still on disk")
     a = ap.parse_args()
 
     out = defaultdict(dict)
@@ -215,6 +218,15 @@ def main():
         print(f"  {name:20} {'found' if present else 'not run — columns omitted'}", file=sys.stderr)
         if present:
             columns += cols
+
+    # This walks by_sample/ by path rather than consuming the current run's
+    # channels, so a directory left over from an older run at the same
+    # --results is indistinguishable from one this run produced (the same
+    # class of bug as build_cohort_report.py's, finding 5).
+    if a.expected_samples:
+        with open(a.expected_samples) as fh:
+            expected = {line.strip() for line in fh if line.strip()}
+        out = {sample: cols for sample, cols in out.items() if sample in expected}
 
     if not out:
         sys.exit(f"No per-sample results found under {a.results}")

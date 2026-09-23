@@ -570,8 +570,12 @@ workflow pksMAG {
     genomadProphages(bins_flat_ch)
 
     // 7b. Strain typing per bin: MLST -> ST -> clonal complex / phylogroup.
+    // Declared outside the if so main.nf's masterSummary gate has something to
+    // read regardless of whether this run enabled strain typing.
+    def strain_typing_summary_ch = Channel.empty()
     if (params.enable_strain_typing.toString().toBoolean()) {
         magStrainTyping(bins_flat_ch.map { sampleID, binID, bin_fa -> tuple(sampleID, binID, bin_fa) })
+        strain_typing_summary_ch = magStrainTyping.out.summary
     }
 
     // 8. hmmsearch vs clb protein HMM (per bin, on prokka proteins)
@@ -679,34 +683,27 @@ workflow pksMAG {
         }
 
     communityProphageSummary(community_input_ch)
+
+    emit:
+    // Consumed by main.nf's masterSummary gate (build_master_summary.py's
+    // MAG/community/strain-typing columns) -- not by cohortReport, which never
+    // reads this lane's output.
+    mag_summary       = magSummaryTable.out.summary
+    community_summary = communityProphageSummary.out.inventory
+                            .mix(communityProphageSummary.out.interactions)
+                            .mix(communityProphageSummary.out.mobility)
+    strain_summary    = strain_typing_summary_ch
 }
 
-// ─── Tumor-WGS eligibility and contig analysis ───────────────────────────────
-
-process tumorEligibilityStatus {
-    label 'mag_hmm'
-    publishDir "${params.cohort_dir}/tumor_eligibility", mode: 'copy'
-
-    input:
-    tuple val(sampleID), val(clbGenes), val(pksReads), val(nonhostReads)
-
-    output:
-    path "${sampleID}.tumor_wgs_screen.tsv", emit: status
-
-    script:
-    def eligible = clbGenes >= params.tumor_min_clb_genes.toString().toInteger() &&
-        pksReads >= params.tumor_min_pks_reads.toString().toInteger() &&
-        nonhostReads >= params.tumor_min_nonhost_reads.toString().toInteger()
-    def reason = eligible ? "eligible" : "below_threshold"
-    """
-    set -euo pipefail
-    printf "sample\\tstatus\\tclb_genes\\tpks_reads\\tnonhost_reads\\tmin_clb_genes\\tmin_pks_reads\\tmin_nonhost_reads\\n" > "${sampleID}.tumor_wgs_screen.tsv"
-    printf "%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n" \
-        "${sampleID}" "${reason}" "${clbGenes}" "${pksReads}" "${nonhostReads}" \
-        "${params.tumor_min_clb_genes}" "${params.tumor_min_pks_reads}" \
-        "${params.tumor_min_nonhost_reads}" >> "${sampleID}.tumor_wgs_screen.tsv"
-    """
-}
+// ─── Tumor-WGS contig analysis ────────────────────────────────────────────────
+// Dead-or-unwired-code cleanup: tumorEligibilityStatus (a threshold screen on
+// clbGenes/pksReads/nonhostReads) was defined here but never invoked -- its own
+// release note said so in the same breath it fixed the process's latent NPE:
+// "The tier classifier is the authoritative gate." That gate
+// (classifyPksReadEvidence + contig_tiers in main.nf) is what actually decides
+// eligibility; this was a second, unwired, and by the note's own admission
+// non-authoritative one. Removed rather than wired in, per Ludmil's revised
+// report's dead-code item d-1.
 
 process prokkaTumorContigs {
     label 'sample_stage'
@@ -832,8 +829,10 @@ workflow tumorWGS {
         .filter { sampleID, contigs, countFile -> countFile.text.trim().toInteger() > 0 }
         .map { sampleID, contigs, countFile -> tuple(sampleID, contigs) }
 
+    def strain_typing_summary_ch = Channel.empty()
     if (params.enable_strain_typing.toString().toBoolean()) {
         tumorStrainTyping(tumor_nonempty_contigs_ch.map { sampleID, contigs -> tuple(sampleID, "tumor_contigs", contigs) })
+        strain_typing_summary_ch = tumorStrainTyping.out.summary
     }
 
     prokkaTumorContigs(tumor_nonempty_contigs_ch)
@@ -843,4 +842,9 @@ workflow tumorWGS {
         .join(hmmsearchTumorContigs.out.tblout, by: 0)
         .join(genomadTumorContigs.out.summary, by: 0)
     tumorContigContext(tumor_context_input_ch)
+
+    emit:
+    // Consumed by main.nf's masterSummary gate; cohortReport never reads this lane.
+    community_summary = tumorContigContext.out.summary.mix(tumorContigContext.out.mobility)
+    strain_summary     = strain_typing_summary_ch
 }

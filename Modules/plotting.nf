@@ -147,3 +147,37 @@ process cohortReport {
         --expected-samples "${expected_samples}"
     """
 }
+
+
+// ─── One table with every stage joined ────────────────────────────────────────
+
+process masterSummary {
+    label 'process_low'
+    publishDir "${params.cohort_dir}", mode: 'copy'
+    conda "${params.pks_hmm_env}"
+
+    input:
+    path(results_marker)
+    path(report_script)
+    path(expected_samples)
+
+    output:
+    path "pks.master_summary.tsv", emit: table
+
+    script:
+    // Dead-or-unwired-code item d-2: build_master_summary.py was a correct, working
+    // script but only ever documented as something you run yourself after a pipeline
+    // run. Automated here on the same pattern as cohortReport, one process up:
+    // results_marker gates on every optional lane the script actually reads from
+    // (see main.nf's master_summary_gate), and expected_samples filters out anything
+    // left over from an older run at this --outdir. The script itself is unchanged
+    // in what it reads or how -- still safe to re-run by hand against a finished
+    // results tree, which is why --expected-samples stayed optional there.
+    """
+    set -euo pipefail
+    python3 "${report_script}" \
+        --results "${params.outdir}" \
+        --output pks.master_summary.tsv \
+        --expected-samples "${expected_samples}"
+    """
+}
