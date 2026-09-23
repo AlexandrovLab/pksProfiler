@@ -8,7 +8,7 @@ import os
 import re
 from pathlib import Path
 
-from mag_utils import parse_hmmsearch_tblout
+from mag_utils import parse_hmmsearch_tblout, SPECIFIC_CLB
 
 PROPHAGE_FIELDS = [
     "sample", "bin_id", "host_taxonomy", "prophage_id", "host_contig",
@@ -23,8 +23,8 @@ INTERACTION_FIELDS = [
 ]
 MOBILITY_FIELDS = [
     "sample", "bin_id", "host_taxonomy", "distinct_clb_genes", "clb_genes",
-    "provisional_pks_class", "biosynthetic_clb_detected", "clbP_detected",
-    "clbS_detected", "clb_contig_count", "same_contig_clb_span",
+    "provisional_pks_class", "biosynthetic_clb_detected", "specific_clb_detected",
+    "clbP_detected", "clbS_detected", "clb_contig_count", "same_contig_clb_span",
     "nearby_integrase", "nearby_trna", "mobility_interpretation",
 ]
 BIOSYNTHETIC_CLB = {"clbB", "clbC", "clbH", "clbI", "clbJ", "clbK", "clbN", "clbO"}
@@ -197,10 +197,15 @@ def main():
             })
 
     interactions = []
+    # M1: also require a specific, low-homology gene -- BIOSYNTHETIC_CLB alone is the
+    # promiscuous megasynthase domains that a bare E-value cut lets any bacterium hit
+    # (v0.0.2_functional_test_20260910, ERR525841: 7 of 8 bins otherwise qualified,
+    # including two Bifidobacterium bins).
     producers = {
         key: val for key, val in bins.items()
         if len(val["clb_genes"]) >= args.min_clb_genes
         and val["clb_genes"] & BIOSYNTHETIC_CLB
+        and val["clb_genes"] & SPECIFIC_CLB
     }
     recipients = {key: val for key, val in bins.items() if val["prophages"]}
     for producer_id, producer in sorted(producers.items()):
@@ -231,6 +236,11 @@ def main():
             provisional = "clbS_only_possible_resistance"
         elif count < args.min_clb_genes:
             provisional = "isolated_or_low_evidence_clb_hits"
+        elif not (genes & SPECIFIC_CLB):
+            # M1: clears the gene-count floor on megasynthase homology alone
+            # (clbB/clbC/clbH/clbI/clbJ/clbK/clbN/clbO) with none of the specific,
+            # low-homology genes -- domain cross-reactivity, not a confirmed carrier.
+            provisional = "megasynthase_only_low_specificity"
         elif count < 15:
             provisional = "partial_pks_candidate"
         elif count < 19:
@@ -246,6 +256,7 @@ def main():
             "clb_genes": ",".join(sorted(genes)),
             "provisional_pks_class": provisional,
             "biosynthetic_clb_detected": bool(genes & BIOSYNTHETIC_CLB),
+            "specific_clb_detected": bool(genes & SPECIFIC_CLB),
             "clbP_detected": "clbP" in genes,
             "clbS_detected": "clbS" in genes,
             **mobility,

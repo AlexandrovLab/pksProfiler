@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-from mag_utils import parse_hmmsearch_tblout
+from mag_utils import parse_hmmsearch_tblout, SPECIFIC_CLB
 
 ENTEROBACTERALES = "o__Enterobacterales"
 
@@ -16,6 +16,7 @@ FIELDNAMES = [
     "sample", "bin_id", "taxonomy", "completeness", "contamination",
     "genome_size", "contig_n50", "clb_genes_detected", "clb_genes", "best_evalue",
     "has_integrase", "has_transposase", "flanking_genes", "unexpected_taxon_flag",
+    "specific_clb_detected",
 ]
 
 
@@ -117,6 +118,10 @@ def main():
                                   "genome_size": "NA", "contig_n50": "NA"})
         taxonomy = gtdbtk.get(bin_id, "unclassified")
         unexpected = is_unexpected_taxon(taxonomy)
+        # M1: visible here even though this table doesn't itself gate on it -- the
+        # gate lives in Modules/pks_mag.nf and build_community_prophage.py, both
+        # keyed on the same mag_utils.SPECIFIC_CLB set.
+        specific_detected = bool(SPECIFIC_CLB & set(clb_genes))
 
         context_path = os.path.join(args.context_dir, f"{bin_id}.context.tsv")
         if os.path.exists(context_path):
@@ -139,6 +144,7 @@ def main():
             "has_transposase": has_tra,
             "flanking_genes": flanking,
             "unexpected_taxon_flag": unexpected,
+            "specific_clb_detected": specific_detected,
         })
 
     with open(args.out, "w", newline="") as fh:

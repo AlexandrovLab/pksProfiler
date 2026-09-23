@@ -229,8 +229,10 @@ process hmmsearchClb {
     output:
     tuple val(sampleID), val(binID), path("${binID}.tblout"), emit: tblout
     tuple val(sampleID), val(binID), path("${binID}.clb_gene_count.txt"), emit: clb_gene_count
+    tuple val(sampleID), val(binID), path("${binID}.has_specific_clb.txt"), emit: has_specific_clb
 
     script:
+    def specific_regex = params.mag_specific_clb_genes.tokenize(',').join('|')
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # clb_protein_hmm ${params.dep_digest?.clb_protein_hmm}
@@ -245,9 +247,19 @@ process hmmsearchClb {
     # three times and a single line anywhere made the bin pks-positive. This counts the
     # same quantity build_mag_summary.py reports as clb_genes_detected -- field 3 is the
     # query model, field 5 the E-value -- so the two agree by construction.
-    awk '!/^#/ && NF>=19 && (\$5+0) <= ${params.hmm_protein_evalue} { genes[\$3]=1 }
-         END { print length(genes)+0 }' ${binID}.tblout > ${binID}.clb_gene_count.txt \
-      || echo 0 > ${binID}.clb_gene_count.txt
+    # M1: also flag whether any hit is one of the specific, low-homology genes
+    # (params.mag_specific_clb_genes) -- the promiscuous megasynthases alone are not
+    # evidence of island carriage, only of a shared NRPS/PKS domain.
+    awk -v specific="${specific_regex}" \
+        '!/^#/ && NF>=19 && (\$5+0) <= ${params.hmm_protein_evalue} {
+             genes[\$3]=1
+             if (\$3 ~ "^(" specific ")\$") has_specific=1
+         }
+         END {
+             print length(genes)+0 > "${binID}.clb_gene_count.txt"
+             print (has_specific ? 1 : 0) > "${binID}.has_specific_clb.txt"
+         }' ${binID}.tblout \
+      || { echo 0 > ${binID}.clb_gene_count.txt; echo 0 > ${binID}.has_specific_clb.txt; }
     """
 }
 
@@ -479,12 +491,16 @@ workflow pksMAG {
     // 9. Filter to pks+ bins on the distinct-gene count (avoids reading tblouts in the
     // driver JVM). M3: one definition of pks-positive, shared with the status count
     // below and with community producer selection -- params.mag_min_clb_genes.
+    // M1: also require the specific-gene flag from hmmsearchClb, so a bin cleared on
+    // megasynthase homology alone does not get genomic-context extraction.
     pks_pos_tblout_ch = hmmsearchClb.out.tblout
         .join(hmmsearchClb.out.clb_gene_count, by: [0, 1])
-        .filter { sampleID, binID, tblout, gene_count ->
-            (gene_count.text.trim() as Integer) >= (params.mag_min_clb_genes as Integer)
+        .join(hmmsearchClb.out.has_specific_clb, by: [0, 1])
+        .filter { sampleID, binID, tblout, gene_count, has_specific ->
+            (gene_count.text.trim() as Integer) >= (params.mag_min_clb_genes as Integer) &&
+            (has_specific.text.trim() as Integer) == 1
         }
-        .map { sampleID, binID, tblout, gene_count -> tuple(sampleID, binID, tblout) }
+        .map { sampleID, binID, tblout, gene_count, has_specific -> tuple(sampleID, binID, tblout) }
 
     // 10. Genomic context (prokka GFF + tblout joined per pks+ bin; locus_tags now match)
     extractGenomicContext(prokkaAnnotate.out.gff.join(pks_pos_tblout_ch, by: [0, 1]))
@@ -524,9 +540,14 @@ workflow pksMAG {
     assembly_binning_counts_ch = no_contig_counts_ch
         .mix(binned_assembly_counts_ch)
 
+    // M1: a bin only counts toward pks_positive_bin_count when it also clears the
+    // specific-gene requirement -- the same gate as pks_pos_tblout_ch above.
     pks_positive_bin_counts_ch = hmmsearchClb.out.clb_gene_count
-        .map { sampleID, _binID, gene_count ->
-            tuple(sampleID, gene_count.text.trim().toInteger() >= (params.mag_min_clb_genes as Integer) ? 1 : 0)
+        .join(hmmsearchClb.out.has_specific_clb, by: [0, 1])
+        .map { sampleID, _binID, gene_count, has_specific ->
+            tuple(sampleID,
+                  (gene_count.text.trim().toInteger() >= (params.mag_min_clb_genes as Integer) &&
+                   has_specific.text.trim().toInteger() == 1) ? 1 : 0)
         }
         .groupTuple(by: 0)
         .map { sampleID, flags -> tuple(sampleID, flags.sum() as Integer) }

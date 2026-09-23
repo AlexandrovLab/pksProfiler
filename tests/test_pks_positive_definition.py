@@ -114,5 +114,64 @@ class OneThresholdEverywhere(unittest.TestCase):
         self.assertIn("emit: clb_gene_count", MAG)
 
 
+# The specific-gene gate exactly as hmmsearchClb ships it, with Nextflow's
+# interpolation of params.hmm_protein_evalue (1e-5) resolved. `specific` is passed in
+# with -v, matching params.mag_specific_clb_genes' default of "clbA,clbD,clbP,clbQ".
+SPECIFIC_REGEX = "clbA|clbD|clbP|clbQ"
+SPECIFIC_AWK = r"""!/^#/ && NF>=19 && ($5+0) <= 1e-5 {
+         genes[$3]=1
+         if ($3 ~ "^(" specific ")$") has_specific=1
+     }
+     END {
+         print length(genes)+0 > "count.out"
+         print (has_specific ? 1 : 0) > "specific.out"
+     }"""
+
+
+def run_specific_gate(text):
+    with tempfile.TemporaryDirectory() as tmp:
+        tblout_path = Path(tmp) / "bin.tblout"
+        tblout_path.write_text(text)
+        subprocess.run(
+            ["awk", "-v", f"specific={SPECIFIC_REGEX}", SPECIFIC_AWK, str(tblout_path)],
+            cwd=tmp, capture_output=True, text=True, check=True,
+        )
+        count = int((Path(tmp) / "count.out").read_text().strip())
+        has_specific = int((Path(tmp) / "specific.out").read_text().strip())
+        return count, has_specific
+
+
+class SpecificGeneRequiredForPositive(unittest.TestCase):
+    """M1: the gene count alone still admits ERR525841's Bifidobacterium bins --
+    clbB/clbH/clbK domain homology clears mag_min_clb_genes with no island-specific
+    evidence. A bin must also carry one of the small, low-homology genes named by
+    params.mag_specific_clb_genes.
+    """
+
+    def test_megasynthase_only_hits_do_not_set_the_specific_flag(self):
+        text = tblout([("p1", "clbB", "1e-30"), ("p2", "clbK", "1e-28"),
+                       ("p3", "clbH", "1e-22")])
+        count, has_specific = run_specific_gate(text)
+        self.assertEqual(count, 3)
+        self.assertEqual(has_specific, 0)
+
+    def test_a_specific_gene_hit_sets_the_flag(self):
+        text = tblout([("p1", "clbB", "1e-30"), ("p2", "clbA", "1e-28")])
+        count, has_specific = run_specific_gate(text)
+        self.assertEqual(count, 2)
+        self.assertEqual(has_specific, 1)
+
+    def test_the_specific_gene_param_is_declared(self):
+        self.assertIn('params.mag_specific_clb_genes = "clbA,clbD,clbP,clbQ"', MAIN_CODE)
+
+    def test_both_positive_consumers_join_the_specific_gate(self):
+        # pks_pos_tblout_ch (genomic-context extraction) and pks_positive_bin_counts_ch
+        # (mag_status) -- the same two consumers OneThresholdEverywhere checks above.
+        self.assertEqual(MAG_CODE.count("hmmsearchClb.out.has_specific_clb"), 2)
+
+    def test_has_specific_clb_is_emitted(self):
+        self.assertIn("emit: has_specific_clb", MAG)
+
+
 if __name__ == "__main__":
     unittest.main()

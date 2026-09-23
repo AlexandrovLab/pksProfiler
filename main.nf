@@ -104,10 +104,22 @@ params.clb_protein_hmm         = "${projectDir}/ref/hmm/clb_population_protein_e
 params.hmm_protein_evalue      = 1e-5
 // M3: one definition of a pks-positive bin, used by the status count, by the choice
 // of which bins get genomic context, and by community producer selection. Counted as
-// distinct clb genes, which is what build_mag_summary.py reports. The number itself is
-// M1's to settle -- until per-model gathering thresholds land, the gene calls feeding
-// it are inflated by clbB/clbK domain homology.
+// distinct clb genes, which is what build_mag_summary.py reports.
 params.mag_min_clb_genes = 3
+
+// M1: clbB/clbC/clbH/clbI/clbJ/clbK/clbN/clbO are multi-domain NRPS/PKS megasynthases
+// whose domains are shared with unrelated secondary-metabolite clusters, so an E-value
+// cut alone let a non-Enterobacterales bin clear mag_min_clb_genes on megasynthase
+// hits by domain homology, not island carriage (v0.0.2_functional_test_20260910,
+// ERR525841: 7 of 8 bins called pks-positive this way, including two Bifidobacterium
+// bins). clbA, clbD, clbP and clbQ are small, single-domain tailoring genes that
+// showed no such cross-reactivity there and appeared only in the one credible E. coli
+// bin. A bin must now carry at least one of them, on top of mag_min_clb_genes,
+// everywhere positivity is decided: mag_status, genomic-context extraction and
+// community producer selection (scripts/mag_utils.SPECIFIC_CLB). Per-model HMMER
+// gathering thresholds (--cut_ga on the profile itself) would fix this at the source
+// and remain the better long-term fix; this is the code-only stopgap until those exist.
+params.mag_specific_clb_genes = "clbA,clbD,clbP,clbQ"
 
 // T3: a geNomad provirus must clear both floors to be reported. geNomad called 134
 // "viral contigs" on AA-3850 whose top hits were 369 bp with one gene and one

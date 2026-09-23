@@ -234,6 +234,37 @@ class TestBuildMagSummary(unittest.TestCase):
         self.assertIn("clbB", rows[0]["clb_genes"])
         self.assertEqual(rows[0]["has_integrase"], "True")
         self.assertEqual(rows[0]["unexpected_taxon_flag"], "False")
+        self.assertEqual(rows[0]["specific_clb_detected"], "True")  # clbA is in SPECIFIC_CLB
+
+    def test_specific_clb_detected_false_on_megasynthase_only_hits(self):
+        """M1: clbB/clbK alone (no clbA/clbD/clbP/clbQ) must not read as specific."""
+        megasynthase_only_tblout = (
+            "#\n"
+            "bin_002_1\t-\tclbB\t-\t1e-10\t35.0\t0.0\t1.5e-10\t34.8\t0.0\t1.0\t1\t1"
+            "\t1\t200\t10\t205\t8\t207\t0.95\thit\n"
+            "bin_002_2\t-\tclbK\t-\t2e-08\t30.0\t0.0\t2.5e-08\t29.8\t0.0\t1.0\t1\t1"
+            "\t1\t200\t10\t205\t8\t207\t0.95\thit\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            checkm2 = self._write(tmp, "quality.tsv", CHECKM2_CONTENT)
+            gtdbtk = self._write(tmp, "gtdbtk.tsv", GTDBTK_CONTENT)
+            tblout_dir = os.path.join(tmp, "tblout")
+            os.makedirs(tblout_dir)
+            self._write(tblout_dir, "bin_002.tblout", megasynthase_only_tblout)
+            context_dir = os.path.join(tmp, "context")
+            os.makedirs(context_dir)
+            out = os.path.join(tmp, "summary.tsv")
+            import sys
+            sys.argv = ["build_mag_summary.py",
+                        "--checkm2", checkm2, "--gtdbtk", gtdbtk,
+                        "--tblout_dir", tblout_dir, "--context_dir", context_dir,
+                        "--sample", "SAMPLE1", "--evalue", "1e-5", "--out", out]
+            self.mod.main()
+            with open(out) as fh:
+                rows = list(csv.DictReader(fh, delimiter="\t"))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["clb_genes_detected"], "2")
+        self.assertEqual(rows[0]["specific_clb_detected"], "False")
 
 
 # ---------------------------------------------------------------------------
@@ -283,10 +314,13 @@ c1\tProkka\tCDS\t200\t300\t.\t+\t.\tID=x2;gene=lexA;product=LexA repressor
 c1\tProkka\tCDS\t1\t100\t.\t+\t.\tID=x1;gene=recA;product=recombinase A
 c1\tProkka\tCDS\t200\t300\t.\t+\t.\tID=x2;gene=lexA;product=LexA repressor
 """
-        three_hits = """#
+        # M1: a producer now also needs a SPECIFIC_CLB gene (clbA here) on top of the
+        # BIOSYNTHETIC_CLB gene(s) -- clbB/clbC alone would no longer qualify.
+        four_hits = """#
 x1\t-\tclbB\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
 x2\t-\tclbC\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
 x3\t-\tclbS\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
+x4\t-\tclbA\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
 """
         with tempfile.TemporaryDirectory() as tmp:
             gff_dir = os.path.join(tmp, "gff")
@@ -294,7 +328,7 @@ x3\t-\tclbS\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
             virus_dir = os.path.join(tmp, "virus")
             os.makedirs(gff_dir); os.makedirs(tbl_dir); os.makedirs(virus_dir)
             self._write(gff_dir, "bin_001.gff", gff)
-            self._write(tbl_dir, "bin_001.tblout", three_hits)
+            self._write(tbl_dir, "bin_001.tblout", four_hits)
             self._write(virus_dir, "bin_001.virus_summary.tsv", GENOMAD_CONTENT)
             taxonomy = self._write(
                 tmp, "taxonomy.tsv",
@@ -325,6 +359,59 @@ x3\t-\tclbS\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
         self.assertEqual(rows[0]["interpretation"], "co-occurrence_only_not_evidence_of_induction")
         self.assertEqual(mobility_rows[0]["provisional_pks_class"], "partial_pks_candidate")
         self.assertEqual(mobility_rows[0]["mobility_interpretation"], "no_local_HGT_marker_detected")
+
+    def test_megasynthase_only_bin_is_not_a_producer(self):
+        """M1: clbB/clbK/clbH clear BIOSYNTHETIC_CLB and the gene-count floor with no
+        SPECIFIC_CLB gene -- the ERR525841 Bifidobacterium pattern. Must not produce
+        an interaction row, and must read as low-specificity, not a pks candidate.
+        """
+        gff = """##gff-version 3
+c1\tProkka\tCDS\t1\t100\t.\t+\t.\tID=x1;gene=hypothetical;product=hypothetical protein
+"""
+        megasynthase_only = """#
+x1\t-\tclbB\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
+x2\t-\tclbK\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
+x3\t-\tclbH\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            gff_dir = os.path.join(tmp, "gff")
+            tbl_dir = os.path.join(tmp, "tbl")
+            virus_dir = os.path.join(tmp, "virus")
+            os.makedirs(gff_dir); os.makedirs(tbl_dir); os.makedirs(virus_dir)
+            self._write(gff_dir, "bin_002.gff", gff)
+            self._write(tbl_dir, "bin_002.tblout", megasynthase_only)
+            self._write(virus_dir, "bin_002.virus_summary.tsv", GENOMAD_CONTENT)
+            taxonomy = self._write(
+                tmp, "taxonomy.tsv",
+                "user_genome\tclassification\n"
+                "bin_002\td__Bacteria;p__Actinobacteria;o__Bifidobacteriales;"
+                "g__Bifidobacterium;s__Bifidobacterium longum\n",
+            )
+            inventory = os.path.join(tmp, "inventory.tsv")
+            interactions = os.path.join(tmp, "interactions.tsv")
+            mobility = os.path.join(tmp, "mobility.tsv")
+            old_argv = sys.argv
+            try:
+                sys.argv = [
+                    "build_community_prophage.py", "--sample", "S1",
+                    "--gtdbtk", taxonomy, "--gff-dir", gff_dir,
+                    "--tblout-dir", tbl_dir, "--genomad-dir", virus_dir,
+                    "--prophage-out", inventory, "--interaction-out", interactions,
+                    "--mobility-out", mobility,
+                ]
+                self.mod.main()
+            finally:
+                sys.argv = old_argv
+            with open(interactions) as fh:
+                rows = list(csv.DictReader(fh, delimiter="\t"))
+            with open(mobility) as fh:
+                mobility_rows = list(csv.DictReader(fh, delimiter="\t"))
+        self.assertEqual(rows, [])  # bin_002 hits a recipient (itself) but is no producer
+        self.assertEqual(mobility_rows[0]["provisional_pks_class"], "megasynthase_only_low_specificity")
+        self.assertEqual(mobility_rows[0]["biosynthetic_clb_detected"], "True")
+        self.assertEqual(mobility_rows[0]["specific_clb_detected"], "False")
+
+
 if __name__ == "__main__":
     unittest.main()
 
