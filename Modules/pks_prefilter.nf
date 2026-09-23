@@ -128,10 +128,51 @@ process sampleBracken {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # kraken_db ${params.dep_digest?.kraken_db}
     set -euo pipefail
+
+    # Ludmil, revised report finding 4: this called bracken -t 2 unconditionally.
+    # Bracken itself fails when no taxon at the requested rank reaches its read
+    # threshold, so a thin community-taxonomy sample turned into a task failure
+    # instead of an explicit below-threshold/no-call state. pks_taxa.nf's Bracken
+    # process already guards exactly this way -- same pre-check, same threshold --
+    # mirrored here rather than invented fresh.
+    GENUS_READS=\$(awk -F '\\t' '
+      \$8 == "genus" && \$2 ~ /^[0-9]+\$/ && \$2+0 > best {
+        best = \$2+0
+      }
+      END {
+        print best+0
+      }
+    ' "${kraken_report}")
+
+    SPECIES_READS=\$(awk -F '\\t' '
+      \$8 == "species" && \$2 ~ /^[0-9]+\$/ && \$2+0 > best {
+        best = \$2+0
+      }
+      END {
+        print best+0
+      }
+    ' "${kraken_report}")
+
     for LEVEL in G S; do
+      bracken_output="${sampleID}.bracken.\${LEVEL}.report.txt"
+      bracken_kraken_report="${sampleID}.bracken.\${LEVEL}.krakenreport.txt"
+
+      if [[ "\$LEVEL" == "G" ]]; then
+        LVL_READS="\$GENUS_READS"
+      else
+        LVL_READS="\$SPECIES_READS"
+      fi
+
+      if [[ "\$LVL_READS" -lt 2 ]]; then
+        echo "Skipping Bracken level \$LEVEL for ${sampleID}: no taxon reaches 2 reads (best=\$LVL_READS)"
+        : > "\$bracken_output"
+        : > "\$bracken_kraken_report"
+        continue
+      fi
+
       bracken -d "${params.kraken_db}" -i "${kraken_report}" \
-        -o "${sampleID}.bracken.\${LEVEL}.report.txt" \
-        -w "${sampleID}.bracken.\${LEVEL}.krakenreport.txt" \
+        -o "\$bracken_output" \
+        -w "\$bracken_kraken_report" \
         -r "${params.bracken_read_length}" -l "\$LEVEL" -t 2
     done
     """
