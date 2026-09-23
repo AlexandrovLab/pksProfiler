@@ -1,6 +1,7 @@
 nextflow.enable.dsl = 2
 
 process classifyPksReadEvidence {
+    label 'sample_stage'
     tag "$sampleID"
     label 'targeted_alignment'
     publishDir { "${params.sample_dir}/${sampleID}" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
@@ -25,6 +26,7 @@ process classifyPksReadEvidence {
 }
 
 process targetedPksRecruit {
+    label 'sample_stage'
     tag "$sampleID"
     label 'targeted_recruit'
     scratch true
@@ -46,6 +48,7 @@ process targetedPksRecruit {
 }
 
 process targetedPksMegahit {
+    label 'sample_stage'
     tag "$sampleID"
     label 'targeted_assembly'
     scratch true
@@ -70,6 +73,7 @@ process targetedPksMegahit {
 }
 
 process targetedPksSpades {
+    label 'sample_stage'
     tag "$sampleID"
     label 'targeted_assembly'
     scratch true
@@ -101,6 +105,7 @@ process targetedPksSpades {
 }
 
 process alignTargetedContigsToCanonicalReference {
+    label 'sample_stage'
     tag "${sampleID}:${assembler}"
     label 'targeted_alignment'
     scratch true
@@ -120,6 +125,7 @@ process alignTargetedContigsToCanonicalReference {
 }
 
 process summarizeTargetedPksEvidence {
+    label 'sample_stage'
     tag "$sampleID"
     label 'targeted_alignment'
     publishDir { "${params.sample_dir}/${sampleID}/contigs/final_evidence" }, mode: 'copy', pattern: "*.tsv", saveAs: { fn -> fn - "${sampleID}." }

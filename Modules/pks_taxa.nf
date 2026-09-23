@@ -1,4 +1,5 @@
 process extractPksIslandReads {
+  label 'sample_stage'
   label 'process_medium'
   scratch true
   publishDir { "${params.sample_dir}/${sampleID}/taxonomy" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
@@ -61,6 +62,7 @@ process extractPksIslandReads {
 
 
 process Bracken {
+  label 'sample_stage'
   scratch true
   label 'process_high_disk'
   publishDir { "${params.sample_dir}/${sampleID}/taxonomy" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }

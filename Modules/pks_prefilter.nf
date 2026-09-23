@@ -1,6 +1,7 @@
 nextflow.enable.dsl = 2
 
 process krakenPrefilter {
+    label 'sample_stage'
     tag "$sampleID"
     label 'prefilter_kraken'
     scratch true
@@ -51,6 +52,7 @@ process buildClbDiamondDb {
 }
 
 process diamondRescue {
+    label 'sample_stage'
     tag "$sampleID"
     label 'process_low'
     scratch true
@@ -87,6 +89,7 @@ process diamondRescue {
 }
 
 process mergePksCandidates {
+    label 'sample_stage'
     tag "$sampleID"
     label 'process_low'
     scratch true
@@ -113,6 +116,7 @@ process mergePksCandidates {
 }
 
 process sampleBracken {
+    label 'sample_stage'
     tag "$sampleID"
     label 'process_high_disk'
     scratch true

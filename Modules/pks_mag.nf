@@ -6,6 +6,7 @@ include { strainTyping as tumorStrainTyping } from './pks_typing.nf'
 // ─── Assembly ─────────────────────────────────────────────────────────────────
 
 process megahitAssemble {
+    label 'sample_stage'
     label 'mag_assembly'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/genomes/assembly" },
@@ -39,6 +40,7 @@ process megahitAssemble {
 // ─── Read-to-contig alignment ─────────────────────────────────────────────────
 
 process alignToContigs {
+    label 'sample_stage'
     label 'mag_binning'
     scratch true
     conda "${projectDir}/conda_envs/minimap2_env.yml"
@@ -68,6 +70,7 @@ process alignToContigs {
 // ─── Contig coverage depth ────────────────────────────────────────────────────
 
 process jgiContigDepths {
+    label 'sample_stage'
     label 'mag_binning'
     scratch true
     conda "${projectDir}/conda_envs/metabat2_env.yml"
@@ -88,6 +91,7 @@ process jgiContigDepths {
 // ─── MetaBAT2 binning ─────────────────────────────────────────────────────────
 
 process metabat2Bin {
+    label 'sample_stage'
     label 'mag_binning'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/genomes/bins" },
@@ -133,6 +137,7 @@ process metabat2Bin {
 // ─── CheckM2 quality assessment ───────────────────────────────────────────────
 
 process checkm2Predict {
+    label 'sample_stage'
     label 'mag_binning'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/genomes/checkm2" }, mode: 'copy'
@@ -162,6 +167,7 @@ process checkm2Predict {
 // ─── GTDB-Tk taxonomy ─────────────────────────────────────────────────────────
 
 process gtdbtkClassify {
+    label 'sample_stage'
     label 'mag_gtdbtk'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/genomes/gtdbtk" }, mode: 'copy'
@@ -194,6 +200,7 @@ process gtdbtkClassify {
 // ─── Prokka annotation (ALL bins — must run before hmmsearch so locus_tags match) ──
 
 process prokkaAnnotate {
+    label 'sample_stage'
     label 'mag_hmm'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/genomes/annotation" }, mode: 'copy',
@@ -219,6 +226,7 @@ process prokkaAnnotate {
 // ─── hmmsearch vs colibactin protein HMM (per bin, on Prokka proteins) ──────────
 
 process hmmsearchClb {
+    label 'sample_stage'
     label 'mag_hmm'
     scratch true
     conda "${params.pks_hmm_env}"
@@ -256,6 +264,7 @@ process hmmsearchClb {
 // ─── Canonical-locus alignment (per bin): is the island actually IN this bin? ─
 
 process alignMagBinToCanonicalReference {
+    label 'sample_stage'
     tag "${sampleID}:${binID}"
     label 'targeted_alignment'
     scratch true
@@ -282,6 +291,7 @@ process alignMagBinToCanonicalReference {
 }
 
 process magBinLocusEvidence {
+    label 'sample_stage'
     tag "${sampleID}:${binID}"
     label 'mag_hmm'
     publishDir { "${params.sample_dir}/${sampleID}/genomes/locus_alignment" }, mode: 'copy'
@@ -323,6 +333,7 @@ process magBinLocusEvidence {
 // ─── Community-wide prophage prediction (ALL bins) ───────────────────────────
 
 process genomadProphages {
+    label 'sample_stage'
     label 'mag_prophage'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/community/prophages" }, mode: 'copy'
@@ -353,6 +364,7 @@ process genomadProphages {
 // ─── Sample-level producer/lysogen hypothesis tables ─────────────────────────
 
 process communityProphageSummary {
+    label 'sample_stage'
     label 'mag_prophage'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/community" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
@@ -393,6 +405,7 @@ process communityProphageSummary {
 // ─── Genomic context extraction (pks+ bins only) ──────────────────────────────
 
 process extractGenomicContext {
+    label 'sample_stage'
     label 'mag_hmm'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/community/genomic_context" }, mode: 'copy',
@@ -420,6 +433,7 @@ process extractGenomicContext {
 // ─── Per-sample MAG outcome status ─────────────────────────────────────────────
 
 process magSampleStatus {
+    label 'sample_stage'
     label 'mag_hmm'
     publishDir { "${params.sample_dir}/${sampleID}/genomes" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
 
@@ -451,6 +465,7 @@ process magSampleStatus {
 // ─── Per-sample MAG summary table ─────────────────────────────────────────────
 
 process magSummaryTable {
+    label 'sample_stage'
     label 'mag_hmm'
     publishDir { "${params.sample_dir}/${sampleID}/genomes" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
     conda "${params.pks_hmm_env}"
@@ -694,6 +709,7 @@ process tumorEligibilityStatus {
 }
 
 process prokkaTumorContigs {
+    label 'sample_stage'
     label 'mag_hmm'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/community/annotation" }, mode: 'copy'
@@ -715,6 +731,7 @@ process prokkaTumorContigs {
 }
 
 process hmmsearchTumorContigs {
+    label 'sample_stage'
     label 'mag_hmm'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/community/annotation" }, mode: 'copy'
@@ -737,6 +754,7 @@ process hmmsearchTumorContigs {
 }
 
 process genomadTumorContigs {
+    label 'sample_stage'
     label 'mag_prophage'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/community/prophages" }, mode: 'copy'
@@ -762,6 +780,7 @@ process genomadTumorContigs {
 }
 
 process tumorContigContext {
+    label 'sample_stage'
     label 'mag_hmm'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/community" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }

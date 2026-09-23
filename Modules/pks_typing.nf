@@ -2,6 +2,7 @@ nextflow.enable.dsl = 2
 
 // ─── MLST on an assembled unit (a MAG bin, or a tumour contig set) ──────────────
 process mlstTypeAssembly {
+    label 'sample_stage'
     tag "${sampleID}:${label}"
     label 'process_low'
     publishDir { "${params.sample_dir}/${sampleID}/strain/${label}" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
@@ -29,6 +30,7 @@ process mlstTypeAssembly {
 
 // ─── Join the ST to clonal complex and phylogroup from the reference panel ──────
 process assignStrainType {
+    label 'sample_stage'
     tag "${sampleID}:${label}"
     label 'process_low'
     publishDir { "${params.sample_dir}/${sampleID}/strain/${label}" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
@@ -56,6 +58,7 @@ process assignStrainType {
 
 // ─── Collect every typed unit for a sample into one table ───────────────────────
 process strainTypeSummary {
+    label 'sample_stage'
     tag "$sampleID"
     label 'process_low'
     publishDir { "${params.sample_dir}/${sampleID}/strain" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
