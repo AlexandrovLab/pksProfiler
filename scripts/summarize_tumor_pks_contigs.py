@@ -35,19 +35,32 @@ def best_per_contig(hits):
         if old is None or (hit["aligned"],hit["identity"],hit["mapq"])>(old["aligned"],old["identity"],old["mapq"]): best[hit["contig"]]=hit
     return sorted(best.values(), key=lambda x:(x["start"],-x["aligned"]))
 
-def supporting_contigs(hits, min_total_aligned):
-    """Contigs carrying at least min_total_aligned bases of island, summed.
+def supporting_contigs(hits, island_start, island_end, min_total_aligned):
+    """Contigs carrying at least min_total_aligned bases of ISLAND overlap, unioned
+    per contig so an alignment block spanning the island boundary, or two blocks
+    from the same contig overlapping each other, isn't double-counted.
 
     T1: summed per contig, not per alignment block. The island is repeat-rich and
     targeted assemblies are fragmented, so one contig routinely matches in several
     pieces; judging each block on its own discarded contigs that carry plenty of
     island between them. clbR is 213 bp and clbE 249 bp, so a floor above ~200
     can also reject a contig that covers a whole gene.
+
+    Ludmil, revised report finding 3: this used to sum each hit's full aligned-block
+    length within the wider +/-10kb recruitment window `paf()` is called over, not
+    the portion actually overlapping the canonical island. A contig aligning mostly
+    or entirely to a flank -- with little or no real island overlap -- could still
+    clear min_total_aligned and be reported as island-supporting. union_length()
+    was always clipped to the island correctly; only this per-contig count was not,
+    so it now reuses the same clipping, just scoped to one contig's hits at a time.
     """
-    totals = {}
+    by_contig = {}
     for hit in hits:
-        totals[hit["contig"]] = totals.get(hit["contig"], 0) + hit["aligned"]
-    return sorted(name for name, total in totals.items() if total >= min_total_aligned)
+        by_contig.setdefault(hit["contig"], []).append(hit)
+    return sorted(
+        contig for contig, contig_hits in by_contig.items()
+        if union_length(contig_hits, island_start, island_end) >= min_total_aligned
+    )
 
 
 def union_length(hits, start, end):
@@ -110,7 +123,7 @@ def main():
     # every alignment that passes identity and MAPQ.
     hits={"megahit":paf(a.megahit_paf,a.region_start,a.region_end),"metaspades":paf(a.metaspades_paf,a.region_start,a.region_end)}
     best={k:best_per_contig(v) for k,v in hits.items()}
-    supporting={k:supporting_contigs(v,a.min_aligned_bp) for k,v in hits.items()}
+    supporting={k:supporting_contigs(v,a.island_start,a.island_end,a.min_aligned_bp) for k,v in hits.items()}
     bp={k:union_length(v,a.island_start,a.island_end) for k,v in hits.items()}; cov={k:v/length for k,v in bp.items()}
     call,agreement=structural_call(cov["megahit"],cov["metaspades"])
     fields=["sample","read_evidence","pks_reads","clb_genes_detected","island_breadth_1x","island_breadth_2x","island_breadth_3x","megahit_reference_covered_bp","megahit_reference_coverage","megahit_supporting_contigs","metaspades_reference_covered_bp","metaspades_reference_coverage","metaspades_supporting_contigs","assembler_agreement","final_structural_evidence"]
