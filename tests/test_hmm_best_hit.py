@@ -168,5 +168,85 @@ class TheModuleUsesIt(unittest.TestCase):
                       (ROOT / "scripts/build_qc_summary.py").read_text())
 
 
+class HmmQcMatchesTheMatrix(unittest.TestCase):
+    """Ludmil, revised report finding 1: reads_clb_genes_hmm used to be a read
+    count over qualifying reads (assigned + ambiguous), which can exceed the
+    counts-matrix total by exactly the ambiguous-read count. It must now equal
+    the matrix total, the way the alignment lane's QC already does.
+    """
+
+    # The awk exactly as pksProfiler_hmm.nf ships it, with Nextflow's escaping
+    # resolved, mirroring how other module-shell logic is tested in this suite.
+    AWK = r"NR>1 { sum += $2 } END { print sum+0 }"
+
+    def sum_with_awk(self, counts_tsv_text):
+        with tempfile.NamedTemporaryFile("w", suffix=".tsv", delete=False) as handle:
+            handle.write(counts_tsv_text)
+            path = handle.name
+        try:
+            result = subprocess.run(["awk", "-F", "\t", self.AWK, path],
+                                    capture_output=True, text=True, check=True)
+            return int(result.stdout.strip())
+        finally:
+            Path(path).unlink()
+
+    def counts_tsv(self, **gene_counts):
+        genes = "ABCDEFGHIJKLMNOPQRS"
+        lines = ["Gene\tCount"]
+        for gene in genes:
+            lines.append(f"clb{gene}\t{gene_counts.get(gene, 0)}")
+        return "\n".join(lines) + "\n"
+
+    def test_matches_matrix_total_for_one_assigned_gene(self):
+        self.assertEqual(self.sum_with_awk(self.counts_tsv(A=1)), 1)
+
+    def test_matches_matrix_total_across_several_genes(self):
+        self.assertEqual(self.sum_with_awk(self.counts_tsv(A=3, B=2)), 5)
+
+    def test_an_all_zero_matrix_sums_to_zero(self):
+        self.assertEqual(self.sum_with_awk(self.counts_tsv()), 0)
+
+    def test_end_to_end_one_unambiguous_read_and_one_tie(self):
+        """His acceptance test verbatim: matrix total=1, reads_clb_genes_hmm=1,
+        hmm_ambiguous_reads=1 -- not 2, which is what wc -l < read_ids gave."""
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            tblout = d / "in.tbl"
+            tblout.write_text(HEADER
+                + row("clbA", "r1", "1e-20", 90)          # unambiguous
+                + row("clbB", "r2", "1e-20", 90)           # tie
+                + row("clbC", "r2", "1e-20", 90))
+            counts_out, ids_out, ambig_out = d / "counts.tsv", d / "ids.txt", d / "ambig.txt"
+            subprocess.run(
+                [sys.executable, str(SCRIPT), "--tblout", str(tblout), "--evalue", "1e-5",
+                 "--counts-out", str(counts_out), "--read-ids-out", str(ids_out),
+                 "--ambiguous-out", str(ambig_out)],
+                capture_output=True, text=True, check=True)
+
+            matrix_total = self.sum_with_awk(counts_out.read_text())
+            reads_clb_genes_hmm = self.sum_with_awk(counts_out.read_text())  # the new formula
+            hmm_ambiguous_reads = sum(1 for _ in ambig_out.read_text().splitlines() if _.strip())
+            qualifying_reads = sum(1 for _ in ids_out.read_text().splitlines() if _.strip())
+
+        self.assertEqual(matrix_total, 1)
+        self.assertEqual(reads_clb_genes_hmm, 1)
+        self.assertEqual(hmm_ambiguous_reads, 1)
+        # The old bug: wc -l < read_ids counts qualifying reads (2), not assigned (1).
+        self.assertEqual(qualifying_reads, 2)
+        self.assertNotEqual(qualifying_reads, reads_clb_genes_hmm)
+
+    def test_the_old_wc_l_formula_is_gone(self):
+        code = "\n".join(l for l in HMM_MODULE.splitlines()
+                         if not l.strip().startswith("#"))
+        self.assertNotIn('wc -l < "${read_ids}"', code)
+        self.assertIn("HMM_READS=", code)
+        self.assertIn("sum += \\$2", code)
+
+    def test_zero_read_branch_reports_hmm_ambiguous_reads(self):
+        # Finding 2: the early-exit branch must carry the same QC schema.
+        zero_read_branch = HMM_MODULE.split("No reads available")[1].split("exit 0")[0]
+        self.assertRegex(zero_read_branch, r"hmm_ambiguous_reads\\+t0")
+
+
 if __name__ == "__main__":
     unittest.main()

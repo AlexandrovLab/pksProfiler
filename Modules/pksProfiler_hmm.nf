@@ -55,6 +55,9 @@ process pksProfiler_hmm {
 
         printf "Sample\\tMetric\\tValue\\n" > "${qc}"
         printf "%s\\treads_clb_genes_hmm\\t0\\n" "${sampleID}" >> "${qc}"
+        # Ludmil, revised report finding 2: the zero-read branch omitted this metric
+        # entirely, so a true zero sample showed NA in cohort QC instead of 0.
+        printf "%s\\thmm_ambiguous_reads\\t0\\n" "${sampleID}" >> "${qc}"
         printf "%s\\tnum_clb_genes_hmm\\t0\\n" "${sampleID}" >> "${qc}"
 
         exit 0
@@ -164,7 +167,14 @@ process pksProfiler_hmm {
         : > "${filtered_fa}"
     fi
 
-    HMM_READS=\$(wc -l < "${read_ids}")
+    # Ludmil, revised report finding 1: this used to be `wc -l < read_ids`, but
+    # read_ids (and filtered_fa, above) hold every *qualifying* read -- assigned
+    # plus ambiguous -- while the counts matrix only tallies assigned reads. The
+    # manuscript-facing metric must equal the matrix total, the same invariant
+    # already held for the alignment lane; ambiguity is reported separately below,
+    # not folded into this count. The qualifying-read FASTA keeps its current name
+    # and content -- still useful downstream -- this only changes what gets counted.
+    HMM_READS=\$(awk -F '\t' 'NR>1 { sum += \$2 } END { print sum+0 }' "${counts_tsv}")
     HMM_GENES_DETECTED=\$(awk -F '\t' '
         \$1 ~ /^clb[A-S]\$/ && (\$2 + 0) > 0 { count++ }
         END { print count + 0 }
