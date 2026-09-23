@@ -54,8 +54,16 @@ evaluated and **rejected** in favour of 5 reads. Its `broad_island` tier (30/8/1
 representation at all. v0.0.2 replaces both with the frozen three-tier system:
 
 - `moderate` (11/3/1%) -> `multi_gene` (**5**/3/1%)
-- *(absent)* -> `broad_island` (30/8/10%)
-- `strong` (100/10/20%) -> `extensive_island` (unchanged thresholds)
+- *(absent)* -> `broad_island` (30/8/10%, as v0.0.2 first introduced it)
+- `strong` (100/10/20%) -> `extensive_island` (100/10/20%, as v0.0.2 first introduced it --
+  matching `strong`'s percentage, not carried over unchanged from it)
+
+**Superseded.** Both breadth percentages above were later recalibrated -- `broad_island`
+10% -> **7.5%**, `extensive_island` 20% -> **15%** -- for a change of measurement axis: v0.0.1
+measured breadth from a 50 bp-binned coverage track, v0.0.2 measures per base, which reads a
+median 0.794x lower on the same data (see `CHANGELOG.md`). The **Evidence tiers** table above
+carries the current, frozen values (7.5%/15%); this section is a historical note on where the
+read-count and gene-count thresholds came from, not a second source for the breadth values.
 
 Thresholds are validated as non-decreasing across tiers, since the highest-tier-down cascade is
 otherwise unreachable.
