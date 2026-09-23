@@ -2,7 +2,7 @@ nextflow.enable.dsl = 2
 
 process krakenPrefilter {
     tag "$sampleID"
-    label 'process_high_disk'
+    label 'prefilter_kraken'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/prefilter" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
     conda "${params.prefilter_env}"
