@@ -117,6 +117,49 @@ class MasterSummaryTests(unittest.TestCase):
         # bin.2 is more numerous in the file but carries no clb genes; bin.1 must win.
         self.assertNotIn("Bacteroides", s1["pks_mag_taxonomy"])
 
+    def test_unbinned_row_is_reported_but_never_counted_as_a_bin(self):
+        """U1: pks_mag_summary.tsv can carry an extra unit_type=unbinned row for the
+        per-sample pool of contigs MetaBAT2 never placed in any bin -- a positive call
+        there must reach the table (a real detection blind spot otherwise) but must
+        never inflate mag_bins_total/mag_bins_pks_positive, which describe recovered
+        genomes specifically.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); minimal(root); add_everything(root)
+            write(root / "by_sample/S1/genomes/pks_mag_summary.tsv",
+                  ["sample", "bin_id", "unit_type", "classification", "completeness",
+                   "distinct_clb_genes", "locus_tier"],
+                  [["S1", "bin.1", "bin", "d__Bacteria;s__Escherichia coli", "96.4", "17", "extensive_island"],
+                   ["S1", "bin.2", "bin", "d__Bacteria;s__Bacteroides fragilis", "88.1", "0", "negative"],
+                   ["S1", "unbinned", "unbinned", "NA", "NA", "NA", "broad_island"]])
+            rows, _ = run(root)
+        s1 = next(r for r in rows if r["sample"] == "S1")
+        # Still 2, not 3: the unbinned row is not a bin.
+        self.assertEqual(s1["mag_bins_total"], "2")
+        self.assertEqual(s1["mag_bins_pks_positive"], "1")
+        self.assertEqual(s1["mag_unbinned_locus_tier"], "broad_island")
+        self.assertEqual(s1["mag_unbinned_pks_positive"], "yes")
+
+    def test_unbinned_columns_are_na_when_there_is_no_unbinned_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); minimal(root); add_everything(root)
+            rows, _ = run(root)
+        s1 = next(r for r in rows if r["sample"] == "S1")
+        self.assertEqual(s1["mag_unbinned_locus_tier"], "NA")
+        self.assertEqual(s1["mag_unbinned_pks_positive"], "NA")
+
+    def test_a_negative_unbinned_tier_reads_as_not_positive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); minimal(root); add_everything(root)
+            write(root / "by_sample/S1/genomes/pks_mag_summary.tsv",
+                  ["sample", "bin_id", "unit_type", "locus_tier"],
+                  [["S1", "unbinned", "unbinned", "negative"]])
+            rows, _ = run(root)
+        s1 = next(r for r in rows if r["sample"] == "S1")
+        self.assertEqual(s1["mag_bins_total"], "0")
+        self.assertEqual(s1["mag_unbinned_locus_tier"], "negative")
+        self.assertEqual(s1["mag_unbinned_pks_positive"], "no")
+
     def test_empty_results_directory_fails_loudly(self):
         with tempfile.TemporaryDirectory() as tmp:
             r = subprocess.run([sys.executable, str(SCRIPT), "--results", tmp,

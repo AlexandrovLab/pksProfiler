@@ -273,6 +273,93 @@ class TestBuildMagSummary(unittest.TestCase):
                 rows = list(csv.DictReader(fh, delimiter="\t"))
         self.assertEqual(rows[0]["locus_tier"], "NA")
 
+    # -----------------------------------------------------------------------
+    # U1: unbinned-contig pks positivity (real bin binning left something out)
+    # -----------------------------------------------------------------------
+
+    # magBinLocusEvidence's output for the per-sample pool of contigs MetaBAT2 never
+    # placed in any bin -- "unbinned" is a stand-in bin_id, exactly like a real one,
+    # produced by the identical summarize_mag_bin_locus_evidence.py --bin-id call.
+    LOCUS_EVIDENCE_UNBINNED_POSITIVE = (
+        "sample\tbin_id\tlocus_tier\tlocus_genes_detected\tlocus_genes\tlocus_breadth\n"
+        "SAMPLE1\tunbinned\tbroad_island\t9\tclbA,clbB,clbD,clbK,clbN,clbO,clbP,clbQ,clbS\t0.180000\n"
+    )
+
+    def _write_bin_and_unbinned_fixture(self, tmp, unbinned_content):
+        checkm2 = self._write(tmp, "quality.tsv", CHECKM2_CONTENT)
+        gtdbtk = self._write(tmp, "gtdbtk.tsv", GTDBTK_CONTENT)
+        tblout_dir = os.path.join(tmp, "tblout")
+        os.makedirs(tblout_dir)
+        self._write(tblout_dir, "bin_001.tblout", TBLOUT_PKS_CONTENT)
+        context_dir = os.path.join(tmp, "context")
+        os.makedirs(context_dir)
+        locus_dir = os.path.join(tmp, "locus")
+        os.makedirs(locus_dir)
+        self._write(locus_dir, "bin_001.locus_evidence.tsv", LOCUS_EVIDENCE_POSITIVE)
+        if unbinned_content is not None:
+            self._write(locus_dir, "unbinned.locus_evidence.tsv", unbinned_content)
+        return checkm2, gtdbtk, tblout_dir, context_dir, locus_dir
+
+    def _run_with(self, tmp, checkm2, gtdbtk, tblout_dir, context_dir, locus_dir):
+        out = os.path.join(tmp, "summary.tsv")
+        import sys
+        sys.argv = ["build_mag_summary.py",
+                    "--checkm2", checkm2, "--gtdbtk", gtdbtk,
+                    "--tblout_dir", tblout_dir, "--context_dir", context_dir,
+                    "--locus_dir", locus_dir,
+                    "--sample", "SAMPLE1", "--evalue", "1e-5", "--out", out]
+        self.mod.main()
+        with open(out) as fh:
+            return list(csv.DictReader(fh, delimiter="\t"))
+
+    def test_unbinned_positive_call_is_its_own_row_not_folded_into_a_bin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._write_bin_and_unbinned_fixture(tmp, self.LOCUS_EVIDENCE_UNBINNED_POSITIVE)
+            rows = self._run_with(tmp, *fixture)
+        self.assertEqual(len(rows), 2)
+        bins = [r for r in rows if r["unit_type"] == "bin"]
+        unbinned = [r for r in rows if r["unit_type"] == "unbinned"]
+        self.assertEqual(len(bins), 1)
+        self.assertEqual(bins[0]["bin_id"], "bin_001")
+        self.assertEqual(len(unbinned), 1)
+        self.assertEqual(unbinned[0]["bin_id"], "unbinned")
+        self.assertEqual(unbinned[0]["locus_tier"], "broad_island")
+        self.assertEqual(unbinned[0]["locus_genes_detected"], "9")
+        # Not a genome: none of the bin-specific fields were measured for it.
+        self.assertEqual(unbinned[0]["taxonomy"], "NA")
+        self.assertEqual(unbinned[0]["completeness"], "NA")
+        self.assertEqual(unbinned[0]["clb_genes_detected"], "NA")
+
+    def test_existing_bin_rows_are_explicitly_typed_bin(self):
+        """Old readers keyed only on bin_id; unit_type must not silently change
+        what a plain per-bin row looks like."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._write_bin_and_unbinned_fixture(tmp, None)
+            rows = self._run_with(tmp, *fixture)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["unit_type"], "bin")
+
+    def test_no_unbinned_evidence_file_means_no_unbinned_row(self):
+        """Nothing to report when metabat2Bin.out.unbinned never emitted for this
+        sample (e.g. every contig got binned, or there were no contigs at all)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._write_bin_and_unbinned_fixture(tmp, None)
+            rows = self._run_with(tmp, *fixture)
+        self.assertNotIn("unbinned", [r["bin_id"] for r in rows])
+
+    def test_a_negative_unbinned_tier_is_still_reported(self):
+        """Checked and found nothing is not the same as never checked -- the row
+        still appears, distinguishing the two the same way magSampleStatus does."""
+        negative = (
+            "sample\tbin_id\tlocus_tier\tlocus_genes_detected\tlocus_genes\tlocus_breadth\n"
+            "SAMPLE1\tunbinned\tnegative\t0\t\t0.000000\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._write_bin_and_unbinned_fixture(tmp, negative)
+            rows = self._run_with(tmp, *fixture)
+        unbinned = next(r for r in rows if r["unit_type"] == "unbinned")
+        self.assertEqual(unbinned["locus_tier"], "negative")
+
 
 # ---------------------------------------------------------------------------
 # build_community_prophage
@@ -530,6 +617,39 @@ class TestMagBinLocusEvidence(unittest.TestCase):
             result = mag_utils.read_locus_evidence(tmp)
         self.assertIn("bin.1", result)
         self.assertEqual(result["bin.1"]["locus_tier"], "extensive_island")
+
+    def test_bin_id_unbinned_works_unmodified_for_the_pooled_contig_pseudo_unit(self):
+        """U1: Modules/pks_mag.nf reuses this exact script for the per-sample pool of
+        contigs MetaBAT2 never placed in any bin, passing --bin-id unbinned instead of
+        a real bin's ID. The script has no bin-specific logic -- --bin-id is an opaque
+        label threaded straight through to the output's bin_id column and the output
+        filename -- so this needs no code change here, only this regression test
+        confirming that stays true.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            # A full-length alignment, same as test_full_length_alignment_covers_all_genes_
+            # and_full_breadth above (100% breadth, all 3 LOCUS_GFF genes covered), but
+            # scored as the unbinned pool rather than a bin. Caps at multi_gene, not a
+            # higher tier, because LOCUS_GFF only has 3 genes to find -- the default
+            # thresholds need >=8/>=10 genes for broad_island/extensive_island.
+            paf = self._write(tmp, "unbinned.paf", paf_line() + "\n")
+            gff = self._write(tmp, "ref.gff", LOCUS_GFF)
+            out = os.path.join(tmp, "unbinned.locus_evidence.tsv")
+            import sys
+            sys.argv = ["summarize_mag_bin_locus_evidence.py",
+                        "--sample", "SAMPLE1", "--bin-id", "unbinned", "--paf", paf,
+                        "--gff", gff, "--contig", "c1",
+                        "--island-start", "0", "--island-end", "1000", "--output", out]
+            self.mod.main()
+            with open(out) as fh:
+                rows = list(csv.DictReader(fh, delimiter="\t"))
+            self.assertEqual(rows[0]["bin_id"], "unbinned")
+            self.assertEqual(rows[0]["locus_tier"], "multi_gene")
+
+            mag_utils = load_script("mag_utils")
+            result = mag_utils.read_locus_evidence(tmp)
+        self.assertIn("unbinned", result)
+        self.assertEqual(result["unbinned"]["locus_tier"], "multi_gene")
 
 
 if __name__ == "__main__":

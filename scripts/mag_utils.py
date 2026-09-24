@@ -12,6 +12,12 @@ def read_locus_evidence(locus_dir):
     """{bin_id: {"locus_tier": ..., "locus_genes_detected": ..., "locus_breadth": ...}}
     from a directory of `{bin_id}.locus_evidence.tsv` files (magBinLocusEvidence's
     output, one per bin). A bin absent from the directory has not been aligned.
+
+    `bin_id` here is really "whatever unitID magBinLocusEvidence was given". Since U1,
+    that directory can also carry an `unbinned.locus_evidence.tsv` -- the per-sample
+    pool of contigs MetaBAT2 never placed in any bin (see Modules/pks_mag.nf's pksMAG
+    workflow). This function does not distinguish the two; callers that must
+    (build_mag_summary.py's unit_type column) do so explicitly.
     """
     import csv
     import glob

@@ -672,7 +672,8 @@ workflow {
     if (enable_mags_b) {
         pksMAG(MAG_ASSEMBLY_READS)
         optional_lane_gate = optional_lane_gate.mix(
-            pksMAG.out.mag_summary, pksMAG.out.community_summary, pksMAG.out.strain_summary)
+            pksMAG.out.mag_summary, pksMAG.out.community_summary, pksMAG.out.strain_summary,
+            pksMAG.out.unbinned_locus_evidence)
     }
 
 	// ---------- v0.0.2: prefilter validation ----------

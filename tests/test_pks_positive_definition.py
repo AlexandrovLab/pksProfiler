@@ -142,14 +142,23 @@ class LocusEvidenceDecidesPositivity(unittest.TestCase):
             self.assertIn(line, MAIN_CODE)
 
     def test_pks_reference_fasta_feeds_the_bin_alignment(self):
-        self.assertIn("alignMagBinToCanonicalReference(bins_flat_ch, pks_reference_ch)", MAG_CODE)
+        # U1: bins_flat_ch is mixed with the per-sample unbinned pool into
+        # locus_alignment_units_ch before this call, so the same alignment covers
+        # both -- Nextflow forbids invoking a process twice in one workflow, and
+        # every bin is still in there (bins_flat_ch.mix(unbinned_flat_ch)).
+        self.assertIn("alignMagBinToCanonicalReference(locus_alignment_units_ch, pks_reference_ch)", MAG_CODE)
+        self.assertIn("locus_alignment_units_ch = bins_flat_ch.mix(unbinned_flat_ch)", MAG_CODE)
 
     def test_every_bin_is_aligned_not_only_hmm_candidates(self):
         # bins_flat_ch, not pks_pos_tblout_ch or any HMM-filtered channel.
         self.assertIn("Channel.value(file(params.pks_reference_fasta", MAG_CODE)
 
     def test_mag_status_count_reads_the_locus_tier_not_the_hmm_count(self):
-        self.assertIn("pks_positive_bin_counts_ch = magBinLocusEvidence.out.evidence", MAG_CODE)
+        # U1: bin_locus_evidence_ch is magBinLocusEvidence.out.evidence with the
+        # unbinned pseudo-unit's row filtered back out -- see
+        # test_unbinned_pool_never_inflates_bin_positivity_counts below for why.
+        self.assertIn("bin_locus_evidence_ch = magBinLocusEvidence.out.evidence", MAG_CODE)
+        self.assertIn("pks_positive_bin_counts_ch = bin_locus_evidence_ch", MAG_CODE)
         self.assertNotIn("pks_positive_bin_counts_ch = hmmsearchClb.out.clb_gene_count", MAG_CODE)
 
     def test_positive_tiers_exclude_negative_and_indeterminate(self):
@@ -158,9 +167,24 @@ class LocusEvidenceDecidesPositivity(unittest.TestCase):
         )
 
     def test_community_and_summary_both_receive_locus_evidence(self):
-        # communityProphageSummary and magSummaryTable each take a locus-evidence
-        # channel, joined the same remainder-safe way contexts_per_sample_ch is.
-        self.assertEqual(MAG_CODE.count(".join(locus_evidence_per_sample_ch, by: 0, remainder: true)"), 2)
+        # communityProphageSummary reads locus_evidence_per_sample_ch (real bins only);
+        # magSummaryTable reads mag_summary_locus_evidence_ch (bins + the U1 unbinned
+        # pool, so build_mag_summary.py can report the unbinned call too). Two
+        # different channels now, not the same one joined twice, because the
+        # unbinned pseudo-unit has no taxonomy/annotation for communityProphageSummary
+        # to read but does belong in the per-sample MAG summary table.
+        self.assertEqual(MAG_CODE.count(".join(locus_evidence_per_sample_ch, by: 0, remainder: true)"), 1)
+        self.assertEqual(MAG_CODE.count(".join(mag_summary_locus_evidence_ch, by: 0, remainder: true)"), 1)
+
+    def test_unbinned_pool_never_inflates_bin_positivity_counts(self):
+        # U1: the per-sample pool of contigs MetaBAT2 never binned is not a genome --
+        # a positive call there must never count toward pks_positive_bin_count
+        # (mag_status.tsv) or communityProphageSummary's producer selection.
+        self.assertIn(
+            'bin_locus_evidence_ch = magBinLocusEvidence.out.evidence\n'
+            '        .filter { _sampleID, unitID, _evidence -> unitID != "unbinned" }',
+            MAG,
+        )
 
     def test_the_specific_gene_mechanism_is_gone(self):
         self.assertEqual([l for l in MAG_CODE.splitlines() if "has_specific_clb" in l], [])
