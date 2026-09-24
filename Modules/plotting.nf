@@ -1,7 +1,7 @@
 nextflow.enable.dsl=2
 
 process plotPKS {
-
+    label 'sample_stage'
     label 'process_low'
     scratch true
     publishDir "${params.sample_dir}", mode: 'copy',

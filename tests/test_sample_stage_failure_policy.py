@@ -30,10 +30,16 @@ ROOT = Path(__file__).resolve().parents[1]
 BASE_CONFIG = (ROOT / "conf/base.config").read_text()
 
 MODULE_NAMES = ["pks_targeted.nf", "pks_mag.nf", "pks_prefilter.nf", "pks_taxa.nf",
-                "pks_typing.nf"]
+                "pks_typing.nf", "plotting.nf"]
 MODULES = {name: (ROOT / "Modules" / name).read_text() for name in MODULE_NAMES}
 
 SAMPLE_STAGE_PROCESSES = {
+    # plotPKS was missed by the original p1-2 fix: it's a per-sample process (one
+    # circos plot per sample, no cross-sample input) sitting in plotting.nf
+    # alongside the cohort reducers, and it inherited the strict default like they
+    # did -- so a single node failure in one sample's plot took the whole cohort's
+    # run down with it (observed live 2026-09-23, node failure on job 12331589).
+    "plotting.nf": ["plotPKS"],
     "pks_targeted.nf": [
         "classifyPksReadEvidence", "targetedPksRecruit", "targetedPksMegahit",
         "targetedPksSpades", "alignTargetedContigsToCanonicalReference",
