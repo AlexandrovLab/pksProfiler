@@ -427,7 +427,15 @@ workflow {
     // every problem at once. Stage prerequisites used to check only that a flag was
     // set: `--hg38_db /typo/human.mmi` satisfied every check and failed in the first
     // mapReads task, after the whole cohort had been extracted.
-    def preflight_status = Preflight.run("${params.scripts}/preflight.py", [
+    //
+    // The config map is built as its own local (not inlined into the Preflight.run(...)
+    // call) because Nextflow 24.10.0 -- the exact floor this manifest declares, and the
+    // exact version CI pins -- fails to compile a multi-line map literal immediately
+    // followed by a trailing `, log)` argument: "Variable `log` already defined in the
+    // process scope". Reproduced directly against 24.10.0 on the pre-fix baseline
+    // commit (870e4fa); root cause of m-1 (Ludmil's email: "Github shows your tests
+    // failing"), CI's "Compile the workflow" step.
+    def preflight_config = [
         sample                   : params.sample,
         input_data_type          : params.input_data_type,
         sample_type              : params.sample_type,
@@ -458,7 +466,18 @@ workflow {
         tumor_full_contig_context: tumor_full_contig_context_b,
         tumor_targeted_assembly  : tumor_targeted_assembly_b,
         enable_strain_typing     : enable_strain_typing_b,
-    ], log)
+    ]
+    // Nextflow 24.10.0 -- the exact floor this manifest declares, and the exact
+    // version CI pins -- refuses to compile any bare reference to the implicit `log`
+    // binding as a value (a plain `def x = log`, or passing `log` itself as an
+    // argument): "Variable `log` already defined in the process scope". Only the
+    // syntactic method-call form `log.info(...)`/`log.warn(...)`/`log.error(...)` is
+    // safe there; Nextflow 26.x has no such restriction. Reproduced directly against
+    // 24.10.0 on the pre-fix baseline commit (870e4fa); root cause of m-1 (Ludmil's
+    // email: "Github shows your tests failing"), CI's "Compile the workflow" step.
+    // A closure whose body only ever uses that safe method-call form sidesteps it.
+    def preflight_log = { level, message -> level == 'error' ? log.error(message) : level == 'warn' ? log.warn(message) : log.info(message) }
+    def preflight_status = Preflight.run("${params.scripts}/preflight.py", preflight_config, preflight_log)
 
     if (preflight_status != 0) {
         error "Preflight checks failed. Nothing has run; fix the problems above and relaunch."

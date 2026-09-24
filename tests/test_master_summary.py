@@ -246,7 +246,10 @@ class Wiring(unittest.TestCase):
     def test_pksMAG_strain_summary_is_empty_when_typing_is_off(self):
         workflow = self.PKS_MAG[self.PKS_MAG.index("workflow pksMAG {"):
                                self.PKS_MAG.index("\n    emit:", self.PKS_MAG.index("workflow pksMAG {"))]
-        self.assertIn("def strain_typing_summary_ch = Channel.empty()", workflow)
+        # Lowercase channel.empty(), not Channel.empty(): Nextflow 24.10.0 (the
+        # manifest's declared floor, and the version CI pins) fails to compile
+        # `def <newVar> = Channel.something()` -- see m-1's fix in this same commit.
+        self.assertIn("def strain_typing_summary_ch = channel.empty()", workflow)
         # Assigned only inside the flag check, matching cohort_report_gate's own pattern.
         flag_block = workflow[workflow.index("if (params.enable_strain_typing"):]
         self.assertIn("strain_typing_summary_ch = magStrainTyping.out.summary", flag_block)

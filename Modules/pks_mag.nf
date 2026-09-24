@@ -572,7 +572,7 @@ workflow pksMAG {
     // 7b. Strain typing per bin: MLST -> ST -> clonal complex / phylogroup.
     // Declared outside the if so main.nf's masterSummary gate has something to
     // read regardless of whether this run enabled strain typing.
-    def strain_typing_summary_ch = Channel.empty()
+    def strain_typing_summary_ch = channel.empty()
     if (params.enable_strain_typing.toString().toBoolean()) {
         magStrainTyping(bins_flat_ch.map { sampleID, binID, bin_fa -> tuple(sampleID, binID, bin_fa) })
         strain_typing_summary_ch = magStrainTyping.out.summary
@@ -829,7 +829,7 @@ workflow tumorWGS {
         .filter { sampleID, contigs, countFile -> countFile.text.trim().toInteger() > 0 }
         .map { sampleID, contigs, countFile -> tuple(sampleID, contigs) }
 
-    def strain_typing_summary_ch = Channel.empty()
+    def strain_typing_summary_ch = channel.empty()
     if (params.enable_strain_typing.toString().toBoolean()) {
         tumorStrainTyping(tumor_nonempty_contigs_ch.map { sampleID, contigs -> tuple(sampleID, "tumor_contigs", contigs) })
         strain_typing_summary_ch = tumorStrainTyping.out.summary
