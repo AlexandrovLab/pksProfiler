@@ -365,3 +365,34 @@ class FiguresOpenInlineFromTheRow(unittest.TestCase):
     def test_opening_a_figure_requires_no_javascript(self):
         panel = self.text.split('class="figpanel"', 1)[1]
         self.assertNotIn("onclick", panel)
+
+
+class RecruitmentStatsSurfaceInTheContigHoverText(unittest.TestCase):
+    """recruited_fragment_ids/paired_fragments explain *why* targeted assembly
+    produced nothing for a sample (no reads recruited vs. reads recruited but
+    not paired), so they ride along in the same hover tooltip as the existing
+    per-assembler contig counts rather than a new column of their own.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.results = build_results(self.tmp.name, COHORT)
+        evidence = (self.results / "by_sample/S_ext/contigs/final_evidence/"
+                    "final_pks_evidence.tsv")
+        evidence.write_text(
+            "sample\tfinal_structural_evidence\tassembler_agreement\t"
+            "megahit_reference_coverage\tmetaspades_reference_coverage\t"
+            "recruited_fragment_ids\tpaired_fragments\n"
+            "S_ext\tcomplete_island\tconcordant\t0.93\t0.91\t9\t3\n")
+
+    def test_collect_carries_the_recruitment_fields(self):
+        record = next(r for r in report.collect(self.results) if r["sample"] == "S_ext")
+        self.assertEqual(record["recruited_fragment_ids"], "9")
+        self.assertEqual(record["paired_fragments"], "3")
+
+    def test_the_hover_text_names_them(self):
+        html_path = Path(self.tmp.name) / "report.html"
+        subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.results),
+                        "--output", str(html_path)], capture_output=True, text=True)
+        self.assertIn("9 fragments recruited, 3 paired", html_path.read_text())
