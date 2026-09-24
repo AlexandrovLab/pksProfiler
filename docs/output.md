@@ -171,7 +171,6 @@ order, whether or not any sample carried reads for them.
 | `by_sample/*/community/community_prophage_inventory.tsv` | `--enable_mags` | prophage |
 | `by_sample/*/community/pks_community_interactions.tsv` | `--enable_mags` | producer × neighbour pair |
 | `by_sample/*/community/pks_island_mobility.tsv` | `--enable_mags` | draft genome |
-| `by_sample/*/community/contig_pks_context.tsv` | `--tumor_full_contig_context` | *clb* gene on a contig |
 | `by_sample/*/strain/strain_types.tsv` | assembled output | typed unit |
 
 ## Reading results from before v0.0.2

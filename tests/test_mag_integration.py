@@ -43,17 +43,6 @@ class MagRoutingTests(unittest.TestCase):
         self.assertIn('tier in contig_tiers', MAIN)
         self.assertIn("tumor_assembly_reads_ch = MAPPED_READS", MAIN)
         self.assertIn("targetedPksAssembly(tumor_assembly_reads_ch, targeted_profiles_ch)", MAIN)
-        self.assertRegex(MAIN, r"params\.tumor_enable_mags\s*=\s*false")
-        self.assertRegex(MAIN, r"params\.tumor_full_contig_context\s*=\s*false")
-
-    def test_tumor_contig_analyses_are_present(self):
-        for process in ("prokkaTumorContigs", "hmmsearchTumorContigs", "genomadTumorContigs", "tumorContigContext"):
-            self.assertIn(process, MAG)
-        self.assertIn("contig_pks_context.tsv", MAG)
-        self.assertIn("contig_pks_summary.tsv", MAG)
-        for classification in ("complete", "partial", "fragment"):
-            self.assertIn(classification, MAG)
-        self.assertIn("contig_pks_mobility.tsv", MAG)
 
 
 class MagModuleContractTests(unittest.TestCase):

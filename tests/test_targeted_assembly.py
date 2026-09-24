@@ -9,7 +9,6 @@ class TargetedAssemblyContractTests(unittest.TestCase):
     def test_targeted_branch_is_default_for_positive_tiers(self):
         main = (ROOT / "main.nf").read_text()
         self.assertRegex(main, r"params\.tumor_targeted_assembly\s*=\s*true")
-        self.assertRegex(main, r"params\.tumor_enable_mags\s*=\s*false")
         self.assertRegex(main, r'params\.tumor_contig_tiers\s*=\s*"broad_island,extensive_island"')
         self.assertIn('tier in contig_tiers', main)
         self.assertIn("targetedPksAssembly(tumor_assembly_reads_ch, targeted_profiles_ch)", main)

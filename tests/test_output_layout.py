@@ -118,30 +118,27 @@ class PublishTargetTests(unittest.TestCase):
 
 
 class ArmLevelTests(unittest.TestCase):
-    """The tumour lane had an extra tumor_wgs/ level the metagenome lane did not."""
+    """The metagenome community-context lane publishes without an arm-level directory.
 
-    TUMOUR = ("prokkaTumorContigs", "hmmsearchTumorContigs", "genomadTumorContigs",
-              "tumorContigContext")
+    (The tumour lane this originally also compared against -- prokkaTumorContigs /
+    hmmsearchTumorContigs / genomadTumorContigs / tumorContigContext -- was removed
+    entirely: no evidence tumour-sample MAG/contig binning could work, confirmed by a
+    zero-bin real execution test. See the removal commit for the full rationale.)
+    """
+
     METAGENOME = ("genomadProphages", "communityProphageSummary", "extractGenomicContext")
 
     def test_no_process_inserts_an_arm_level(self):
-        for process in self.TUMOUR + self.METAGENOME:
+        for process in self.METAGENOME:
             for target in TARGETS[process]:
                 self.assertNotIn("tumor_wgs", target,
                                  f"{process} still nests under an arm directory")
 
-    def test_both_lanes_write_community_results_to_the_same_place(self):
-        for process in self.TUMOUR + self.METAGENOME:
+    def test_community_results_publish_under_community(self):
+        for process in self.METAGENOME:
             for target in TARGETS[process]:
                 self.assertIn("/community", target,
                               f"{process} does not publish under by_sample/<sample>/community/")
-
-    def test_nothing_from_the_tumour_lane_lands_in_the_genomes_tree(self):
-        # mags/tumor_wgs was a misnomer: nothing in the tumour lane is a draft genome.
-        for process in self.TUMOUR:
-            for target in TARGETS[process]:
-                self.assertNotIn("/genomes", target,
-                                 f"{process} is not a draft genome")
 
 
 class FigureTests(unittest.TestCase):

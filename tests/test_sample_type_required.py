@@ -75,7 +75,6 @@ class DownstreamRoutingIsUnaffectedByTheRemovalOfAuto(unittest.TestCase):
     def test_mag_gating_is_unchanged(self):
         code = code_only(MAIN)
         self.assertIn('enable_mags_b && params.sample_type != "metagenome"', code)
-        self.assertIn('tumor_enable_mags_b && params.sample_type != "tumor_wgs"', code)
 
 
 if __name__ == "__main__":

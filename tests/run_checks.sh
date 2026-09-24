@@ -115,10 +115,6 @@ check_validation \
     tumor-hmm-only \
     '--sample_type tumor_wgs requires --profiling_method bowtie2 or both' \
     --sample_type tumor_wgs --profiling_method hmm
-check_validation \
-    context-without-genomad \
-    '--tumor_full_contig_context requires --genomad_db' \
-    --sample_type tumor_wgs --tumor_full_contig_context true
 
 echo
 echo "Building the workflow graph for every flag combination"

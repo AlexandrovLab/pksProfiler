@@ -116,28 +116,15 @@ fi
 
 if need "tumour, contig context" "$GENOMAD"; then
     construct "tumour, contig context" --sample_type tumor_wgs --profiling_method bowtie2 \
-              --tumor_full_contig_context true --genomad_db "$GENOMAD"
+              --genomad_db "$GENOMAD"
 fi
 
 if need "tumour, everything on" "$KRAKEN" "$GENOMAD"; then
     construct "tumour, everything on" --sample_type tumor_wgs --profiling_method both \
-              --tumor_targeted_assembly true --tumor_full_contig_context true \
+              --tumor_targeted_assembly true \
               --tumor_contig_tiers multi_gene,broad_island,extensive_island \
               --pks_taxa true --kraken_db "$KRAKEN" --bracken_read_length 150 \
               --genomad_db "$GENOMAD"
-fi
-
-# Ludmil, revised report unconfirmed item u-2: --tumor_enable_mags and
-# --tumor_full_contig_context both invoke megahitAssemble, in workflow pksMAG
-# and workflow tumorWGS respectively -- Nextflow permits the same process being
-# called from two different workflow scopes, so this is not automatically a
-# bug, but the combination was untested before. Not fixing anything
-# speculatively per his own instruction -- this only adds the construction
-# coverage he asked for; a real execution fixture is a separate, larger task.
-if need "tumour, MAGs + contig context together" "$GTDBTK" "$CHECKM2" "$GENOMAD"; then
-    construct "tumour, MAGs + contig context together" --sample_type tumor_wgs --profiling_method bowtie2 \
-              --tumor_enable_mags true --tumor_full_contig_context true \
-              --gtdbtk_db "$GTDBTK" --checkm2_db "$CHECKM2" --genomad_db "$GENOMAD"
 fi
 
 construct "metagenome, profiling only"    --sample_type metagenome --profiling_method bowtie2

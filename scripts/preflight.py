@@ -206,8 +206,7 @@ def check_hmm_models(config, report):
                 report.problem(section, f"{model} does not cover {len(absent)} clb genes: "
                                         f"{', '.join(absent)}")
 
-    if any(config.get(flag) for flag in ("enable_mags", "tumor_enable_mags",
-                                         "tumor_full_contig_context")):
+    if config.get("enable_mags"):
         report.require_path(section, "--clb_protein_hmm", config.get("clb_protein_hmm"))
         report.require_path(section, "clb protein FASTA", config.get("clb_protein_fasta"))
 
@@ -249,11 +248,9 @@ def check_taxonomy(config, report):
 
 def check_stage_databases(config, report):
     section = "stage databases"
-    if any(config.get(flag) for flag in ("enable_mags", "tumor_enable_mags")):
+    if config.get("enable_mags"):
         report.require_path(section, "--gtdbtk_db", config.get("gtdbtk_db"), kind="dir")
         report.require_path(section, "--checkm2_db", config.get("checkm2_db"))
-        report.require_path(section, "--genomad_db", config.get("genomad_db"), kind="dir")
-    elif config.get("tumor_full_contig_context"):
         report.require_path(section, "--genomad_db", config.get("genomad_db"), kind="dir")
 
     if config.get("enable_strain_typing"):

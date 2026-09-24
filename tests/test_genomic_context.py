@@ -103,21 +103,9 @@ class WiringTests(unittest.TestCase):
     MAG = (ROOT / "Modules/pks_mag.nf").read_text()
     MAIN = (ROOT / "main.nf").read_text()
 
-    def test_tumour_path_passes_the_genomad_summary(self):
-        # It was previously staged as an input and silently discarded.
-        body = self.MAG[self.MAG.index("process tumorContigContext"):]
-        body = body[:body.index("\n}\n")]
-        self.assertIn("--genomad ${virusSummary}", body)
-
-    def test_tumour_mobility_table_carries_the_new_columns(self):
-        body = self.MAG[self.MAG.index("process tumorContigContext"):]
-        body = body[:body.index("\n}\n")]
-        for column in ("nearby_trna", "in_prophage", "prophage_id", "prophage_virus_score"):
-            self.assertIn(column, body)
-
-    def test_window_is_a_parameter_in_both_lanes(self):
+    def test_window_is_a_parameter(self):
         self.assertIn("params.context_window_bp = 50000", self.MAIN)
-        self.assertEqual(self.MAG.count("--window ${params.context_window_bp}"), 2)
+        self.assertEqual(self.MAG.count("--window ${params.context_window_bp}"), 1)
 
 
 if __name__ == "__main__":

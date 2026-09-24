@@ -1,10 +1,11 @@
-# Island reassembly and mobility (tumour data)
+# Island reassembly (tumour data)
 
 Counting reads tells you how much *clb* sequence is present. Reassembling those reads tells you
 whether they form a real, connected island or scattered fragments that merely resemble one.
 
-This page covers `--sample_type tumor_wgs`: evidence tiering, targeted reassembly, and the
-prophage / neighbouring-gene context that indicates whether the island can move.
+This page covers `--sample_type tumor_wgs`: evidence tiering and targeted reassembly. Prophage
+and neighbouring-gene mobility context is a metagenome-only capability -- see
+[MAGs](mags.md) and [community context](community_context.md).
 
 ## Evidence tiering
 
@@ -91,40 +92,6 @@ telling you about read depth, not biology. To widen it anyway:
 ```bash
   --tumor_contig_tiers multi_gene,broad_island,extensive_island
 ```
-
-## Mobility and prophage context
-
-The *pks* island is a mobile element — it can transfer between bacteria. Three clues appear in the
-sequence around it: an **integrase** or **transposase** nearby — enzymes that cut and paste DNA — a **tRNA gene**
-nearby, which is the spot the *pks* island normally inserts itself into, and the island sitting
-**inside a prophage**.
-
-Add prophage detection to step 3. This needs a geNomad database.
-
-```bash
-nextflow run main.nf -profile local \
-  --sample samples.csv \
-  --input_data_type bam \
-  --sample_type tumor_wgs \
-  --tumor_full_contig_context true \
-  --genomad_db   /db/genomad_db_v1.9 \
-  --hg38_db      /refs/human-GRC-db.mmi \
-  --t2t_phix_db  /refs/human-GCA-phix-db.mmi \
-  --outdir       results
-```
-
-**What you get**
-
-```text
-results/by_sample/<sample>/community/
-├── <sample>.contig_pks_context.tsv    per clb gene: what sits within 50 kb
-├── <sample>.contig_pks_mobility.tsv   the mobility flags, condensed
-└── contig_pks_summary.tsv    how much of the island each contig carries
-```
-
-The context table has one row per *clb* gene found, with `has_integrase`, `has_transposase`,
-`nearby_trna`, `in_prophage`, and the names of the neighbouring genes. Change the search window
-with `--context_window_bp 100000`.
 
 ---
 

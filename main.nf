@@ -76,8 +76,6 @@ params.tumor_contig_tiers = "broad_island,extensive_island"
 
 // ---------------- v0.0.2: contig analysis ----------------
 params.tumor_targeted_assembly   = true    // recruit + MEGAHIT/metaSPAdes on eligible tumours
-params.tumor_full_contig_context = false   // prophage + neighbouring-gene context; requires --genomad_db
-params.tumor_enable_mags         = false   // genome-resolved binning on tumour reads
 params.enable_mags               = false   // MAG reconstruction; metagenome sample_type only
 
 params.pks_recruit_min_aligned  = 60
@@ -95,14 +93,6 @@ params.targeted_min_contig_len = 300
 // Set to the assembler floor: below it MEGAHIT cannot contribute by construction, so a
 // lower value makes metaSPAdes look artificially divergent.
 params.tumor_contig_min_aligned_bp = 200   // T1: total island bases a contig must carry to count as supporting; below clbR (213 bp)
-
-// Minimum distinct clb genes on one contig for tumorContigContext to call it
-// "partial" pks coverage (19 genes is "complete"). tumor_min_pks_reads and
-// tumor_min_nonhost_reads, its former companions in a now-removed, unwired
-// tumorEligibilityStatus screen, were removed with it (dead-code item d-1):
-// the tier classifier (classifyPksReadEvidence + contig_tiers) is the one
-// authoritative eligibility gate.
-params.tumor_min_clb_genes    = 3
 
 // ---------------- v0.0.2: MAG / prophage ----------------
 params.gtdbtk_db               = null
@@ -295,11 +285,7 @@ include { extractPksIslandReads; Bracken; process_bracken as combinePKSTaxa; com
 include { plotBrackenTaxa as plotPKSTaxa } from './Modules/plot_bracken_taxa.nf'
 include { plotBrackenTaxa as plotCommunityTaxa } from './Modules/plot_bracken_taxa.nf'
 include { classifyPksReadEvidence; targetedPksAssembly } from './Modules/pks_targeted.nf'
-include { pksMAG; tumorWGS } from './Modules/pks_mag.nf'
-// Separate alias so the tumour path cannot collide with the metagenome one:
-// Nextflow forbids invoking a component twice, and validation alone is a weaker
-// guarantee than making the second invocation a different component.
-include { pksMAG as tumorPksMAG } from './Modules/pks_mag.nf'
+include { pksMAG } from './Modules/pks_mag.nf'
 include { krakenPrefilter; buildClbDiamondDb; diamondRescue; mergePksCandidates; sampleBracken } from './Modules/pks_prefilter.nf'
 
 // An empty channel, named for what it gates. A local `def` inside the branch that
@@ -353,8 +339,6 @@ workflow {
     // in Groovy. Every v0.0.2 boolean is resolved once here; only these locals are tested.
     // toString().toBoolean() maps Boolean true/false and the Strings "true"/"false" alike.
     def enable_mags_b               = params.enable_mags.toString().toBoolean()
-    def tumor_enable_mags_b         = params.tumor_enable_mags.toString().toBoolean()
-    def tumor_full_contig_context_b = params.tumor_full_contig_context.toString().toBoolean()
     def tumor_targeted_assembly_b   = params.tumor_targeted_assembly.toString().toBoolean()
     def diamond_rescue_b            = params.diamond_rescue.toString().toBoolean()
     def pks_community_taxa_b        = params.pks_community_taxa.toString().toBoolean()
@@ -462,8 +446,6 @@ workflow {
         pks_taxa                 : pks_taxa_b,
         pks_community_taxa       : pks_community_taxa_b,
         enable_mags              : enable_mags_b,
-        tumor_enable_mags        : tumor_enable_mags_b,
-        tumor_full_contig_context: tumor_full_contig_context_b,
         tumor_targeted_assembly  : tumor_targeted_assembly_b,
         enable_strain_typing     : enable_strain_typing_b,
     ]
@@ -731,11 +713,6 @@ workflow {
     if (enable_mags_b && params.sample_type != "metagenome") {
         exit 1, "--enable_mags requires --sample_type metagenome; tumour assembly is selected with --sample_type tumor_wgs"
     }
-    // Both flags invoke pksMAG, and Nextflow forbids invoking a process twice. Tying each
-    // to its own sample_type makes them mutually exclusive by construction.
-    if (tumor_enable_mags_b && params.sample_type != "tumor_wgs") {
-        exit 1, "--tumor_enable_mags requires --sample_type tumor_wgs; metagenome binning is selected with --enable_mags"
-    }
     if (params.sample_type == "tumor_wgs" && params.profiling_method == "hmm") {
         exit 1, "--sample_type tumor_wgs requires --profiling_method bowtie2 or both for read-level clb screening"
     }
@@ -747,18 +724,15 @@ workflow {
             exit 1, "PKS recruitment index not found: ${params.pks_recruit_index}.*.bt2"
         }
     }
-    if (tumor_full_contig_context_b && !params.genomad_db) {
-        exit 1, "--tumor_full_contig_context requires --genomad_db"
-    }
     // pksMAG runs checkm2, gtdbtk and genomad unconditionally, so all three are required.
-    [enable_mags: enable_mags_b, tumor_enable_mags: tumor_enable_mags_b].each { flag, on ->
+    [enable_mags: enable_mags_b].each { flag, on ->
         if (on) {
             if (!params.gtdbtk_db)  { exit 1, "--${flag} requires --gtdbtk_db" }
             if (!params.checkm2_db) { exit 1, "--${flag} requires --checkm2_db" }
             if (!params.genomad_db) { exit 1, "--${flag} requires --genomad_db for prophage detection" }
         }
     }
-    if ((enable_mags_b || tumor_enable_mags_b || tumor_full_contig_context_b) && !file(params.clb_protein_hmm).exists()) {
+    if (enable_mags_b && !file(params.clb_protein_hmm).exists()) {
         exit 1, "Protein HMM not found: ${params.clb_protein_hmm}"
     }
     // nhmmscan reads the pressed index, not the plain .hmm; hmmsearch needs only the .hmm.
@@ -876,7 +850,7 @@ workflow {
         // Profiling now runs on a narrowed stream while assembly still uses the complete
         // one, so read-level and assembly-level clb evidence for the same sample are
         // computed on different inputs and may legitimately disagree.
-        if (enable_mags_b || tumor_targeted_assembly_b || tumor_full_contig_context_b) {
+        if (enable_mags_b || tumor_targeted_assembly_b) {
             log.warn "prefilter_mode=balanced narrows profiling only; assembly uses the complete host-depleted stream, so read-level and assembly-level clb evidence are not computed on the same reads"
         }
     } else {
@@ -949,17 +923,6 @@ workflow {
                     targetedPksAssembly.out.evidence
                         .map { _sampleID, evidenceFile -> evidenceFile }
                 )
-            }
-            if (tumor_full_contig_context_b) {
-                tumorWGS(tumor_assembly_reads_ch)
-                optional_lane_gate = optional_lane_gate.mix(
-                    tumorWGS.out.community_summary, tumorWGS.out.strain_summary)
-            }
-            if (tumor_enable_mags_b) {
-                tumorPksMAG(tumor_assembly_reads_ch)
-                optional_lane_gate = optional_lane_gate.mix(
-                    tumorPksMAG.out.mag_summary, tumorPksMAG.out.community_summary,
-                    tumorPksMAG.out.strain_summary)
             }
         }
     }

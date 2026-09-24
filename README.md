@@ -30,7 +30,7 @@ decisions; dashed outlines are optional or conditional.</sub>
 | **How strong is that evidence?** | tumour or metagenome | an [evidence tier](#how-strong-is-the-evidence) per sample | nothing — always runs |
 | **Does the island reassemble from its own reads?** | tumour | two independent assemblies, and whether they agree | `--sample_type tumor_wgs` |
 | **Which organism is carrying it?** | metagenome | draft genomes, completeness, species | `--enable_mags true` |
-| **Could the island move between bacteria?** | metagenome, or tumour contigs | whether an integrase or a tRNA site sits within 50 kb of the island — the features that let DNA transfer, which is a hint and not proof that it did | `--enable_mags true`, or `--tumor_full_contig_context true` for tumours; both need `--genomad_db` |
+| **Could the island move between bacteria?** | metagenome | whether an integrase or a tRNA site sits within 50 kb of the island — the features that let DNA transfer, which is a hint and not proof that it did | `--enable_mags true`; needs `--genomad_db` |
 | **What is around the carrier?** | metagenome | prophages, and the DNA-damage-response genes in every neighbouring organism | automatic with `--enable_mags` |
 | **What strain is the carrier?** | assembled output | sequence type, clonal complex, phylogroup | automatic |
 | **What else is in the sample?** | any | species abundances | `--pks_taxa true` |
@@ -80,7 +80,6 @@ Each row adds flags to the command above. Nothing is replaced.
 | To also get | Add | Details |
 |---|---|---|
 | island reassembly, two assemblers | `--sample_type tumor_wgs` | [assembly](docs/running/assembly.md) |
-| prophage and mobility context | `--tumor_full_contig_context true --genomad_db <dir>` | [assembly](docs/running/assembly.md) |
 | which organism carries it | `--sample_type metagenome --enable_mags true` plus `--gtdbtk_db --checkm2_db --genomad_db` | [MAGs](docs/running/mags.md) |
 | community and neighbour context | automatic with `--enable_mags` | [community context](docs/running/community_context.md) |
 | strain type and phylogroup | automatic; disable with `--enable_strain_typing false` | [strain typing](docs/running/strain_typing.md) |

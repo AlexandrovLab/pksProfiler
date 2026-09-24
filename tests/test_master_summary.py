@@ -216,7 +216,7 @@ class Wiring(unittest.TestCase):
         first_if_do_align = body.index("if (do_align) {")
         self.assertLess(decl, first_if_do_align)
 
-    def test_all_three_optional_lanes_feed_the_gate(self):
+    def test_the_metagenome_mag_lane_feeds_the_gate(self):
         body = self.MAIN.split("workflow {", 1)[1]
 
         mag_block = body[body.index("if (enable_mags_b) {"):]
@@ -224,17 +224,6 @@ class Wiring(unittest.TestCase):
         self.assertIn("pksMAG.out.mag_summary", mag_block)
         self.assertIn("pksMAG.out.community_summary", mag_block)
         self.assertIn("pksMAG.out.strain_summary", mag_block)
-
-        context_block = body[body.index("if (tumor_full_contig_context_b) {"):]
-        context_block = context_block[:context_block.index("\n            }")]
-        self.assertIn("tumorWGS.out.community_summary", context_block)
-        self.assertIn("tumorWGS.out.strain_summary", context_block)
-
-        tumor_mag_block = body[body.index("if (tumor_enable_mags_b) {"):]
-        tumor_mag_block = tumor_mag_block[:tumor_mag_block.index("\n            }")]
-        self.assertIn("tumorPksMAG.out.mag_summary", tumor_mag_block)
-        self.assertIn("tumorPksMAG.out.community_summary", tumor_mag_block)
-        self.assertIn("tumorPksMAG.out.strain_summary", tumor_mag_block)
 
     def test_pksMAG_emits_what_the_gate_and_the_script_both_need(self):
         workflow = self.PKS_MAG[self.PKS_MAG.index("workflow pksMAG {"):]
@@ -253,14 +242,6 @@ class Wiring(unittest.TestCase):
         # Assigned only inside the flag check, matching cohort_report_gate's own pattern.
         flag_block = workflow[workflow.index("if (params.enable_strain_typing"):]
         self.assertIn("strain_typing_summary_ch = magStrainTyping.out.summary", flag_block)
-
-    def test_tumorWGS_emits_community_and_strain_summary(self):
-        workflow = self.PKS_MAG[self.PKS_MAG.index("workflow tumorWGS {"):]
-        self.assertIn("community_summary = tumorContigContext.out.summary", workflow)
-        self.assertIn("strain_summary     = strain_typing_summary_ch", workflow)
-
-    def test_tumorPksMAG_is_pksMAG_aliased_so_it_carries_the_same_emits(self):
-        self.assertIn("include { pksMAG as tumorPksMAG } from './Modules/pks_mag.nf'", self.MAIN)
 
 
 if __name__ == "__main__":

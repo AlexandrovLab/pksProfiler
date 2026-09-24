@@ -25,10 +25,6 @@ the canonical reference -> `summarizeTargetedPksEvidence`. Read pairing is prese
 CheckM2 completeness, GTDB-Tk classification, Prokka annotation, clb protein HMM search,
 geNomad prophage detection, community prophage summary, and genomic-context extraction.
 
-**Prophage and neighbouring-gene context on tumour contigs** (`--tumor_full_contig_context`).
-Prokka annotation, clb protein HMM search, geNomad prophage detection, and contig context for
-assembled tumour contigs.
-
 ## Evidence tiers
 
 The frozen three-tier system from `tier_threshold_development_20260909`. All three criteria must
@@ -74,14 +70,7 @@ otherwise unreachable.
 
 ### Bug fixed in the port
 
-`tumorEligibilityStatus` and `tumorContigContext` in `pks_mag.nf` reference
-`params.tumor_min_clb_genes`, `params.tumor_min_pks_reads` and `params.tumor_min_nonhost_reads`,
-which were **defined nowhere** in v3-working — a null-pointer failure latent only because
-`--tumor_full_contig_context` defaults to false. They are now defined and aligned with the
-lowest positive tier (3 genes, 5 reads); the non-host read floor defaults to 0 (disabled),
-because no analysis supports a specific value. The tier classifier is the authoritative gate.
-
-Evidence-file parsing was also hardened: the gate now resolves `read_evidence` by column name
+Evidence-file parsing was hardened: the gate now resolves `read_evidence` by column name
 and fails explicitly on an empty or malformed file, instead of indexing line 2 field 2 blindly.
 
 ## Taxonomic prefilter and clb homology rescue
@@ -135,35 +124,23 @@ are more sensitive to divergent sequence, but HMMER has no protein-HMM-vs-nucleo
 translating 150 bp reads gives 50 aa fragments scored against profiles up to 3,206 aa — with no
 frameshift tolerance and no calibrated per-domain cutoffs. `nhmmscan` is fragment-native. The
 protein profiles already do the divergent-sequence work where it is statistically sound:
-`hmmsearchClb` on Prokka proteins from MAG bins, and `hmmsearchTumorContigs` on tumour contigs.
+`hmmsearchClb` on Prokka proteins from MAG bins.
 
 ## Prophage, nearby-gene and community context
 
-### Bug fixed: tumour prophage calls were computed and discarded
-
-`tumorContigContext` declared `path(virusSummary)` as an input and staged the file, but its
-script never referenced it — `genomadTumorContigs` ran geNomad on tumour contigs and the result
-reached the work directory and then nothing. A clb island sitting inside a predicted provirus on
-a tumour contig was not flagged as such. The metagenome path integrated prophage correctly all
-along, via `communityProphageSummary`; the tumour path was the asymmetric one.
-
-`extract_genomic_context.py` now takes `--genomad` and emits four columns per clb hit:
+`extract_genomic_context.py` takes `--genomad` and emits four columns per clb hit:
 `in_prophage`, `prophage_id`, `prophage_virus_score`, `prophage_taxonomy`. Provirus intervals
 are parsed with the same conventions as `build_community_prophage.py` — `topology == provirus`,
 interval from `coordinates`, host contig by stripping the `|provirus_...` suffix from `seq_name`.
 
-It also emits **`nearby_trna`**, which the tumour mobility table previously lacked while the
-metagenome one had it. This matters specifically: the canonical pks island integrates at a tRNA
-locus, so a tRNA in the flank is a targeted signal, not generic annotation. tRNA features need a
-separate GFF pass because `parse_prokka_gff` keeps CDS only.
-
-The tumour mobility table now carries all four new columns alongside `has_integrase` and
-`has_transposase`.
+It also emits **`nearby_trna`**: the canonical pks island integrates at a tRNA locus, so a tRNA
+in the flank is a targeted signal, not generic annotation. tRNA features need a separate GFF pass
+because `parse_prokka_gff` keeps CDS only.
 
 ### Context window is now a parameter
 
-`--context_window_bp` (default 50000) replaces the hardcoded script default, and is wired into
-both lanes. Previously the flanking window could not be changed from the command line.
+`--context_window_bp` (default 50000) replaces the hardcoded script default. Previously the
+flanking window could not be changed from the command line.
 
 ### What the metagenome community analysis produces
 
@@ -277,9 +254,8 @@ changing released behaviour.
 
 ## Databases required
 
-`--enable_mags` and `--tumor_enable_mags` each require `--gtdbtk_db`, `--checkm2_db` **and**
-`--genomad_db`; `pksMAG` runs all three unconditionally. `--tumor_full_contig_context` requires
-`--genomad_db`. `scripts/download_mag_databases.sbatch` and
+`--enable_mags` requires `--gtdbtk_db`, `--checkm2_db` **and** `--genomad_db`; `pksMAG` runs all
+three unconditionally. `scripts/download_mag_databases.sbatch` and
 `scripts/download_genomad_database.sbatch` fetch them.
 
 ## Profile HMMs: the exact_v1 population build

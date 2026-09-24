@@ -5,8 +5,10 @@ the top hits 369 bp with one gene and one hallmark. The count tracked how fragme
 the assembly was rather than any biology, and mobility claims were built on top of it
 -- `island_in_prophage` is only meaningful if the prophage is real.
 
-Both lanes now apply the same floors: params.provirus_min_length_bp and
-params.provirus_min_hallmarks.
+The metagenome MAG lane applies these floors: params.provirus_min_length_bp and
+params.provirus_min_hallmarks. (A second, tumour-contig lane applied the same floors
+until it was removed entirely -- no evidence MAG/contig binning could work on a
+tumour sample's tiny bacterial fraction; see the removal commit for the rationale.)
 """
 import importlib.util
 import sys
@@ -87,9 +89,9 @@ class Wiring(unittest.TestCase):
         self.assertIn("params.provirus_min_length_bp = 3000", MAIN)
         self.assertIn("params.provirus_min_hallmarks = 2", MAIN)
 
-    def test_both_invocations_pass_them(self):
-        self.assertEqual(MAG.count("--min-provirus-length"), 2)
-        self.assertEqual(MAG.count("--min-provirus-hallmarks"), 2)
+    def test_the_invocation_passes_them(self):
+        self.assertEqual(MAG.count("--min-provirus-length"), 1)
+        self.assertEqual(MAG.count("--min-provirus-hallmarks"), 1)
 
 
 if __name__ == "__main__":
