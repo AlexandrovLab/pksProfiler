@@ -26,6 +26,21 @@ POSITIVE_MAX_BREADTH = 0.075  # must stay below broad_island, or the fixture dri
 NEGATIVE_PAIRS = 4
 NEGATIVE_READS = 2 * NEGATIVE_PAIRS  # 8
 
+# u-3 follow-up: cohort-scaling fixtures (tests/fixtures/generate_e2e_fixtures.py's
+# BROAD_WINDOWS/EXTENSIVE_WINDOWS/BORDERLINE_WINDOWS). Every value below was worked out
+# the same way the positive/negative ones above were -- a real bowtie2 --very-sensitive
+# --no-unal | samtools view -q40 | sort, real featureCounts --largestOverlap, real
+# samtools depth over the 50,768 bp island, and the real
+# scripts/classify_tumor_pks_evidence.py -- run by hand against these exact fixtures
+# before this was wired into a cohort Nextflow run. See that script for the tier floors
+# (multi_gene/broad_island/extensive_island/localized_indeterminate).
+TIER_FIXTURE_EXPECTATIONS = {
+    # tier name -> (reads_clb_genes_align, clb_genes_detected, (min_breadth, max_breadth))
+    "broad_island":              (34, 8, (0.075, 0.15)),
+    "extensive_island":          (106, 12, (0.15, 1.0)),
+    "localized_indeterminate":   (2, 1, (0.0, 0.01)),
+}
+
 FAILURES = []
 
 
@@ -41,6 +56,130 @@ def check(label, condition, detail=""):
 def read_tsv(path):
     with path.open(newline="") as handle:
         return list(csv.DictReader(handle, delimiter="\t"))
+
+
+def parse_cohort_samples(spec):
+    """'"name:tier,name:tier"' -> [(name, tier), ...]. Empty string -> []."""
+    if not spec:
+        return []
+    pairs = []
+    for item in spec.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        name, _, tier = item.partition(":")
+        if not name or not tier:
+            raise SystemExit(f"--cohort-samples entry {item!r} is not 'name:tier'")
+        pairs.append((name, tier))
+    return pairs
+
+
+def check_hmm_evidence(results, sample, expected_reads, expected_genes, expected_gene_names=None):
+    """pksProfiler_hmm.nf's own outputs: hmm_counts.tsv and hmm.qc.tsv.
+
+    A separate code path from the bowtie2 lane's read_evidence.tsv/counts.txt --
+    pksProfilerHMM/hmm_best_hit.py had no real execution coverage anywhere in this
+    repo before u-3's follow-up (this run).
+    """
+    counts_path = results / "by_sample" / sample / "hmm" / "hmm_counts.tsv"
+    qc_path = results / "by_sample" / sample / "hmm" / "hmm.qc.tsv"
+    check(f"{sample} hmm_counts.tsv exists", counts_path.exists())
+    check(f"{sample} hmm.qc.tsv exists", qc_path.exists())
+    if counts_path.exists():
+        genes_with_hits = set()
+        total = 0
+        for row in read_tsv(counts_path):
+            count = int(row["Count"])
+            total += count
+            if count > 0:
+                genes_with_hits.add(row["Gene"])
+        check(f"{sample} hmm_counts.tsv total assigned reads == {expected_reads}",
+              total == expected_reads, f"got {total}")
+        check(f"{sample} hmm_counts.tsv detects exactly {expected_genes} gene(s)",
+              len(genes_with_hits) == expected_genes, f"got {sorted(genes_with_hits)}")
+        if expected_gene_names is not None:
+            check(f"{sample} hmm_counts.tsv hits exactly {sorted(expected_gene_names)}",
+                  genes_with_hits == expected_gene_names, f"got {sorted(genes_with_hits)}")
+    if qc_path.exists():
+        metrics = {row["Metric"]: row["Value"] for row in read_tsv(qc_path)}
+        check(f"{sample} reads_clb_genes_hmm == {expected_reads}",
+              metrics.get("reads_clb_genes_hmm") == str(expected_reads),
+              f"got {metrics.get('reads_clb_genes_hmm')!r}")
+        check(f"{sample} num_clb_genes_hmm == {expected_genes}",
+              metrics.get("num_clb_genes_hmm") == str(expected_genes),
+              f"got {metrics.get('num_clb_genes_hmm')!r}")
+        check(f"{sample} hmm_ambiguous_reads == 0 (no cross-gene tie in a synthetic fixture)",
+              metrics.get("hmm_ambiguous_reads") == "0",
+              f"got {metrics.get('hmm_ambiguous_reads')!r}")
+
+
+def check_read_evidence_tier(results, sample, expected_tier, expected_reads=None,
+                              expected_genes=None, expected_breadth_range=None):
+    """The bowtie2 lane's per-sample tier call (classify_tumor_pks_evidence.py's real
+    output for this exact fixture), used both for the original positive/negative pair
+    and for u-3's broad_island/extensive_island/localized_indeterminate additions."""
+    path = results / "by_sample" / sample / "read_evidence.tsv"
+    check(f"{sample}'s read_evidence.tsv exists", path.exists())
+    if not path.exists():
+        return
+    row = read_tsv(path)[0]
+    check(f"{sample} tier is {expected_tier}",
+          row["read_evidence"] == expected_tier, f"got {row['read_evidence']!r}")
+    if expected_reads is not None:
+        check(f"{sample} pks_reads == {expected_reads}",
+              row["pks_reads"] == str(expected_reads), f"got {row['pks_reads']!r}")
+    if expected_genes is not None:
+        check(f"{sample} clb_genes_detected == {expected_genes}",
+              row["clb_genes_detected"] == str(expected_genes), f"got {row['clb_genes_detected']!r}")
+    if expected_breadth_range is not None:
+        breadth = float(row["island_breadth_1x"])
+        lo, hi = expected_breadth_range
+        check(f"{sample} island_breadth_1x is in [{lo}, {hi})",
+              lo <= breadth < hi, f"got {breadth}")
+
+
+def check_cohort_membership(results, expected_samples, strict=False):
+    """Every cohort-wide roll-up carries exactly the expected sample set.
+
+    With strict=True (a full, named cohort -- u-3's 5-sample run), membership is
+    exact set equality AND one row per sample: a 2-sample check can't tell "both
+    samples are in there" apart from "both samples are in there twice, and so is a
+    stray third row" -- the same dedup/sorting boundary a 2-sample cohort can't
+    exercise at all. With strict=False (kept for the original 2-sample runs above),
+    it is the original, weaker containment check.
+    """
+    for name in ("pks_cohort_report.tsv", "pks.master_summary.tsv"):
+        path = results / "cohort" / name
+        check(f"cohort/{name} exists", path.exists())
+        if not path.exists():
+            continue
+        rows = read_tsv(path)
+        sample_column = "sample" if "sample" in (rows[0].keys() if rows else []) else "Sample"
+        samples_seen = [row.get(sample_column) for row in rows]
+        if strict:
+            check(f"cohort/{name} has exactly one row per expected sample, no extras",
+                  sorted(samples_seen) == sorted(expected_samples),
+                  f"got {sorted(samples_seen)}, expected {sorted(expected_samples)}")
+        else:
+            check(f"cohort/{name} has a row for both samples",
+                  set(expected_samples) <= set(samples_seen), f"got {set(samples_seen)}")
+
+    if strict:
+        # masterTableAlign (Gene x Sample matrix): membership is column headers, not rows.
+        gene_matrix_path = results / "cohort" / "gene_counts" / "pks.gene.counts.align.txt"
+        check("cohort/gene_counts/pks.gene.counts.align.txt exists", gene_matrix_path.exists())
+        if gene_matrix_path.exists():
+            with gene_matrix_path.open(newline="") as handle:
+                header = next(csv.reader(handle, delimiter="\t"))
+            columns = set(header[1:])
+            check("pks.gene.counts.align.txt has exactly one column per expected sample",
+                  columns == set(expected_samples), f"got {sorted(columns)}")
+
+        qc_path = results / "cohort" / "qc" / "pks.qc.summary.tsv"
+        if qc_path.exists():
+            rows = {row["Sample"] for row in read_tsv(qc_path)}
+            check("cohort QC summary has exactly one row per expected sample",
+                  rows == set(expected_samples), f"got {sorted(rows)}")
 
 
 def mate_suffix_census(fastq_gz_path):
@@ -70,63 +209,84 @@ def main():
         help="for a BAM/CRAM input run: both samples' extract.qc.tsv "
              "extracted_unmapped_reads must equal this (extractReads' own "
              "samtools-fastq-derived count -- the F01 read-routing metric).")
+    parser.add_argument(
+        "--profiling-method", choices=["bowtie2", "hmm"], default="bowtie2",
+        help="which profiling lane produced these results: the bowtie2/featureCounts "
+             "read_evidence.tsv + counts.txt lane (default), or pksProfilerHMM's "
+             "hmm_counts.tsv + hmm.qc.tsv lane (u-3 follow-up).")
+    parser.add_argument(
+        "--cohort-samples", default="",
+        help="'name:tier,name:tier,...' for samples beyond --positive-sample/"
+             "--negative-sample (u-3 follow-up's broad_island/extensive_island/"
+             "localized_indeterminate cohort-scaling fixtures). Their tier is checked "
+             "exactly, and cohort-wide roll-ups are checked for exact membership "
+             "(one row per sample, none missing, none duplicated) across the full "
+             "named set instead of the weaker 'contains both' check used without it.")
     args = parser.parse_args()
 
     results = args.results
     pos, neg = args.positive_sample, args.negative_sample
+    extra_samples = parse_cohort_samples(args.cohort_samples)
+    all_samples = [pos, neg] + [name for name, _tier in extra_samples]
 
-    # ---------- read_evidence.tsv (tumour tier classification) ----------
-    pos_evidence_path = results / "by_sample" / pos / "read_evidence.tsv"
-    neg_evidence_path = results / "by_sample" / neg / "read_evidence.tsv"
-    check("positive sample's read_evidence.tsv exists", pos_evidence_path.exists())
-    check("negative sample's read_evidence.tsv exists", neg_evidence_path.exists())
-    if pos_evidence_path.exists():
-        row = read_tsv(pos_evidence_path)[0]
-        check("positive tier is multi_gene (real bowtie2 alignment + featureCounts)",
-              row["read_evidence"] == "multi_gene", f"got {row['read_evidence']!r}")
-        check("positive pks_reads == 8",
-              row["pks_reads"] == str(POSITIVE_EXPECTED_READS), f"got {row['pks_reads']!r}")
-        check("positive clb_genes_detected == 4",
-              row["clb_genes_detected"] == str(len(POSITIVE_EXPECTED_GENES)),
-              f"got {row['clb_genes_detected']!r}")
-        breadth = float(row["island_breadth_1x"])
-        check("positive island_breadth_1x is between the multi_gene and broad_island floors",
-              POSITIVE_MIN_BREADTH <= breadth < POSITIVE_MAX_BREADTH, f"got {breadth}")
-    if neg_evidence_path.exists():
-        row = read_tsv(neg_evidence_path)[0]
-        check("negative tier is negative (0 clb reads, real bowtie2 alignment)",
-              row["read_evidence"] == "negative", f"got {row['read_evidence']!r}")
-        check("negative pks_reads == 0", row["pks_reads"] == "0", f"got {row['pks_reads']!r}")
+    if args.profiling_method == "bowtie2":
+        # ---------- read_evidence.tsv (tumour tier classification) ----------
+        check_read_evidence_tier(results, pos, "multi_gene",
+                                  expected_reads=POSITIVE_EXPECTED_READS,
+                                  expected_genes=len(POSITIVE_EXPECTED_GENES),
+                                  expected_breadth_range=(POSITIVE_MIN_BREADTH, POSITIVE_MAX_BREADTH))
+        check_read_evidence_tier(results, neg, "negative", expected_reads=0)
 
-    # ---------- counts.txt (featureCounts per-gene matrix) ----------
-    pos_counts_path = results / "by_sample" / pos / "counts.txt"
-    if pos_counts_path.exists():
-        genes_with_reads = set()
-        total = 0
-        with pos_counts_path.open() as handle:
-            for line in handle:
-                if line.startswith("#") or line.startswith("Geneid"):
-                    continue
-                fields = line.rstrip("\n").split("\t")
-                if not fields[0].startswith("clb"):
-                    continue
-                count = int(float(fields[-1] or 0))
-                total += count
-                if count > 0:
-                    genes_with_reads.add(fields[0])
-        check("counts.txt assigns reads to exactly the 4 simulated genes",
-              genes_with_reads == POSITIVE_EXPECTED_GENES, f"got {sorted(genes_with_reads)}")
-        check("counts.txt clb column total matches read_evidence's pks_reads",
-              total == POSITIVE_EXPECTED_READS, f"got {total}")
+        for sample, tier in extra_samples:
+            expected_reads, expected_genes, breadth_range = TIER_FIXTURE_EXPECTATIONS[tier]
+            check_read_evidence_tier(results, sample, tier,
+                                      expected_reads=expected_reads,
+                                      expected_genes=expected_genes,
+                                      expected_breadth_range=breadth_range)
+
+        # ---------- counts.txt (featureCounts per-gene matrix) ----------
+        pos_counts_path = results / "by_sample" / pos / "counts.txt"
+        if pos_counts_path.exists():
+            genes_with_reads = set()
+            total = 0
+            with pos_counts_path.open() as handle:
+                for line in handle:
+                    if line.startswith("#") or line.startswith("Geneid"):
+                        continue
+                    fields = line.rstrip("\n").split("\t")
+                    if not fields[0].startswith("clb"):
+                        continue
+                    count = int(float(fields[-1] or 0))
+                    total += count
+                    if count > 0:
+                        genes_with_reads.add(fields[0])
+            check("counts.txt assigns reads to exactly the 4 simulated genes",
+                  genes_with_reads == POSITIVE_EXPECTED_GENES, f"got {sorted(genes_with_reads)}")
+            check("counts.txt clb column total matches read_evidence's pks_reads",
+                  total == POSITIVE_EXPECTED_READS, f"got {total}")
+        else:
+            check("positive sample's counts.txt exists", False)
     else:
-        check("positive sample's counts.txt exists", False)
+        # ---------- pksProfilerHMM: hmm_counts.tsv + hmm.qc.tsv ----------
+        # Same fixture reads as the bowtie2 lane above (see check_e2e_execution.sh),
+        # run for real through nhmmscan/hmm_best_hit.py instead -- a code path this
+        # repo shipped since v0.0.1 with zero prior execution coverage.
+        check_hmm_evidence(results, pos, expected_reads=POSITIVE_EXPECTED_READS,
+                            expected_genes=len(POSITIVE_EXPECTED_GENES),
+                            expected_gene_names=POSITIVE_EXPECTED_GENES)
+        check_hmm_evidence(results, neg, expected_reads=0, expected_genes=0,
+                            expected_gene_names=set())
 
     # ---------- cohort QC summary ----------
     qc_path = results / "cohort" / "qc" / "pks.qc.summary.tsv"
     check("cohort QC summary exists", qc_path.exists())
     if qc_path.exists():
         rows = {row["Sample"]: row for row in read_tsv(qc_path)}
-        for sample, expected_reads in ((pos, POSITIVE_EXPECTED_READS), (neg, NEGATIVE_READS)):
+        expected_reads_by_sample = {pos: POSITIVE_EXPECTED_READS, neg: NEGATIVE_READS}
+        for sample, tier in extra_samples:
+            expected_reads_by_sample[sample] = TIER_FIXTURE_EXPECTATIONS[tier][0]
+
+        for sample, expected_reads in expected_reads_by_sample.items():
             row = rows.get(sample)
             check(f"{sample} has a QC row", row is not None)
             if row is None:
@@ -144,16 +304,23 @@ def main():
                   row["reads_after_hg38"] == str(after_fastp), f"got {row['reads_after_hg38']!r}")
             check(f"{sample} reads_after_t2t_phix == reads_after_fastp (no spurious host match)",
                   row["reads_after_t2t_phix"] == str(after_fastp), f"got {row['reads_after_t2t_phix']!r}")
-        check("positive reads_clb_genes_align == 8",
-              rows.get(pos, {}).get("reads_clb_genes_align") == str(POSITIVE_EXPECTED_READS))
-        check("negative reads_clb_genes_align == 0",
-              rows.get(neg, {}).get("reads_clb_genes_align") == "0")
+
+        if args.profiling_method == "bowtie2":
+            check("positive reads_clb_genes_align == 8",
+                  rows.get(pos, {}).get("reads_clb_genes_align") == str(POSITIVE_EXPECTED_READS))
+            check("negative reads_clb_genes_align == 0",
+                  rows.get(neg, {}).get("reads_clb_genes_align") == "0")
+            for sample, tier in extra_samples:
+                expected_reads = TIER_FIXTURE_EXPECTATIONS[tier][0]
+                check(f"{sample} reads_clb_genes_align == {expected_reads}",
+                      rows.get(sample, {}).get("reads_clb_genes_align") == str(expected_reads),
+                      f"got {rows.get(sample, {}).get('reads_clb_genes_align')!r}")
 
         # F01, from Ludmil's 2026-09-19 report: `samtools fastq` silently dropped a
         # read category depending on which -o/-0/-1/-2/-s routing flags were passed.
         # tests/test_extract_read_routing.py checks the invocation statically; this is
         # the same claim checked empirically, against extractReads' real output, for a
-        # real BAM input run.
+        # real BAM/CRAM input run.
         if args.expect_extracted_unmapped_reads is not None:
             for sample in (pos, neg):
                 row = rows.get(sample, {})
@@ -166,8 +333,13 @@ def main():
     # This is the empirical version of the mate_pair_check_20260923 investigation:
     # that investigation found no live bug, but had no real pipeline run to check
     # against. This does. save_intermediates=true (set by check_e2e_execution.sh)
-    # publishes exactly the file checked here.
-    for sample, expected_pairs in ((pos, len(POSITIVE_EXPECTED_GENES)), (neg, NEGATIVE_PAIRS)):
+    # publishes exactly the file checked here. Independent of --profiling-method: host
+    # depletion runs upstream of the align/hmm branch either way.
+    expected_pairs_by_sample = {pos: len(POSITIVE_EXPECTED_GENES), neg: NEGATIVE_PAIRS}
+    for sample, tier in extra_samples:
+        expected_pairs_by_sample[sample] = TIER_FIXTURE_EXPECTATIONS[tier][0] // 2
+
+    for sample, expected_pairs in expected_pairs_by_sample.items():
         depleted_path = results / "by_sample" / sample / "intermediates" / f"{sample}.host_depleted.fastq.gz"
         check(f"{sample} host_depleted.fastq.gz (save_intermediates) exists", depleted_path.exists())
         if not depleted_path.exists():
@@ -180,16 +352,8 @@ def main():
               all(mates == {"1", "2"} for mates in suffixes.values()),
               f"got {[(k, sorted(v)) for k, v in suffixes.items() if v != {'1', '2'}]}")
 
-    # ---------- cohort-wide roll-ups exist and mention both samples ----------
-    for name in ("pks_cohort_report.tsv", "pks.master_summary.tsv"):
-        path = results / "cohort" / name
-        check(f"cohort/{name} exists", path.exists())
-        if path.exists():
-            rows = read_tsv(path)
-            sample_column = "sample" if "sample" in (rows[0].keys() if rows else []) else "Sample"
-            samples_seen = {row.get(sample_column) for row in rows}
-            check(f"cohort/{name} has a row for both samples",
-                  {pos, neg} <= samples_seen, f"got {samples_seen}")
+    # ---------- cohort-wide roll-ups exist and carry every sample ----------
+    check_cohort_membership(results, all_samples, strict=bool(extra_samples))
 
     print()
     if FAILURES:

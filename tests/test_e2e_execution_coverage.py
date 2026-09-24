@@ -17,11 +17,15 @@ with every environment already cached, so it is not part of the fast tier
 `python -m unittest discover` runs, and not part of tests/run_checks.sh either. See
 .github/workflows/ci.yml for how it is (and, so far, is not) wired into CI.
 
-Scope note: this first pass covers paired FASTQ, --sample_type tumor_wgs,
---profiling_method bowtie2, positive and negative fixtures, and the u-1 mate-suffix
-survival check through host depletion. BAM/CRAM input forms, HMM profiling and an
-explicit multi-sample cohort-aggregation assertion are still open against Ludmil's
-full wish list -- see the commit message and the report handed back for this task.
+Scope note: the first pass (commit 73ed947) covered paired FASTQ and BAM input,
+--sample_type tumor_wgs, --profiling_method bowtie2, positive and negative fixtures,
+and the u-1 mate-suffix survival check through host depletion. This follow-up closes
+the rest of Ludmil's wish list: CRAM input (extractReads' --cram_reference branch,
+validate_cram_reference.py's @SQ/MD5 check), --profiling_method hmm alone
+(pksProfilerHMM/hmm_best_hit.py, real nhmmscan hits and a real zero-hit run), and a
+5-sample cohort spanning broad_island/extensive_island/localized_indeterminate on top
+of the original multi_gene/negative pair, with exact (not just "both are present")
+cohort-membership checks on the roll-up tables.
 """
 import stat
 import unittest
@@ -87,6 +91,98 @@ class RealExecutionNotAThirdPreview(unittest.TestCase):
         self.assertIn("--save_intermediates true", self.script)
 
 
+class CramInputExecutionCoverage(unittest.TestCase):
+    """u-3 follow-up: CRAM was the one input form the original run left uncovered."""
+
+    def setUp(self):
+        self.script = SCRIPT.read_text()
+
+    def test_it_converts_the_bam_fixtures_to_cram_with_real_samtools(self):
+        self.assertIn("view -C -T", self.script)
+
+    def test_it_passes_cram_reference(self):
+        self.assertIn("--input_data_type cram", self.script)
+        self.assertIn("--cram_reference", self.script)
+
+    def test_cram_reference_is_the_same_fasta_the_cram_was_built_against(self):
+        # extractReads.nf's validate_cram_reference.py compares the CRAM's embedded
+        # @SQ M5 against `samtools dict` of whatever --cram_reference names; passing
+        # anything other than the exact FASTA samtools view -C -T was given would be
+        # asking that check to fail, not exercising the success path.
+        self.assertIn('--cram_reference "$fixtures/synthetic_hg38.fa"', self.script)
+
+    def test_it_checks_cram_output_with_the_same_f01_metric_as_bam(self):
+        cram_section = self.script[self.script.index("Third input form: CRAM"):]
+        self.assertIn("--expect-extracted-unmapped-reads 8", cram_section)
+
+
+class HmmProfilingExecutionCoverage(unittest.TestCase):
+    """u-3 follow-up: --profiling_method hmm had never been executed by any test."""
+
+    def setUp(self):
+        self.script = SCRIPT.read_text()
+        self.assertions = ASSERTIONS.read_text()
+
+    def test_it_runs_profiling_method_hmm(self):
+        self.assertIn("--profiling_method hmm", self.script)
+
+    def test_it_uses_sample_type_metagenome_not_tumor_wgs(self):
+        # main.nf: "--sample_type tumor_wgs requires --profiling_method bowtie2 or
+        # both" -- tumor_wgs rejects an hmm-alone run outright, so this must be a
+        # different sample_type or the run never reaches pksProfilerHMM at all. The
+        # code (not the prose above it, which also says "--profiling_method hmm")
+        # is what has to pair it with metagenome.
+        code = code_only(self.script)
+        hmm_section = code[code.index("--profiling_method hmm"):]
+        self.assertIn("--sample_type metagenome", hmm_section[:hmm_section.index("outdir")])
+
+    def test_assertions_support_an_hmm_profiling_mode(self):
+        self.assertIn("--profiling-method", self.assertions)
+        self.assertIn("check_hmm_evidence", self.assertions)
+
+    def test_assertions_check_the_real_hmm_output_files(self):
+        self.assertIn("hmm_counts.tsv", self.assertions)
+        self.assertIn("hmm.qc.tsv", self.assertions)
+
+    def test_assertions_check_ambiguity_is_reported_separately_from_the_assigned_count(self):
+        # hmm_best_hit.py's F07 fix: ambiguous reads (a tie across two genes) count for
+        # neither gene and are reported on their own metric, not folded into either.
+        self.assertIn("hmm_ambiguous_reads", self.assertions)
+
+
+class CohortScalingExecutionCoverage(unittest.TestCase):
+    """u-3 follow-up: a 2-sample cohort cannot show a sorting/dedup/boundary bug that
+    only appears at N>2; this run's 5-sample cohort can."""
+
+    def setUp(self):
+        self.script = SCRIPT.read_text()
+        self.assertions = ASSERTIONS.read_text()
+
+    def test_it_runs_a_five_sample_cohort(self):
+        for var in ("POS_SAMPLE", "NEG_SAMPLE", "BROAD_SAMPLE", "EXTENSIVE_SAMPLE", "BORDERLINE_SAMPLE"):
+            self.assertIn(var, self.script)
+
+    def test_it_passes_cohort_samples_to_the_assertions(self):
+        self.assertIn("--cohort-samples", self.script)
+
+    def test_assertions_support_naming_extra_cohort_samples_and_their_tiers(self):
+        self.assertIn("parse_cohort_samples", self.assertions)
+        for tier in ("broad_island", "extensive_island", "localized_indeterminate"):
+            self.assertIn(tier, self.assertions)
+
+    def test_assertions_check_exact_cohort_membership_not_just_containment(self):
+        # The original 2-sample check only asked "are both of these somewhere in the
+        # table" -- true even if a sample were duplicated or a stray row present. The
+        # cohort-scaling assertion must ask for the exact set, once each.
+        self.assertIn("check_cohort_membership", self.assertions)
+        self.assertIn("strict", self.assertions)
+
+    def test_assertions_check_the_gene_by_sample_matrix_columns_too(self):
+        # masterTableAlign's pks.gene.counts.align.txt is Gene x Sample -- membership
+        # there is column headers, not rows, and the original check never looked at it.
+        self.assertIn("pks.gene.counts.align.txt", self.assertions)
+
+
 class FixtureGeneratorBuildsPositiveAndNegativeCases(unittest.TestCase):
     def setUp(self):
         self.generator = GENERATOR.read_text()
@@ -116,6 +212,30 @@ class FixtureGeneratorBuildsPositiveAndNegativeCases(unittest.TestCase):
         # the fixture would let that step go untested, which is exactly what u-1 is
         # about (Modules/filter_reads.nf, the mate-suffix-tagging awk block).
         self.assertIn("WITHOUT a /1 or /2 suffix", self.generator)
+
+
+class FixtureGeneratorBuildsTheScaledCohort(unittest.TestCase):
+    """u-3 follow-up: broad_island/extensive_island/localized_indeterminate on top of
+    the original multi_gene/negative pair, for a 5-sample cohort."""
+
+    def setUp(self):
+        self.generator = GENERATOR.read_text()
+
+    def test_it_defines_a_second_validated_window_pool(self):
+        self.assertIn("TIER_WINDOW_POOL", self.generator)
+
+    def test_it_builds_broad_island_extensive_island_and_localized_indeterminate(self):
+        for name in ("BROAD_WINDOWS", "EXTENSIVE_WINDOWS", "BORDERLINE_WINDOWS"):
+            self.assertIn(name, self.generator)
+
+    def test_extensive_pads_read_count_with_real_duplicate_fragments_not_new_positions(self):
+        # Padding the read-count floor with an unvalidated new genomic position would
+        # reintroduce exactly the multi-mapping risk clbK was dropped over; a
+        # duplicate read at an already-validated position cannot.
+        self.assertIn("EXTENSIVE_DUPLICATE_WINDOWS", self.generator)
+
+    def test_it_uses_a_shared_builder_not_copy_pasted_per_tier_logic(self):
+        self.assertIn("def build_tier_sample", self.generator)
 
 
 class AssertionsCoverTheMatePairRegressionGuard(unittest.TestCase):

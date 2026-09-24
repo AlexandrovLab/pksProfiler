@@ -29,16 +29,31 @@
 #      with --input_data_type bam, so extractReads' own `samtools fastq` invocation --
 #      the exact process F01 is about -- is exercised for real too, not just the
 #      paired-FASTQ path that skips it entirely.
+#   6. converts the same two BAMs to CRAM (`samtools view -C -T`, same synthetic hg38
+#      reference) and runs the pipeline a third time with --input_data_type cram
+#      --cram_reference, so extractReads' CRAM branch (--cram_reference required,
+#      validate_cram_reference.py's @SQ/MD5 check, the `samtools fastq --reference`
+#      decode) runs for real too -- not just BAM's referenceless decode path.
+#   7. runs the pipeline a fourth time on the original paired-FASTQ sheet with
+#      --sample_type metagenome --profiling_method hmm (tumor_wgs rejects hmm-alone;
+#      see main.nf), so pksProfilerHMM/hmm_best_hit.py -- shipped since v0.0.1 but never
+#      executed by any test in this repo -- run for real on both the positive fixture
+#      (real nhmmscan hits, not just the bowtie2 lane's) and the negative one (a real
+#      zero-hit nhmmscan run, a different code path than "no reads reached the process
+#      at all").
+#   8. runs the pipeline a fifth time on a 5-sample cohort (positive, negative, plus
+#      three new fixtures spanning broad_island, extensive_island and
+#      localized_indeterminate -- see BROAD_WINDOWS/EXTENSIVE_WINDOWS/
+#      BORDERLINE_WINDOWS in generate_e2e_fixtures.py), so the cohort-level reducers
+#      (masterTableAlign, masterQCSummary, cohortReport, masterSummary) aggregate more
+#      than two rows at least once, with membership checked exactly (every sample
+#      appears, none duplicated) rather than just "both of the original two are in
+#      there somewhere".
 #
 # This is slower than the other two test tiers (real conda envs, real alignment) but
-# still small: 8 reads per sample, tiny synthetic references, no assembly/MAG/taxonomy
-# lane (the default flags don't trigger any of those for either fixture -- see the
-# comment above LOCI in generate_e2e_fixtures.py).
-#
-# Still open against Ludmil's full wish list (BAM, CRAM, single FASTQ, paired FASTQ,
-# HMM, cohort aggregation): CRAM input, --profiling_method hmm, and a real multi-sample
-# cohort large enough to say something about aggregation beyond "two rows landed in one
-# table". See the commit message for why these were left for a follow-up.
+# still small: at most ~110 reads per sample, tiny synthetic references, no
+# assembly/MAG/taxonomy lane (the default flags don't trigger any of those for any of
+# these fixtures -- see the comment above LOCI in generate_e2e_fixtures.py).
 #
 #     CONDA_CACHE_DIR=/path/to/cache bash tests/check_e2e_execution.sh
 #
@@ -140,27 +155,39 @@ printf '%s,%s,%s\n' "$POS_SAMPLE" "$fixtures/positive_R1.fastq.gz" "$fixtures/po
 printf '%s,%s,%s\n' "$NEG_SAMPLE" "$fixtures/negative_R1.fastq.gz" "$fixtures/negative_R2.fastq.gz" >> "$work/sheet.csv"
 
 # Per-process cpu/memory floors in conf/base.config were sized for real cohorts (up to
-# 16 cpus/task) and are irrelevant to an 8-read fixture. withLabel selectors take
-# precedence over a plain `process {}` block regardless of file order (Nextflow config
-# precedence: process < withLabel < withName), so a generic override here would
+# 16 cpus/task, 64 GB/task) and are irrelevant to an 8-read fixture. withLabel selectors
+# take precedence over a plain `process {}` block regardless of file order (Nextflow
+# config precedence: process < withLabel < withName), so a generic override here would
 # silently lose to conf/base.config's per-label blocks; matching labels one for one is
-# what actually takes effect. `executor.cpus` is set high enough that Nextflow's local
-# executor -- sized from the JVM's available-processors count, which some sandboxed
-# shells report as 1 regardless of the node's real core count -- never refuses to admit
-# a task that asks for more cpus than that.
+# what actually takes effect. `executor.cpus`/`executor.memory` are set high enough that
+# Nextflow's local executor -- sized from the JVM's available-processors/available-memory
+# counts, which some sandboxed shells under-report regardless of the node's real
+# capacity -- never refuses to admit a task that asks for more than this.
+#
+# targeted_recruit/targeted_assembly are u-3 follow-up additions: the original
+# positive/negative fixtures were both outside --tumor_contig_tiers (default
+# "broad_island,extensive_island"), so targetedPksAssembly (bowtie2 recruit + MEGAHIT,
+# --tumor_targeted_assembly defaults true) never ran and its real memory floor --
+# conf/base.config's 64 GB for targeted_assembly -- was never exercised by this suite.
+# The broad_island/extensive_island cohort fixtures below land inside that tier on
+# purpose (that's the whole point of scaling the cohort), so they do trigger it now,
+# and 64 GB > this config's 32 GB executor cap failed the run outright before these two
+# labels were added.
 cat > "$work/e2e_local.config" <<'EOF'
 executor {
     cpus   = 32
     memory = '32 GB'
 }
 process {
-    withLabel:extract_reads  { cpus = 1 }
-    withLabel:filter_reads   { cpus = 1 }
-    withLabel:map_reads      { cpus = 1 }
-    withLabel:pks_align      { cpus = 1 }
-    withLabel:pks_hmm        { cpus = 1 }
-    withLabel:process_low    { cpus = 1 }
-    withLabel:sample_stage   { cpus = 1 }
+    withLabel:extract_reads     { cpus = 1 }
+    withLabel:filter_reads      { cpus = 1 }
+    withLabel:map_reads         { cpus = 1 }
+    withLabel:pks_align         { cpus = 1 }
+    withLabel:pks_hmm           { cpus = 1 }
+    withLabel:process_low       { cpus = 1 }
+    withLabel:sample_stage      { cpus = 1 }
+    withLabel:targeted_recruit  { cpus = 1; memory = 1.GB }
+    withLabel:targeted_assembly { cpus = 1; memory = 1.GB }
 }
 EOF
 
@@ -279,5 +306,178 @@ if ! python3 "$repo_dir/tests/fixtures/assert_e2e_outputs.py" \
     exit 1
 fi
 
+# ---------------------------------------------------------------------------------
+# Third input form: CRAM. Same two BAMs, converted to CRAM against the same synthetic
+# hg38 reference used to build them (`samtools view -C -T`) -- so the CRAM's @SQ M5s
+# are computed from, and therefore match, the exact FASTA passed as --cram_reference,
+# the same way a real CRAM and its reference dictionary agree. extractReads.nf refuses
+# CRAM input without --cram_reference (Ludmil, revised report finding 10) and then runs
+# scripts/validate_cram_reference.py, which would fail loudly on any accidental
+# mismatch here -- so a passing run is a genuine confirmation the reference contract
+# holds, not just that decode succeeded.
+# ---------------------------------------------------------------------------------
 echo
-echo "e2e execution check passed (paired FASTQ and BAM input forms, positive and negative fixtures)"
+echo "Building CRAM fixtures (same alignments as the BAM fixtures, same synthetic hg38 reference)"
+for name in positive negative; do
+    if ! "$MINIMAP2_ENV_SAMTOOLS" view -C -T "$fixtures/synthetic_hg38.fa" \
+            -o "$fixtures/${name}.cram" "$fixtures/${name}.bam" 2> "$work/cram_${name}.log"; then
+        cat "$work/cram_${name}.log" >&2
+        echo "ERROR: could not build the ${name} CRAM fixture." >&2
+        exit 1
+    fi
+    "$MINIMAP2_ENV_SAMTOOLS" index "$fixtures/${name}.cram"
+done
+
+POS_CRAM_SAMPLE=e2e_cram_positive
+NEG_CRAM_SAMPLE=e2e_cram_negative
+
+printf 'patient,alignment\n' > "$work/cram_sheet.csv"
+printf '%s,%s\n' "$POS_CRAM_SAMPLE" "$fixtures/positive.cram" >> "$work/cram_sheet.csv"
+printf '%s,%s\n' "$NEG_CRAM_SAMPLE" "$fixtures/negative.cram" >> "$work/cram_sheet.csv"
+
+echo "Running the real pipeline on CRAM input: tumor_wgs, bowtie2, --cram_reference"
+nf_cram_log="$work/nextflow_cram.log"
+(
+    cd "$work" && nextflow run "$repo_dir/main.nf" \
+        -work-dir "$work/work_cram" \
+        -c "$work/e2e_local.config" \
+        --sample "$work/cram_sheet.csv" \
+        --input_data_type cram \
+        --cram_reference "$fixtures/synthetic_hg38.fa" \
+        --sample_type tumor_wgs \
+        --profiling_method bowtie2 \
+        --hg38_db "$fixtures/hg38.mmi" \
+        --t2t_phix_db "$fixtures/t2t.mmi" \
+        --save_intermediates true \
+        --conda_cache_dir "$CONDA_CACHE_DIR" \
+        --outdir "$work/results_cram"
+) > "$nf_cram_log" 2>&1
+nf_cram_status=$?
+
+if [[ $nf_cram_status -ne 0 ]]; then
+    echo "ERROR: the real CRAM-input pipeline run failed (exit $nf_cram_status). Last 60 lines:" >&2
+    tail -60 "$nf_cram_log" >&2
+    echo "Full log: $nf_cram_log" >&2
+    KEEP_WORK=1
+    exit 1
+fi
+
+echo "CRAM-input pipeline finished. Checking real output values."
+if ! python3 "$repo_dir/tests/fixtures/assert_e2e_outputs.py" \
+        --results "$work/results_cram" \
+        --positive-sample "$POS_CRAM_SAMPLE" \
+        --negative-sample "$NEG_CRAM_SAMPLE" \
+        --expect-extracted-unmapped-reads 8; then
+    echo "ERROR: CRAM-input e2e output assertions failed. Results kept at: $work/results_cram" >&2
+    KEEP_WORK=1
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------------
+# Fourth run: --profiling_method hmm alone, on the original paired-FASTQ sheet.
+# --sample_type tumor_wgs rejects --profiling_method hmm outright (main.nf: "requires
+# --profiling_method bowtie2 or both for read-level clb screening"), so this is
+# --sample_type metagenome instead -- the same sample sheet format, just a different
+# profiling lane. Reuses $work/sheet.csv's positive/negative FASTQ pairs so the exact
+# same real reads that produce a real bowtie2 hit also produce (or don't) a real
+# nhmmscan hit, under the population DNA HMM this repo already ships pressed
+# (ref/hmm/clb_population_dna_exact_v1.hmm) -- 19 small profiles, real hits in well
+# under a second even without --hmm_chunking.
+# ---------------------------------------------------------------------------------
+echo
+echo "Running the real pipeline with --profiling_method hmm (sample_type metagenome)"
+nf_hmm_log="$work/nextflow_hmm.log"
+(
+    cd "$work" && nextflow run "$repo_dir/main.nf" \
+        -work-dir "$work/work_hmm" \
+        -c "$work/e2e_local.config" \
+        --sample "$work/sheet.csv" \
+        --input_data_type fastq \
+        --sample_type metagenome \
+        --profiling_method hmm \
+        --hg38_db "$fixtures/hg38.mmi" \
+        --t2t_phix_db "$fixtures/t2t.mmi" \
+        --save_intermediates true \
+        --conda_cache_dir "$CONDA_CACHE_DIR" \
+        --outdir "$work/results_hmm"
+) > "$nf_hmm_log" 2>&1
+nf_hmm_status=$?
+
+if [[ $nf_hmm_status -ne 0 ]]; then
+    echo "ERROR: the real HMM-profiling pipeline run failed (exit $nf_hmm_status). Last 60 lines:" >&2
+    tail -60 "$nf_hmm_log" >&2
+    echo "Full log: $nf_hmm_log" >&2
+    KEEP_WORK=1
+    exit 1
+fi
+
+echo "HMM-profiling pipeline finished. Checking real output values."
+if ! python3 "$repo_dir/tests/fixtures/assert_e2e_outputs.py" \
+        --results "$work/results_hmm" \
+        --positive-sample "$POS_SAMPLE" \
+        --negative-sample "$NEG_SAMPLE" \
+        --profiling-method hmm; then
+    echo "ERROR: HMM-profiling e2e output assertions failed. Results kept at: $work/results_hmm" >&2
+    KEEP_WORK=1
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------------
+# Fifth run: a 5-sample cohort (positive, negative, and three new fixtures spanning
+# broad_island, extensive_island and localized_indeterminate -- see
+# BROAD_WINDOWS/EXTENSIVE_WINDOWS/BORDERLINE_WINDOWS in generate_e2e_fixtures.py) so
+# the cohort-level reducers aggregate more than two rows at least once. A 2-sample
+# cohort cannot show a bug in sorting, de-duplication, or a boundary condition that
+# only appears at N>2; this can.
+# ---------------------------------------------------------------------------------
+echo
+echo "Running the real pipeline on a 5-sample cohort: tumor_wgs, bowtie2"
+BROAD_SAMPLE=e2e_broad
+EXTENSIVE_SAMPLE=e2e_extensive
+BORDERLINE_SAMPLE=e2e_borderline
+
+printf 'patient,fastq1,fastq2\n' > "$work/cohort_sheet.csv"
+printf '%s,%s,%s\n' "$POS_SAMPLE" "$fixtures/positive_R1.fastq.gz" "$fixtures/positive_R2.fastq.gz" >> "$work/cohort_sheet.csv"
+printf '%s,%s,%s\n' "$NEG_SAMPLE" "$fixtures/negative_R1.fastq.gz" "$fixtures/negative_R2.fastq.gz" >> "$work/cohort_sheet.csv"
+printf '%s,%s,%s\n' "$BROAD_SAMPLE" "$fixtures/broad_R1.fastq.gz" "$fixtures/broad_R2.fastq.gz" >> "$work/cohort_sheet.csv"
+printf '%s,%s,%s\n' "$EXTENSIVE_SAMPLE" "$fixtures/extensive_R1.fastq.gz" "$fixtures/extensive_R2.fastq.gz" >> "$work/cohort_sheet.csv"
+printf '%s,%s,%s\n' "$BORDERLINE_SAMPLE" "$fixtures/borderline_R1.fastq.gz" "$fixtures/borderline_R2.fastq.gz" >> "$work/cohort_sheet.csv"
+
+nf_cohort_log="$work/nextflow_cohort.log"
+(
+    cd "$work" && nextflow run "$repo_dir/main.nf" \
+        -work-dir "$work/work_cohort" \
+        -c "$work/e2e_local.config" \
+        --sample "$work/cohort_sheet.csv" \
+        --input_data_type fastq \
+        --sample_type tumor_wgs \
+        --profiling_method bowtie2 \
+        --hg38_db "$fixtures/hg38.mmi" \
+        --t2t_phix_db "$fixtures/t2t.mmi" \
+        --save_intermediates true \
+        --conda_cache_dir "$CONDA_CACHE_DIR" \
+        --outdir "$work/results_cohort"
+) > "$nf_cohort_log" 2>&1
+nf_cohort_status=$?
+
+if [[ $nf_cohort_status -ne 0 ]]; then
+    echo "ERROR: the real 5-sample cohort pipeline run failed (exit $nf_cohort_status). Last 60 lines:" >&2
+    tail -60 "$nf_cohort_log" >&2
+    echo "Full log: $nf_cohort_log" >&2
+    KEEP_WORK=1
+    exit 1
+fi
+
+echo "5-sample cohort pipeline finished. Checking real output values."
+if ! python3 "$repo_dir/tests/fixtures/assert_e2e_outputs.py" \
+        --results "$work/results_cohort" \
+        --positive-sample "$POS_SAMPLE" \
+        --negative-sample "$NEG_SAMPLE" \
+        --cohort-samples "${BROAD_SAMPLE}:broad_island,${EXTENSIVE_SAMPLE}:extensive_island,${BORDERLINE_SAMPLE}:localized_indeterminate"; then
+    echo "ERROR: 5-sample cohort e2e output assertions failed. Results kept at: $work/results_cohort" >&2
+    KEEP_WORK=1
+    exit 1
+fi
+
+echo
+echo "e2e execution check passed (paired FASTQ, BAM, CRAM, HMM profiling, and a 5-sample cohort; positive/negative/broad/extensive/borderline fixtures)"
