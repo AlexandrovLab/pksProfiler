@@ -692,7 +692,12 @@ workflow pksMAG {
     community_summary = communityProphageSummary.out.inventory
                             .mix(communityProphageSummary.out.interactions)
                             .mix(communityProphageSummary.out.mobility)
-    strain_summary    = strain_typing_summary_ch
+    // strainTypeSummary emits tuple(val(sampleID), path(...)) -- strip the sampleID so
+    // this matches mag_summary/community_summary's bare-path shape. Left as the tuple,
+    // main.nf's optional_lane_gate.mix(...) silently accepts it, and masterSummary's
+    // path-typed collected input later fails with "Not a valid path value: '<sampleID>'"
+    // the moment strain typing is enabled -- caught live on the 2026-09-24 validate1 run.
+    strain_summary    = strain_typing_summary_ch.map { sampleID, table -> table }
 }
 
 // ─── Tumor-WGS contig analysis ────────────────────────────────────────────────
@@ -846,5 +851,6 @@ workflow tumorWGS {
     emit:
     // Consumed by main.nf's masterSummary gate; cohortReport never reads this lane.
     community_summary = tumorContigContext.out.summary.mix(tumorContigContext.out.mobility)
-    strain_summary     = strain_typing_summary_ch
+    // See pksMAG's identical strain_summary fix above -- same tuple-vs-bare-path mismatch.
+    strain_summary     = strain_typing_summary_ch.map { sampleID, table -> table }
 }
