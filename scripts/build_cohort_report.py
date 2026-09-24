@@ -21,6 +21,14 @@ matrix, same log-scaled read bar, same three breadth bars, same evidence badge. 
 `contig pending` placeholder is now filled in, in the row where it always belonged.
 
     build_cohort_report.py --results results --output cohort/pks_cohort_report.html
+
+Three more things the pipeline already computes and this now reads, none of them
+recomputed here either:
+
+    by_sample/<sample>/genomes/pks_mag_summary.tsv                  MAG bin locus evidence
+    by_sample/<sample>/community/community_prophage_inventory.tsv   prophage regions per bin
+    by_sample/<sample>/prefilter/diamond_rescue_taxonomy.tsv        rescued reads by organism
+    cohort/taxonomy/pks.clb_species_support.tsv                     --pks_taxa species support
 """
 import argparse
 import csv
@@ -33,6 +41,11 @@ GENES = [f"clb{letter}" for letter in "ABCDEFGHIJKLMNOPQRS"]
 TIERS = ["negative", "localized_indeterminate", "multi_gene", "broad_island",
          "extensive_island"]
 TIER_RANK = {name: index for index, name in enumerate(TIERS)}
+
+# Same vocabulary as mag_utils.POSITIVE_LOCUS_TIERS -- mirrored, not imported, the same
+# way TIERS above already mirrors classify_tumor_pks_evidence.py's read-level tiers
+# rather than importing them.
+POSITIVE_LOCUS_TIERS = {"multi_gene", "broad_island", "extensive_island"}
 
 # The snapshot's palette. Blue buckets for the gene matrix (a magnitude, so one hue
 # light to dark), greys for breadth, and an ordered ramp for the evidence badge. The
@@ -47,7 +60,10 @@ TIER_INK = {"multi_gene": "#3b2a12", "negative": "#4d4d4d",
             "not_classified": "#4d4d4d"}
 TIER_LABEL = {"extensive_island": "Extensive", "broad_island": "Broad",
               "multi_gene": "Multi-gene", "localized_indeterminate": "Indeterminate",
-              "negative": "Negative", "not_classified": "Not classified"}
+              "negative": "Negative", "not_classified": "Not classified",
+              "NA": "Not aligned"}
+TIER_FILL["NA"] = "#eeeeee"
+TIER_INK["NA"] = "#4d4d4d"
 AGREEMENT_FILL = {"concordant": "#4d7c5f", "discordant": "#9e2a2b",
                   "single_assembler_only": "#e09f3e", "no_contig_support": "#bdbdbd"}
 # The badge is 88px at 9px Arial; `single_assembler_only` is 21 characters and would
@@ -60,7 +76,11 @@ AGREEMENT_LABEL = {"concordant": "Concordant", "discordant": "Discordant",
 LEFT, GENE_X, CELL, ROW_H, TOP = 15, 205, 15, 13, 142
 READS_X, B1_X, CLASS_X = 510, 630, 725
 CONTIG_X, COV_X, AGREE_X, FIG_X = 825, 925, 1045, 1145
-WIDTH = 1270
+# Two more columns, further right again: genome-bin locus evidence and DIAMOND-rescue
+# taxonomy, both fixed-width links regardless of the row's own content so they cannot
+# collide with a variable-length figure label to their left.
+BIN_X, RESCUE_X = 1300, 1420
+WIDTH = 1560
 
 
 def bucket(count):
@@ -99,6 +119,54 @@ def number(value, default=0.0):
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def mag_bins(sample_dir):
+    """Per-bin locus evidence, taxonomy and prophage context for one sample.
+
+    pks_mag_summary.tsv already carries the alignment-confirmed locus_tier (magBinLocusEvidence,
+    same vocabulary as the read-level tier). community_prophage_inventory.tsv is one row per
+    predicted provirus; grouped by bin_id here into a count, not reparsed from geNomad's own
+    output -- build_community_prophage.py already did that filtering (length and hallmark
+    floors) and this reads its answer rather than re-deriving it.
+    """
+    prophage_regions = {}
+    for row in read_tsv(sample_dir / "community/community_prophage_inventory.tsv"):
+        bin_id = row.get("bin_id", "")
+        prophage_regions[bin_id] = prophage_regions.get(bin_id, 0) + 1
+
+    bins = []
+    for row in read_tsv(sample_dir / "genomes/pks_mag_summary.tsv"):
+        bin_id = row.get("bin_id", "")
+        bins.append({
+            "bin_id": bin_id,
+            "taxonomy": row.get("taxonomy", "unclassified"),
+            "completeness": number(row.get("completeness")),
+            "locus_tier": row.get("locus_tier") or "NA",
+            "locus_genes_detected": row.get("locus_genes_detected", "NA"),
+            "locus_breadth": row.get("locus_breadth", "NA"),
+            "prophage_regions": prophage_regions.get(bin_id, 0),
+        })
+    return bins
+
+
+def diamond_rescue_reads(sample_dir):
+    """Organism x clb-gene read counts for reads DIAMOND rescued but krakenPrefilter's
+    target-taxon routing did not keep -- see summarize_diamond_rescue_taxonomy.py."""
+    rows = []
+    for row in read_tsv(sample_dir / "prefilter/diamond_rescue_taxonomy.tsv"):
+        rows.append({
+            "organism": row.get("organism", ""),
+            "taxid": row.get("taxid", ""),
+            "clb_gene": row.get("clb_gene", ""),
+            "read_count": int(number(row.get("read_count"))),
+        })
+    return rows
+
+
+def species_support(results):
+    """Cohort-wide species x clb-gene support matrix from --pks_taxa, if it ran."""
+    return read_tsv(results / "cohort/taxonomy/pks.clb_species_support.tsv")
 
 
 def expected_sample_ids(path):
@@ -148,6 +216,8 @@ def collect(results, expected=None):
             "figures": [p.name for p in
                         sorted((by_sample / sample / "figures").glob("*"))
                         if p.is_file() and not p.name.startswith(".")],
+            "bins": mag_bins(by_sample / sample),
+            "diamond_rescue": diamond_rescue_reads(by_sample / sample),
         })
 
     records.sort(key=lambda r: (TIER_RANK.get(r["tier"], -1), r["genes_detected"],
@@ -163,6 +233,12 @@ def figure_anchor(sample, filename):
     """Stable id shared by the row link and the panel it reveals."""
     safe = "".join(c if c.isalnum() else "-" for c in f"{sample}-{filename}")
     return f"fig-{safe}"
+
+
+def detail_anchor(kind, sample):
+    """Same :target scheme as figure_anchor, for the bins/rescue panels."""
+    safe = "".join(c if c.isalnum() else "-" for c in sample)
+    return f"{kind}-{safe}"
 
 
 def svg_matrix(records):
@@ -196,7 +272,8 @@ def svg_matrix(records):
     for label, x in (("PKS reads", READS_X), ("Breadth ≥1×", B1_X),
                      ("Read evidence", CLASS_X), ("Contigs", CONTIG_X),
                      ("Island recovered", COV_X), ("Assemblers", AGREE_X),
-                     ("Figures", FIG_X)):
+                     ("Figures", FIG_X), ("Genome bins", BIN_X),
+                     ("Community clb homology", RESCUE_X)):
         out.append(f'<text x="{x}" y="100" class="h">{label}</text>')
     out.append(f'<line x1="15" y1="113" x2="{WIDTH - 15}" y2="113" stroke="black"/>')
 
@@ -287,6 +364,28 @@ def svg_matrix(records):
             offset += 8 + 5 * len(label)
         if not record["figures"]:
             out.append(f'<text x="{FIG_X}" y="{y}" class="n" style="fill:#bbb">none</text>')
+
+        if record["bins"]:
+            positive = sum(1 for b in record["bins"] if b["locus_tier"] in POSITIVE_LOCUS_TIERS)
+            label = f'{len(record["bins"])} bin{"s" if len(record["bins"]) != 1 else ""}, {positive} pks+'
+            anchor = detail_anchor("bins", record["sample"])
+            out.append(f'<a href="#{esc(anchor)}"><title>open per-bin evidence</title>'
+                       f'<text x="{BIN_X}" y="{y}" class="n" '
+                       f'style="fill:#2166ac;text-decoration:underline">{esc(label)}</text></a>')
+        else:
+            out.append(f'<text x="{BIN_X}" y="{y}" class="n" style="fill:#bbb">none</text>')
+
+        if record["diamond_rescue"]:
+            organisms = len({r["organism"] for r in record["diamond_rescue"]})
+            reads = sum(r["read_count"] for r in record["diamond_rescue"])
+            label = f'{reads} read{"s" if reads != 1 else ""}, {organisms} organism{"s" if organisms != 1 else ""}'
+            anchor = detail_anchor("rescue", record["sample"])
+            out.append(f'<a href="#{esc(anchor)}"><title>open DIAMOND-rescue taxonomy</title>'
+                       f'<text x="{RESCUE_X}" y="{y}" class="n" '
+                       f'style="fill:#2166ac;text-decoration:underline">{esc(label)}</text></a>')
+        else:
+            out.append(f'<text x="{RESCUE_X}" y="{y}" class="n" style="fill:#bbb">none</text>')
+
         out.append("</g>")
 
     note = ("Breadth is the pipeline's own ≥1×/≥2×/≥3× over the "
@@ -325,7 +424,96 @@ def figure_panels(records):
     return "".join(panels)
 
 
-def page(records, results):
+def pct_or_na(value):
+    try:
+        return f"{100 * float(value):.1f}%"
+    except (TypeError, ValueError):
+        return "NA"
+
+
+def prophage_note(count):
+    if count == 0:
+        return "no"
+    return f"yes, {count} region{'s' if count != 1 else ''}"
+
+
+def bin_table(record):
+    if not record["bins"]:
+        return ""
+    rows = "".join(
+        f'<tr><td>{esc(b["bin_id"])}</td><td>{esc(b["taxonomy"])}</td>'
+        f'<td>{b["completeness"]:.1f}%</td>'
+        f'<td><span class="tierbadge" style="background:{TIER_FILL.get(b["locus_tier"], "#d9d9d9")};'
+        f'color:{TIER_INK.get(b["locus_tier"], "white")}">'
+        f'{esc(TIER_LABEL.get(b["locus_tier"], b["locus_tier"]))}</span></td>'
+        f'<td>{esc(pct_or_na(b["locus_breadth"]))}</td>'
+        f'<td>{esc(prophage_note(b["prophage_regions"]))}</td></tr>'
+        for b in record["bins"])
+    return (f'<table class="detail"><thead><tr><th>Bin</th><th>Taxonomy</th>'
+            f'<th>Completeness</th><th>Locus tier</th><th>Locus breadth</th>'
+            f'<th>Prophage-associated</th></tr></thead><tbody>{rows}</tbody></table>')
+
+
+def rescue_table(record):
+    if not record["diamond_rescue"]:
+        return ""
+    ordered = sorted(record["diamond_rescue"],
+                     key=lambda r: (-r["read_count"], r["organism"].lower()))
+    rows = "".join(
+        f'<tr><td>{esc(r["organism"])}</td><td>{esc(r["taxid"])}</td>'
+        f'<td>{esc(r["clb_gene"])}</td><td>{r["read_count"]}</td></tr>'
+        for r in ordered)
+    return (f'<table class="detail"><thead><tr><th>Organism</th><th>TaxID</th>'
+            f'<th>clb gene</th><th>Rescued reads</th></tr></thead>'
+            f'<tbody>{rows}</tbody></table>')
+
+
+def detail_panels(records):
+    """Hidden :target panels for the Genome bins / Community clb homology links.
+
+    Same mechanism as figure_panels(): no script, so it still opens in a sandboxed
+    viewer with JavaScript disabled.
+    """
+    panels = []
+    for record in records:
+        if record["bins"]:
+            anchor = detail_anchor("bins", record["sample"])
+            panels.append(
+                f'<div class="figpanel" id="{esc(anchor)}">'
+                f'<div class="fighead">{esc(record["sample"])} &middot; genome-bin locus evidence'
+                f'<a class="figclose" href="#top">close</a></div>{bin_table(record)}</div>')
+        if record["diamond_rescue"]:
+            anchor = detail_anchor("rescue", record["sample"])
+            panels.append(
+                f'<div class="figpanel" id="{esc(anchor)}">'
+                f'<div class="fighead">{esc(record["sample"])} &middot; DIAMOND-rescued reads by organism'
+                f'<a class="figclose" href="#top">close</a></div>{rescue_table(record)}</div>')
+    return "".join(panels)
+
+
+def species_support_section(rows):
+    if not rows:
+        return ""
+    genes = [f"clb{letter}" for letter in "ABCDEFGHIJKLMNOPQRS"]
+    body = "".join(
+        f'<tr><td>{esc(row.get("Sample", ""))}</td><td>{esc(row.get("Species", ""))}</td>'
+        f'<td>{esc(row.get("TaxID", ""))}</td>'
+        + "".join(f'<td>{esc(row.get(gene, "0"))}</td>' for gene in genes)
+        + f'<td>{esc(row.get("Total", ""))}</td></tr>'
+        for row in rows)
+    header = ("<tr><th>Sample</th><th>Species</th><th>TaxID</th>"
+             + "".join(f"<th>{gene}</th>" for gene in genes) + "<th>Total</th></tr>")
+    return f"""
+  <h2 style="font-size:15px;margin:26px 0 6px">Community species &times; clb-gene support (--pks_taxa)</h2>
+  <p class="muted">Direct krakenuniq support for reads aligned to a clb gene within the
+  extracted island, one row per species per sample. Answers: besides the organism the
+  island alignment landed in, what else in this sample's community has direct read
+  support for a clb gene?</p>
+  <div class="scroll table-scroll"><table class="detail">
+  <thead>{header}</thead><tbody>{body}</tbody></table></div>"""
+
+
+def page(records, results, species_rows=()):
     tiers = {tier: sum(1 for r in records if r["tier"] == tier) for tier in TIERS}
     unclassified = sum(1 for r in records if r["tier"] not in TIER_RANK)
     assembled = sum(1 for r in records if r["assembled"])
@@ -372,6 +560,14 @@ def page(records, results):
   .fighead {{ font-size:12px; color:#666; margin-bottom:8px; }}
   .figclose {{ float:right; }}
   .figpanel object {{ border:1px solid #eee; border-radius:4px; min-height:340px; }}
+  table.detail {{ border-collapse:collapse; font-size:12px; width:100%; }}
+  table.detail th, table.detail td {{ padding:4px 8px; border-bottom:1px solid #eee;
+                                       text-align:left; white-space:nowrap; }}
+  table.detail th {{ color:#666; font-weight:bold; position:sticky; top:0;
+                      background:#fff; }}
+  .tierbadge {{ display:inline-block; padding:1px 7px; border-radius:2px;
+                font-size:11px; }}
+  .table-scroll {{ max-height:420px; overflow-y:auto; }}
 </style></head>
 <body><main id="top">
   <h1>pks cohort report</h1>
@@ -380,11 +576,17 @@ def page(records, results):
   {no_assembly}
   <div class="scroll">{svg_matrix(records)}</div>
   {figure_panels(records)}
+  {detail_panels(records)}
+  {species_support_section(species_rows)}
   <h2 style="font-size:15px;margin:26px 0 6px">Where these numbers come from</h2>
   <ul class="muted">
     <li><code>cohort/gene_counts/pks.gene.counts.align.txt</code> &mdash; the gene matrix</li>
     <li><code>by_sample/&lt;sample&gt;/read_evidence.tsv</code> &mdash; tier, reads, genes, breadth</li>
     <li><code>by_sample/&lt;sample&gt;/contigs/final_evidence/final_pks_evidence.tsv</code> &mdash; contig columns</li>
+    <li><code>by_sample/&lt;sample&gt;/genomes/pks_mag_summary.tsv</code> &mdash; genome-bin locus tier, taxonomy, completeness</li>
+    <li><code>by_sample/&lt;sample&gt;/community/community_prophage_inventory.tsv</code> &mdash; prophage regions per bin</li>
+    <li><code>by_sample/&lt;sample&gt;/prefilter/diamond_rescue_taxonomy.tsv</code> &mdash; DIAMOND-rescued reads by organism</li>
+    <li><code>cohort/taxonomy/pks.clb_species_support.tsv</code> &mdash; cohort-wide species &times; clb-gene support (--pks_taxa)</li>
     <li><code>RUN_REPORT.txt</code> &mdash; the code, parameters and references behind them</li>
     <li><code>by_sample/&lt;sample&gt;/figures/</code> &mdash; what the Figures links open;
         they are relative, so this page has to stay in <code>cohort/</code></li>
@@ -430,7 +632,7 @@ def main():
         raise SystemExit(f"[ERROR] no samples found under {args.results}")
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(page(records, args.results))
+    args.output.write_text(page(records, args.results, species_support(args.results)))
 
     if args.table:
         fields = ["sample", *GENES, "pks_reads", "genes_detected", "island_breadth_1x",

@@ -365,3 +365,189 @@ class FiguresOpenInlineFromTheRow(unittest.TestCase):
     def test_opening_a_figure_requires_no_javascript(self):
         panel = self.text.split('class="figpanel"', 1)[1]
         self.assertNotIn("onclick", panel)
+
+
+MAG_SUMMARY_HEADER = ("sample\tbin_id\ttaxonomy\tcompleteness\tcontamination\tgenome_size\t"
+                     "contig_n50\tclb_genes_detected\tclb_genes\tbest_evalue\thas_integrase\t"
+                     "has_transposase\tflanking_genes\tunexpected_taxon_flag\tlocus_tier\t"
+                     "locus_genes_detected\tlocus_breadth\n")
+PROPHAGE_HEADER = ("sample\tbin_id\thost_taxonomy\tprophage_id\thost_contig\tstart\tend\t"
+                   "length\tvirus_score\tviral_taxonomy\thas_recA\thas_lexA\tclbS_like\t"
+                   "evidence_level\n")
+RESCUE_HEADER = "sample\torganism\ttaxid\tclb_gene\tread_count\n"
+
+
+class GenomeBinsPanel(unittest.TestCase):
+    """Item 1: magBinLocusEvidence's per-bin call, surfaced per sample.
+
+    pks_mag_summary.tsv already carries the alignment-confirmed locus_tier -- same
+    vocabulary as the read-level tier -- plus taxonomy, completeness and breadth. The
+    report must show it, not recompute it.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.results = build_results(self.tmp.name, COHORT)
+        genomes = self.results / "by_sample/S_ext/genomes"
+        genomes.mkdir(parents=True, exist_ok=True)
+        (genomes / "pks_mag_summary.tsv").write_text(
+            MAG_SUMMARY_HEADER +
+            "S_ext\tbin_001\td__Bacteria;o__Enterobacterales;s__Escherichia coli\t"
+            "92.5\t1.2\t4500000\t125000\t10\tclbA,clbB\t1e-20\tTrue\tFalse\tgyrB\tFalse\t"
+            "broad_island\t9\t0.09\n")
+        community = self.results / "by_sample/S_ext/community"
+        community.mkdir(parents=True, exist_ok=True)
+        (community / "community_prophage_inventory.tsv").write_text(
+            PROPHAGE_HEADER +
+            "S_ext\tbin_001\tEscherichia coli\tc1|provirus_1\tc1\t100\t5000\t4900\t0.9\t"
+            "Caudovirales\tTrue\tTrue\tFalse\tpredicted_provirus\n")
+        self.html = Path(self.tmp.name) / "report.html"
+        self.run = subprocess.run(
+            [sys.executable, str(SCRIPT), "--results", str(self.results),
+             "--output", str(self.html)], capture_output=True, text=True)
+        self.text = self.html.read_text()
+
+    def test_it_still_runs(self):
+        self.assertEqual(self.run.returncode, 0, self.run.stderr)
+
+    def test_collect_reads_the_bin_row_without_recomputing_it(self):
+        by_sample = {r["sample"]: r for r in report.collect(self.results)}
+        bins = by_sample["S_ext"]["bins"]
+        self.assertEqual(len(bins), 1)
+        self.assertEqual(bins[0]["locus_tier"], "broad_island")
+        self.assertEqual(bins[0]["taxonomy"], "d__Bacteria;o__Enterobacterales;s__Escherichia coli")
+        self.assertAlmostEqual(bins[0]["completeness"], 92.5)
+
+    def test_prophage_regions_are_grouped_by_bin_not_reparsed_from_genomad(self):
+        by_sample = {r["sample"]: r for r in report.collect(self.results)}
+        self.assertEqual(by_sample["S_ext"]["bins"][0]["prophage_regions"], 1)
+
+    def test_a_sample_with_no_mag_summary_gets_no_bins_invented(self):
+        by_sample = {r["sample"]: r for r in report.collect(self.results)}
+        self.assertEqual(by_sample["S_neg"]["bins"], [])
+
+    def test_the_row_link_and_the_panel_share_an_anchor(self):
+        import re
+        links = set(re.findall(r'<a href="#(bins-[^"]+)"', self.text))
+        panels = set(re.findall(r'class="figpanel" id="(bins-[^"]+)"', self.text))
+        self.assertTrue(links)
+        self.assertEqual(links, panels)
+
+    def test_the_locus_tier_badge_reuses_the_read_tier_colour(self):
+        self.assertIn(f'background:{report.TIER_FILL["broad_island"]}', self.text)
+        self.assertIn(">Broad<", self.text)
+
+    def test_prophage_context_is_a_one_line_summary_per_bin(self):
+        self.assertIn("yes, 1 region", self.text)
+
+    def test_a_bin_never_aligned_reads_not_aligned_not_zero_percent(self):
+        # magBinLocusEvidence not yet having run for a bin is "NA" in the pipeline's own
+        # output (mag_utils.read_locus_evidence); the report must not turn that into 0%.
+        genomes = self.results / "by_sample/S_broad/genomes"
+        genomes.mkdir(parents=True, exist_ok=True)
+        (genomes / "pks_mag_summary.tsv").write_text(
+            MAG_SUMMARY_HEADER +
+            "S_broad\tbin_002\tunclassified\t50.0\t2.0\t3000000\t50000\t2\tclbA\t1e-8\t"
+            "False\tFalse\t\tFalse\tNA\tNA\tNA\n")
+        by_sample = {r["sample"]: r for r in report.collect(self.results)}
+        self.assertEqual(by_sample["S_broad"]["bins"][0]["locus_tier"], "NA")
+        html = Path(self.tmp.name) / "report2.html"
+        subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.results),
+                        "--output", str(html)], capture_output=True, text=True)
+        self.assertIn("Not aligned", html.read_text())
+
+
+class DiamondRescueTaxonomyPanel(unittest.TestCase):
+    """Item 2: DIAMOND-rescued reads, joined back to their krakenPrefilter organism.
+
+    Every row here is, by construction, a read the fast classifier's target-taxon
+    routing did not keep -- see summarize_diamond_rescue_taxonomy.py's docstring.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.results = build_results(self.tmp.name, COHORT)
+        prefilter = self.results / "by_sample/S_ext/prefilter"
+        prefilter.mkdir(parents=True, exist_ok=True)
+        (prefilter / "diamond_rescue_taxonomy.tsv").write_text(
+            RESCUE_HEADER +
+            "S_ext\tKlebsiella pneumoniae\t573\tclbB\t4\n"
+            "S_ext\tKlebsiella pneumoniae\t573\tclbA\t1\n")
+        self.html = Path(self.tmp.name) / "report.html"
+        subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.results),
+                        "--output", str(self.html)], capture_output=True, text=True)
+        self.text = self.html.read_text()
+
+    def test_collect_reads_both_rows(self):
+        by_sample = {r["sample"]: r for r in report.collect(self.results)}
+        rescued = by_sample["S_ext"]["diamond_rescue"]
+        self.assertEqual(len(rescued), 2)
+        self.assertEqual({r["clb_gene"] for r in rescued}, {"clbA", "clbB"})
+
+    def test_a_sample_with_no_rescue_file_gets_none_invented(self):
+        by_sample = {r["sample"]: r for r in report.collect(self.results)}
+        self.assertEqual(by_sample["S_neg"]["diamond_rescue"], [])
+
+    def test_the_row_link_and_the_panel_share_an_anchor(self):
+        import re
+        links = set(re.findall(r'<a href="#(rescue-[^"]+)"', self.text))
+        panels = set(re.findall(r'class="figpanel" id="(rescue-[^"]+)"', self.text))
+        self.assertTrue(links)
+        self.assertEqual(links, panels)
+
+    def test_the_panel_names_organism_gene_and_count(self):
+        anchor = report.detail_anchor("rescue", "S_ext")
+        panel = self.text[self.text.index(f'id="{anchor}"'):]
+        self.assertIn("Klebsiella pneumoniae", panel)
+        self.assertIn("clbB", panel)
+        self.assertIn(">4<", panel)
+
+
+class CommunitySpeciesSupportSection(unittest.TestCase):
+    """Item 3: pks.clb_species_support.tsv, computed only with --pks_taxa and, until
+    now, read by nothing."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.results = build_results(self.tmp.name, COHORT)
+        self.html = Path(self.tmp.name) / "report.html"
+
+    def _run(self):
+        subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.results),
+                        "--output", str(self.html)], capture_output=True, text=True)
+        return self.html.read_text()
+
+    def test_absent_when_pks_taxa_never_ran(self):
+        # The bullet in "Where these numbers come from" documents the path regardless;
+        # the section itself -- the table and its heading -- must not appear.
+        text = self._run()
+        self.assertNotIn("Direct krakenuniq support for reads aligned", text)
+        self.assertNotIn("Community species", text)
+
+    def test_present_when_the_file_exists(self):
+        taxonomy = self.results / "cohort/taxonomy"
+        taxonomy.mkdir(parents=True, exist_ok=True)
+        header = "Sample\tSpecies\tTaxID\t" + "\t".join(GENES) + "\tTotal\n"
+        row = ("S_ext\tEscherichia coli\t562\t" +
+               "\t".join(["3"] + ["0"] * (len(GENES) - 1)) + "\t3\n")
+        (taxonomy / "pks.clb_species_support.tsv").write_text(header + row)
+        text = self._run()
+        self.assertIn("clb-gene support", text)
+        self.assertIn("Escherichia coli", text)
+        self.assertIn("<th>clbA</th>", text)
+
+    def test_species_support_reads_the_file_verbatim(self):
+        rows = report.species_support(self.results)
+        self.assertEqual(rows, [])
+        taxonomy = self.results / "cohort/taxonomy"
+        taxonomy.mkdir(parents=True, exist_ok=True)
+        header = "Sample\tSpecies\tTaxID\t" + "\t".join(GENES) + "\tTotal\n"
+        row = ("S_ext\tEscherichia coli\t562\t" +
+               "\t".join(["3"] + ["0"] * (len(GENES) - 1)) + "\t3\n")
+        (taxonomy / "pks.clb_species_support.tsv").write_text(header + row)
+        rows = report.species_support(self.results)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["Species"], "Escherichia coli")
