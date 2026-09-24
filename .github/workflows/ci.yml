@@ -56,3 +56,51 @@ jobs:
           DB_ROOT="$PWD/ci-refs" bash tests/check_workflow_construction.sh
       - name: Validation regression checks
         run: bash tests/run_checks.sh
+
+  # Ludmil's audit, u-3: a real (non -preview) execution, so bowtie2/minimap2/fastp/
+  # samtools interacting through the real Nextflow channel wiring is checked at least
+  # once, not just the graph. Manual-only for now, NOT on every push/PR: a GitHub-hosted
+  # runner has no persistent conda cache (unlike CONDA_CACHE_DIR on TSCC, which already
+  # has every env this needs pre-built from conda_envs/*.yml), so this job's cold-start
+  # cost -- solving and installing bowtie2/minimap2/fastp/samtools/subread/deeptools/
+  # R+circlize from bioconda from scratch -- has not been measured and could be a large
+  # multiple of the ~2 minutes tests/check_e2e_execution.sh takes locally with every
+  # environment already cached. Promote this to `pull_request` once that cost is known
+  # and acceptable; until then, run it by hand from the Actions tab when this area
+  # changes, or nightly on a schedule if the runtime turns out to be reasonable.
+  e2e-execution:
+    name: End-to-end execution (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install Nextflow
+        uses: nf-core/setup-nextflow@v2
+        with:
+          version: "24.10.0"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: latest
+          auto-update-conda: false
+          auto-activate-base: true
+      - name: Install minimap2 for fixture index building
+        # Nextflow builds its own minimap2 (and every other tool) inside the
+        # pipeline's own conda envs; this one is only for the tests/fixtures/
+        # generate_e2e_fixtures.py index-build step, before the pipeline runs.
+        shell: bash -l {0}
+        run: conda install -y -n base -c bioconda -c conda-forge minimap2
+      - name: Run the real end-to-end execution check
+        shell: bash -l {0}
+        env:
+          # No shared cache on a GitHub-hosted runner; every conda env this run
+          # needs is solved and built fresh, into the runner's own temp space.
+          CONDA_CACHE_DIR: ${{ runner.temp }}/conda_cache
+        run: bash tests/check_e2e_execution.sh
