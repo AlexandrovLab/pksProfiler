@@ -1,15 +1,15 @@
 nextflow.enable.dsl=2
 
 include { strainTyping as magStrainTyping } from './pks_typing.nf'
-include { strainTyping as tumorStrainTyping } from './pks_typing.nf'
 
 // ─── Assembly ─────────────────────────────────────────────────────────────────
 
 process megahitAssemble {
+    label 'sample_stage'
     label 'mag_assembly'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/genomes/assembly" },
-        mode: 'copy', enabled: params.save_intermediates
+        mode: 'copy', enabled: params.save_intermediates.toString().toBoolean()
     conda "${projectDir}/conda_envs/megahit_env.yml"
 
     input:
@@ -39,6 +39,7 @@ process megahitAssemble {
 // ─── Read-to-contig alignment ─────────────────────────────────────────────────
 
 process alignToContigs {
+    label 'sample_stage'
     label 'mag_binning'
     scratch true
     conda "${projectDir}/conda_envs/minimap2_env.yml"
@@ -68,6 +69,7 @@ process alignToContigs {
 // ─── Contig coverage depth ────────────────────────────────────────────────────
 
 process jgiContigDepths {
+    label 'sample_stage'
     label 'mag_binning'
     scratch true
     conda "${projectDir}/conda_envs/metabat2_env.yml"
@@ -88,10 +90,11 @@ process jgiContigDepths {
 // ─── MetaBAT2 binning ─────────────────────────────────────────────────────────
 
 process metabat2Bin {
+    label 'sample_stage'
     label 'mag_binning'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/genomes/bins" },
-        mode: 'copy', enabled: params.save_intermediates
+        mode: 'copy', enabled: params.save_intermediates.toString().toBoolean()
     conda "${projectDir}/conda_envs/metabat2_env.yml"
 
     input:
@@ -100,7 +103,23 @@ process metabat2Bin {
     output:
     // Bin FASTAs are optional, but the status file is mandatory so every
     // successfully assembled sample remains visible even when no MAG is recovered.
-    tuple val(sampleID), path("bins/bin.*.fa"), emit: bins, optional: true
+    // Numeric suffix only: MetaBAT2 names real bins bin.<N>.fa, so this glob
+    // deliberately excludes bin.unbinned.fa below -- pooling that file in here
+    // would make magSummaryTable/GTDB-Tk/CheckM2 treat unplaced contigs as a
+    // genome, exactly the kind of unsupported positivity claim this codebase
+    // has just finished removing elsewhere (--tumor_enable_mags, same commit
+    // series: no evidence MAG binning works on a tiny, low-diversity fraction).
+    tuple val(sampleID), path("bins/bin.[0-9]*.fa"), emit: bins, optional: true
+    // U1: contigs MetaBAT2 could not confidently place in any bin are common when
+    // abundance is low or binning is underpowered relative to community complexity
+    // (confirmed in real testing, 2026-09-24: metabat2 --unbinned pooled every
+    // input contig when total assembly size fell under MetaBAT2's 200 kb
+    // --minClsSize floor) and, until now, were never checked for pks-island
+    // alignment evidence at all -- a real detection blind spot when the read-level
+    // lane still shows signal for the same sample. --unbinned pools them so the
+    // same canonical-locus alignment used for a real bin (below) can still be
+    // tried against them.
+    tuple val(sampleID), path("bins/bin.unbinned.fa"), emit: unbinned, optional: true
     tuple val(sampleID), path("${sampleID}.assembly_binning.tsv"), emit: status
 
     script:
@@ -110,7 +129,7 @@ process metabat2Bin {
 
     CONTIG_COUNT=\$(grep -c '^>' "${contigs}" || true)
     if [[ "\$CONTIG_COUNT" -gt 0 ]]; then
-        metabat2 -i ${contigs} -a ${depth} -o bins/bin -t ${task.cpus} || {
+        metabat2 -i ${contigs} -a ${depth} -o bins/bin -t ${task.cpus} --unbinned || {
             rc=\$?
             if [[ \${rc} -eq 1 ]]; then
                 echo "MetaBAT2 exited 1 without recoverable bins" >&2
@@ -123,7 +142,7 @@ process metabat2Bin {
         echo "Assembly produced no contigs; skipping MetaBAT2" >&2
     fi
 
-    BIN_COUNT=\$(find bins -maxdepth 1 -type f -name 'bin.*.fa' | wc -l)
+    BIN_COUNT=\$(find bins -maxdepth 1 -type f -name 'bin.[0-9]*.fa' | wc -l)
     printf "sample\tcontig_count\tbin_count\n" > "${sampleID}.assembly_binning.tsv"
     printf "%s\t%s\t%s\n" "${sampleID}" "\$CONTIG_COUNT" "\$BIN_COUNT" \
         >> "${sampleID}.assembly_binning.tsv"
@@ -133,6 +152,7 @@ process metabat2Bin {
 // ─── CheckM2 quality assessment ───────────────────────────────────────────────
 
 process checkm2Predict {
+    label 'sample_stage'
     label 'mag_binning'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/genomes/checkm2" }, mode: 'copy'
@@ -162,6 +182,7 @@ process checkm2Predict {
 // ─── GTDB-Tk taxonomy ─────────────────────────────────────────────────────────
 
 process gtdbtkClassify {
+    label 'sample_stage'
     label 'mag_gtdbtk'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/genomes/gtdbtk" }, mode: 'copy'
@@ -191,9 +212,47 @@ process gtdbtkClassify {
     """
 }
 
+// ─── U1 follow-up: stand-in for a sample with zero real bins ──────────────────
+// checkm2Predict/gtdbtkClassify both key off metabat2Bin.out.bins (real bins only,
+// optional: true), so a sample with zero real bins never gets an entry in either
+// channel. Confirmed via a real (non-mocked) metagenome --enable_mags execution: a
+// small synthetic assembly under MetaBAT2's 200 kb --minClsSize floor pooled every
+// contig into the unbinned pool (see metabat2Bin above) and had ZERO real bins --
+// exactly the "abundance is low or binning is underpowered" case U1's own comment
+// names as the reason the unbinned pool exists. Before this fix, summary_input_ch's
+// strict join on checkm2/gtdbtk silently dropped that sample before its
+// mag_summary_locus_evidence_ch entry (a real, positive unbinned call) ever got a
+// chance to keep it via that join's own remainder: true -- pks_mag_summary.tsv was
+// never written for it at all, the exact blind spot U1 was written to close, just
+// one join upstream of where U1 closed it. This supplies an empty but correctly
+// shaped pair so magSummaryTable still runs for exactly the samples this affects.
+// Deliberately no publish directive here: unlike checkm2Predict/gtdbtkClassify, no
+// real tool ran, and publishing a fake checkm2/gtdbtk directory would misrepresent
+// what happened.
+process stubBinlessMagQuality {
+    label 'sample_stage'
+    label 'process_low'
+    tag "$sampleID"
+
+    input:
+    val sampleID
+
+    output:
+    tuple val(sampleID), path("stub.checkm2_quality_report.tsv"), emit: checkm2
+    tuple val(sampleID), path("stub.gtdbtk.bac120.summary.tsv"), emit: gtdbtk
+
+    script:
+    """
+    set -euo pipefail
+    printf "Name\tCompleteness\tContamination\tGenome_Size\tContig_N50\n" > stub.checkm2_quality_report.tsv
+    printf "user_genome\tclassification\n" > stub.gtdbtk.bac120.summary.tsv
+    """
+}
+
 // ─── Prokka annotation (ALL bins — must run before hmmsearch so locus_tags match) ──
 
 process prokkaAnnotate {
+    label 'sample_stage'
     label 'mag_hmm'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/genomes/annotation" }, mode: 'copy',
@@ -219,6 +278,7 @@ process prokkaAnnotate {
 // ─── hmmsearch vs colibactin protein HMM (per bin, on Prokka proteins) ──────────
 
 process hmmsearchClb {
+    label 'sample_stage'
     label 'mag_hmm'
     scratch true
     conda "${params.pks_hmm_env}"
@@ -244,16 +304,98 @@ process hmmsearchClb {
     # protein-to-model match, so one gene matched by three predicted proteins counted
     # three times and a single line anywhere made the bin pks-positive. This counts the
     # same quantity build_mag_summary.py reports as clb_genes_detected -- field 3 is the
-    # query model, field 5 the E-value -- so the two agree by construction.
+    # query model, field 5 the E-value -- so the two agree by construction. This count is
+    # a cheap pre-filter only (which bins are worth annotating context for); M1's
+    # positivity call is decided by magBinLocusEvidence below, not by this count alone.
     awk '!/^#/ && NF>=19 && (\$5+0) <= ${params.hmm_protein_evalue} { genes[\$3]=1 }
          END { print length(genes)+0 }' ${binID}.tblout > ${binID}.clb_gene_count.txt \
       || echo 0 > ${binID}.clb_gene_count.txt
     """
 }
 
+// ─── Canonical-locus alignment: is the island actually IN this unit? ─────────
+// Shared by a real MetaBAT2 bin and, since U1, the per-sample pool of contigs
+// MetaBAT2 never placed in any bin (unitID "unbinned" -- see metabat2Bin above
+// and pksMAG's locus_alignment_units_ch). One process, generalized on unitID
+// rather than duplicated, since Nextflow forbids invoking the same process
+// twice in one workflow and the alignment/classification logic is identical
+// either way -- only what FASTA is being scored differs.
+
+process alignMagBinToCanonicalReference {
+    label 'sample_stage'
+    tag "${sampleID}:${unitID}"
+    label 'targeted_alignment'
+    scratch true
+    publishDir { "${params.sample_dir}/${sampleID}/genomes/locus_alignment" }, mode: 'copy'
+    conda "${params.targeted_alignment_env}"
+
+    input:
+    tuple val(sampleID), val(unitID), path(unit_fa)
+    path reference
+
+    output:
+    tuple val(sampleID), val(unitID), path("${unitID}.vs_IHE3034.paf"), emit: paf
+
+    script:
+    """
+    set -euo pipefail
+    paf="${unitID}.vs_IHE3034.paf"
+    if [[ -s "${unit_fa}" ]]; then
+        minimap2 -x asm10 -c -t ${task.cpus} "${reference}" "${unit_fa}" > "\$paf"
+    else
+        : > "\$paf"
+    fi
+    """
+}
+
+process magBinLocusEvidence {
+    label 'sample_stage'
+    tag "${sampleID}:${unitID}"
+    label 'mag_hmm'
+    publishDir { "${params.sample_dir}/${sampleID}/genomes/locus_alignment" }, mode: 'copy'
+    conda "${params.pks_align_env}"
+
+    input:
+    tuple val(sampleID), val(unitID), path(paf)
+
+    output:
+    tuple val(sampleID), val(unitID), path("${unitID}.locus_evidence.tsv"), emit: evidence
+
+    script:
+    """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # pks_annotation ${params.dep_digest?.pks_annotation}
+    set -euo pipefail
+    # Ludmil, revised report finding 6: island-start/-end here are 0-based
+    # half-open (PAF's own convention, matching summarize_tumor_pks_contigs.py) --
+    # the correct conversion from the 1-based inclusive annotation is
+    # pks_start_1based-1 .. pks_end_1based, not the bare pks_shift this used to
+    # pass, which was a 5th call site sharing the same off-by-one his report
+    # found in the other four.
+    # summarize_mag_bin_locus_evidence.py's --bin-id is an opaque label, not
+    # necessarily a real bin: unitID is "unbinned" for the pooled-contig pseudo-unit
+    # (U1), and the script's own bin_id output column carries that value through
+    # unchanged -- no script change needed to support it.
+    python ${projectDir}/scripts/summarize_mag_bin_locus_evidence.py \
+        --sample ${sampleID} --bin-id ${unitID} --paf ${paf} \
+        --gff ${params.pks_genome_annotation} --contig ${params.pks_contig} \
+        --island-start \$(( ${params.pks_start_1based} - 1 )) \
+        --island-end ${params.pks_end_1based} \
+        --min-identity ${params.mag_locus_min_identity} --min-mapq ${params.mag_locus_min_mapq} \
+        --multi-gene-genes ${params.mag_locus_multi_gene_min_genes} \
+        --multi-gene-breadth ${params.mag_locus_multi_gene_min_breadth} \
+        --broad-island-genes ${params.mag_locus_broad_island_min_genes} \
+        --broad-island-breadth ${params.mag_locus_broad_island_min_breadth} \
+        --extensive-island-genes ${params.mag_locus_extensive_island_min_genes} \
+        --extensive-island-breadth ${params.mag_locus_extensive_island_min_breadth} \
+        --output ${unitID}.locus_evidence.tsv
+    """
+}
+
 // ─── Community-wide prophage prediction (ALL bins) ───────────────────────────
 
 process genomadProphages {
+    label 'sample_stage'
     label 'mag_prophage'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/community/prophages" }, mode: 'copy'
@@ -284,13 +426,14 @@ process genomadProphages {
 // ─── Sample-level producer/lysogen hypothesis tables ─────────────────────────
 
 process communityProphageSummary {
+    label 'sample_stage'
     label 'mag_prophage'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/community" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
     conda "${params.pks_hmm_env}"
 
     input:
-    tuple val(sampleID), path(gtdbtk_summary), path(gffs), path(tblouts), path(virus_summaries)
+    tuple val(sampleID), path(gtdbtk_summary), path(gffs), path(tblouts), path(virus_summaries), path(locus_evidence)
 
     output:
     path "${sampleID}.community_prophage_inventory.tsv", emit: inventory
@@ -300,16 +443,18 @@ process communityProphageSummary {
     script:
     """
     set -euo pipefail
-    mkdir -p gff_dir tblout_dir genomad_dir
+    mkdir -p gff_dir tblout_dir genomad_dir locus_dir
     for f in ${gffs}; do ln -s \$(realpath \$f) gff_dir/; done
     for f in ${tblouts}; do ln -s \$(realpath \$f) tblout_dir/; done
     for f in ${virus_summaries}; do ln -s \$(realpath \$f) genomad_dir/; done
+    for f in ${locus_evidence}; do ln -s \$(realpath \$f) locus_dir/; done
     python ${projectDir}/scripts/build_community_prophage.py \
         --sample ${sampleID} \
         --gtdbtk ${gtdbtk_summary} \
         --gff-dir gff_dir \
         --tblout-dir tblout_dir \
         --genomad-dir genomad_dir \
+        --locus-dir locus_dir \
         --evalue ${params.hmm_protein_evalue} \
         --min-clb-genes ${params.mag_min_clb_genes} \
         --min-provirus-length ${params.provirus_min_length_bp} \
@@ -322,6 +467,7 @@ process communityProphageSummary {
 // ─── Genomic context extraction (pks+ bins only) ──────────────────────────────
 
 process extractGenomicContext {
+    label 'sample_stage'
     label 'mag_hmm'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/community/genomic_context" }, mode: 'copy',
@@ -349,6 +495,7 @@ process extractGenomicContext {
 // ─── Per-sample MAG outcome status ─────────────────────────────────────────────
 
 process magSampleStatus {
+    label 'sample_stage'
     label 'mag_hmm'
     publishDir { "${params.sample_dir}/${sampleID}/genomes" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
 
@@ -380,27 +527,32 @@ process magSampleStatus {
 // ─── Per-sample MAG summary table ─────────────────────────────────────────────
 
 process magSummaryTable {
+    label 'sample_stage'
     label 'mag_hmm'
     publishDir { "${params.sample_dir}/${sampleID}/genomes" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
     conda "${params.pks_hmm_env}"
     input:
     tuple val(sampleID), path(checkm2_report), path(gtdbtk_summary),
-          path(tblouts), path(contexts)
+          path(tblouts), path(contexts), path(locus_evidence)
 
     output:
     path "${sampleID}.pks_mag_summary.tsv", emit: summary
 
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # pks_reference_fasta ${params.dep_digest?.pks_reference_fasta}
     set -euo pipefail
-    mkdir -p tblout_dir context_dir
+    mkdir -p tblout_dir context_dir locus_dir
     for f in ${tblouts}; do ln -s "\$(realpath "\$f")" "tblout_dir/\$(basename "\$f")"; done
     for f in ${contexts}; do ln -s "\$(realpath "\$f")" "context_dir/\$(basename "\$f")"; done
+    for f in ${locus_evidence}; do ln -s "\$(realpath "\$f")" "locus_dir/\$(basename "\$f")"; done
     python ${projectDir}/scripts/build_mag_summary.py \
         --checkm2 ${checkm2_report} \
         --gtdbtk ${gtdbtk_summary} \
         --tblout_dir tblout_dir \
         --context_dir context_dir \
+        --locus_dir locus_dir \
         --sample ${sampleID} \
         --evalue ${params.hmm_protein_evalue} \
         --out ${sampleID}.pks_mag_summary.tsv
@@ -456,11 +608,55 @@ workflow pksMAG {
             tuple(sampleID, binID, bin_fa)
         }
 
+    // U1: the pooled contigs MetaBAT2 never placed in any bin -- one pseudo-unit per
+    // sample, "unbinned", standing in for binID the same way bins_flat_ch's real bin
+    // IDs do. Confirmed missing today: a contig can carry real pks-island alignment
+    // evidence and never surface anywhere once MetaBAT2 declines to bin it (common
+    // when abundance is low or the community is underpowered for composition-based
+    // binning), even though the read-level pksProfilerAlign/pksProfilerHMM lane may
+    // still show signal for the same sample. optional:true on metabat2Bin.out.unbinned
+    // means a sample with nothing unbinned (or no contigs at all) simply contributes no
+    // entry here, not an empty-string pseudo-unit.
+    unbinned_flat_ch = metabat2Bin.out.unbinned
+        .map { sampleID, unbinned_fa -> tuple(sampleID, "unbinned", unbinned_fa) }
+
+    // Fed through the exact same alignment + classification processes as a real bin,
+    // mixed into one channel first: Nextflow forbids invoking a process twice in one
+    // workflow, and the alignment/classification logic does not differ by unitID, only
+    // the FASTA being scored does.
+    locus_alignment_units_ch = bins_flat_ch.mix(unbinned_flat_ch)
+
     // 5. CheckM2 quality (all bins together per sample)
     checkm2Predict(metabat2Bin.out.bins)
 
     // 6. GTDB-Tk taxonomy (all bins together per sample)
     gtdbtkClassify(metabat2Bin.out.bins)
+
+    // 6b. M1: is the colibactin island actually IN this bin? Align every bin's own
+    // assembly to the canonical IHE3034 locus and score it the same way read-level
+    // evidence already is -- genes an alignment actually covers, and breadth of the
+    // island those alignments span -- rather than trusting HMM domain hits alone.
+    // Runs for every bin, not only HMM-flagged ones: it is cheap next to
+    // CheckM2/GTDB-Tk/Prokka, and a bin whose true positive genes fell just under
+    // params.mag_min_clb_genes should not be invisible to this check. Since U1, also
+    // runs once more for the sample's unbinned pool via the same mixed channel.
+    pks_reference_ch = Channel.value(file(params.pks_reference_fasta, checkIfExists: true))
+    alignMagBinToCanonicalReference(locus_alignment_units_ch, pks_reference_ch)
+    magBinLocusEvidence(alignMagBinToCanonicalReference.out.paf)
+
+    // U1: split the combined evidence back into real-bin and unbinned-pool streams.
+    // Kept apart from here on -- a positive unbinned call means "this sample carries
+    // clb sequence outside any recovered genome," not "this genome carries the
+    // island," and folding it into the per-bin counts below would conflate the two
+    // (pks_positive_bin_counts_ch, community_input_ch's taxonomy-driven interaction
+    // table). It still reaches magSummaryTable/build_mag_summary.py, which reports it
+    // as its own row -- see summary_input_ch below.
+    bin_locus_evidence_ch = magBinLocusEvidence.out.evidence
+        .filter { _sampleID, unitID, _evidence -> unitID != "unbinned" }
+        .map { sampleID, _unitID, evidence -> tuple(sampleID, evidence) }
+    unbinned_locus_evidence_ch = magBinLocusEvidence.out.evidence
+        .filter { _sampleID, unitID, _evidence -> unitID == "unbinned" }
+        .map { sampleID, _unitID, evidence -> tuple(sampleID, evidence) }
 
     // 7. Prokka annotation (ALL bins — before hmmsearch so locus_tags are consistent)
     prokkaAnnotate(bins_flat_ch)
@@ -469,8 +665,12 @@ workflow pksMAG {
     genomadProphages(bins_flat_ch)
 
     // 7b. Strain typing per bin: MLST -> ST -> clonal complex / phylogroup.
+    // Declared outside the if so main.nf's masterSummary gate has something to
+    // read regardless of whether this run enabled strain typing.
+    def strain_typing_summary_ch = channel.empty()
     if (params.enable_strain_typing.toString().toBoolean()) {
         magStrainTyping(bins_flat_ch.map { sampleID, binID, bin_fa -> tuple(sampleID, binID, bin_fa) })
+        strain_typing_summary_ch = magStrainTyping.out.summary
     }
 
     // 8. hmmsearch vs clb protein HMM (per bin, on prokka proteins)
@@ -478,7 +678,9 @@ workflow pksMAG {
 
     // 9. Filter to pks+ bins on the distinct-gene count (avoids reading tblouts in the
     // driver JVM). M3: one definition of pks-positive, shared with the status count
-    // below and with community producer selection -- params.mag_min_clb_genes.
+    // below and with community producer selection -- params.mag_min_clb_genes. This is
+    // a cheap HMM pre-filter for which bins are worth genomic-context extraction; the
+    // actual positivity call is magBinLocusEvidence's alignment-confirmed tier, below.
     pks_pos_tblout_ch = hmmsearchClb.out.tblout
         .join(hmmsearchClb.out.clb_gene_count, by: [0, 1])
         .filter { sampleID, binID, tblout, gene_count ->
@@ -506,6 +708,18 @@ workflow pksMAG {
         .map { sampleID, binID, summary -> tuple(sampleID, summary) }
         .groupTuple(by: 0)
 
+    // Real bins only -- what communityProphageSummary reads below (a taxonomy-driven,
+    // per-genome analysis the unbinned pseudo-unit has no taxonomy or annotation for).
+    locus_evidence_per_sample_ch = bin_locus_evidence_ch
+        .groupTuple(by: 0)
+
+    // U1: bins plus the unbinned pool, for magSummaryTable/build_mag_summary.py only --
+    // it reports the unbinned call as its own distinct row (unit_type=unbinned), never
+    // merged into a bin's.
+    mag_summary_locus_evidence_ch = bin_locus_evidence_ch
+        .mix(unbinned_locus_evidence_ch)
+        .groupTuple(by: 0)
+
     binned_assembly_counts_ch = metabat2Bin.out.status
         .map { sampleID, status_file ->
             def lines = status_file.text.readLines().findAll { it.trim() }
@@ -524,9 +738,21 @@ workflow pksMAG {
     assembly_binning_counts_ch = no_contig_counts_ch
         .mix(binned_assembly_counts_ch)
 
-    pks_positive_bin_counts_ch = hmmsearchClb.out.clb_gene_count
-        .map { sampleID, _binID, gene_count ->
-            tuple(sampleID, gene_count.text.trim().toInteger() >= (params.mag_min_clb_genes as Integer) ? 1 : 0)
+    // M1: a bin counts toward pks_positive_bin_count only when magBinLocusEvidence's
+    // alignment-confirmed tier clears the same bar read-level evidence uses to call a
+    // sample positive (multi_gene or above) -- not on the HMM gene count alone, which
+    // domain-homology hits to the megasynthases can clear without island carriage.
+    // Real bins only (bin_locus_evidence_ch): U1's unbinned pool is not a genome, so a
+    // positive call there must never inflate this count -- see mag_summary_locus_evidence_ch
+    // above for where the unbinned call is reported instead.
+    pks_positive_bin_counts_ch = bin_locus_evidence_ch
+        .map { sampleID, evidence_file ->
+            def lines = evidence_file.text.readLines().findAll { it.trim() }
+            if (lines.size() != 2) {
+                error "Malformed locus evidence for ${sampleID}: ${evidence_file}"
+            }
+            def tier = lines[1].split("\\t", -1)[2]
+            tuple(sampleID, (tier in ["multi_gene", "broad_island", "extensive_island"]) ? 1 : 0)
         }
         .groupTuple(by: 0)
         .map { sampleID, flags -> tuple(sampleID, flags.sum() as Integer) }
@@ -540,14 +766,65 @@ workflow pksMAG {
     magSampleStatus(mag_status_input_ch)
 
 
-    // remainder: true keeps all samples even when contexts_per_sample_ch has no
-    // entry (i.e. zero pks+ bins); null → [] so the script receives an empty file list.
-    summary_input_ch = checkm2Predict.out.report
-        .join(gtdbtkClassify.out.summary, by: 0)
-        .join(tblouts_per_sample_ch, by: 0)
+    // U1 follow-up (see stubBinlessMagQuality above): give every sample that has a
+    // mag_summary_locus_evidence_ch entry but no real bins (and so no checkm2/gtdbtk
+    // output of its own) a stand-in pair, so the strict join two lines down keeps it
+    // instead of silently dropping it.
+    //
+    // The sentinel mix-in below is not decoration: `join(..., remainder: true)` against
+    // a right-hand channel that is COMPLETELY empty (every sample in the run has zero
+    // real bins -- exactly this fixture) does not null-pad the way it does when the
+    // right-hand channel has some entries just not for this key. Confirmed by standalone
+    // reproduction and a live run: with a truly empty right-hand side, Nextflow's join
+    // silently degenerates and re-emits the left-hand channel's items unchanged (bare
+    // sampleID strings, not [sampleID, null] tuples), and the very next 2-parameter
+    // closure then throws "Invalid method invocation `call` with arguments: <sampleID>
+    // (java.lang.String)" -- a real, live crash, not a hypothetical. A right-hand
+    // channel that can never be structurally empty (it always carries at least the
+    // sentinel, which no real sampleID can ever equal) keeps the join's normal
+    // null-padding behaviour in every case. The same degeneration reaches all the way
+    // through summary_input_ch's own join chain below when a run has zero real bins
+    // AND zero pks+ bins anywhere (this fixture's exact case: tblouts_per_sample_ch and
+    // contexts_per_sample_ch are then ALSO completely empty) -- every channel that
+    // chain joins is guarded with the same sentinel key for the same reason, and the
+    // sentinel row that survives the joins as a result is filtered back out immediately
+    // after, before magSummaryTable (or anything else) ever sees it.
+    def NO_REAL_BINS_SENTINEL = "__stubBinlessMagQuality_no_real_bins_anywhere_sentinel__"
+    samples_with_bins_ch = checkm2Predict.out.report
+        .map { sampleID, _report -> tuple(sampleID, true) }
+        .mix(Channel.value(tuple(NO_REAL_BINS_SENTINEL, true)))
+    binless_samples_needing_summary_ch = mag_summary_locus_evidence_ch
+        .map { sampleID, _evidence -> sampleID }
+        .join(samples_with_bins_ch, by: 0, remainder: true)
+        .filter { _sampleID, has_bins -> has_bins == null }
+        .map { sampleID, _has_bins -> sampleID }
+    stubBinlessMagQuality(binless_samples_needing_summary_ch)
+
+    checkm2_report_ch = checkm2Predict.out.report.mix(stubBinlessMagQuality.out.checkm2)
+        .mix(Channel.value(tuple(NO_REAL_BINS_SENTINEL, "SENTINEL")))
+    gtdbtk_summary_ch = gtdbtkClassify.out.summary.mix(stubBinlessMagQuality.out.gtdbtk)
+        .mix(Channel.value(tuple(NO_REAL_BINS_SENTINEL, "SENTINEL")))
+    tblouts_per_sample_ch = tblouts_per_sample_ch
+        .mix(Channel.value(tuple(NO_REAL_BINS_SENTINEL, [])))
+    contexts_per_sample_ch = contexts_per_sample_ch
+        .mix(Channel.value(tuple(NO_REAL_BINS_SENTINEL, [])))
+    mag_summary_locus_evidence_ch = mag_summary_locus_evidence_ch
+        .mix(Channel.value(tuple(NO_REAL_BINS_SENTINEL, [])))
+
+    // remainder: true keeps all samples even when contexts_per_sample_ch or
+    // tblouts_per_sample_ch have no entry (zero pks+ bins, or -- since the fix just
+    // above -- zero bins at all); null → [] so the script receives an empty file list.
+    // locus_evidence here is mag_summary_locus_evidence_ch (bins + the U1 unbinned
+    // pool), not locus_evidence_per_sample_ch -- build_mag_summary.py's locus_dir
+    // needs the unbinned call too, to report it as its own row.
+    summary_input_ch = checkm2_report_ch
+        .join(gtdbtk_summary_ch, by: 0)
+        .join(tblouts_per_sample_ch, by: 0, remainder: true)
         .join(contexts_per_sample_ch, by: 0, remainder: true)
-        .map { sampleID, checkm2, gtdbtk, tblouts, contexts ->
-            tuple(sampleID, checkm2, gtdbtk, tblouts, contexts ?: [])
+        .join(mag_summary_locus_evidence_ch, by: 0, remainder: true)
+        .filter { sampleID, checkm2, gtdbtk, tblouts, contexts, locus_evidence -> sampleID != NO_REAL_BINS_SENTINEL }
+        .map { sampleID, checkm2, gtdbtk, tblouts, contexts, locus_evidence ->
+            tuple(sampleID, checkm2, gtdbtk, tblouts ?: [], contexts ?: [], locus_evidence ?: [])
         }
 
     magSummaryTable(summary_input_ch)
@@ -556,166 +833,32 @@ workflow pksMAG {
         .join(gffs_per_sample_ch, by: 0)
         .join(tblouts_per_sample_ch, by: 0)
         .join(virus_summaries_per_sample_ch, by: 0)
+        .join(locus_evidence_per_sample_ch, by: 0, remainder: true)
+        .map { sampleID, gtdbtk, gffs, tblouts, virus_summaries, locus_evidence ->
+            tuple(sampleID, gtdbtk, gffs, tblouts, virus_summaries, locus_evidence ?: [])
+        }
 
     communityProphageSummary(community_input_ch)
-}
 
-// ─── Tumor-WGS eligibility and contig analysis ───────────────────────────────
-
-process tumorEligibilityStatus {
-    label 'mag_hmm'
-    publishDir "${params.cohort_dir}/tumor_eligibility", mode: 'copy'
-
-    input:
-    tuple val(sampleID), val(clbGenes), val(pksReads), val(nonhostReads)
-
-    output:
-    path "${sampleID}.tumor_wgs_screen.tsv", emit: status
-
-    script:
-    def eligible = clbGenes >= params.tumor_min_clb_genes.toString().toInteger() &&
-        pksReads >= params.tumor_min_pks_reads.toString().toInteger() &&
-        nonhostReads >= params.tumor_min_nonhost_reads.toString().toInteger()
-    def reason = eligible ? "eligible" : "below_threshold"
-    """
-    set -euo pipefail
-    printf "sample\\tstatus\\tclb_genes\\tpks_reads\\tnonhost_reads\\tmin_clb_genes\\tmin_pks_reads\\tmin_nonhost_reads\\n" > "${sampleID}.tumor_wgs_screen.tsv"
-    printf "%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n" \
-        "${sampleID}" "${reason}" "${clbGenes}" "${pksReads}" "${nonhostReads}" \
-        "${params.tumor_min_clb_genes}" "${params.tumor_min_pks_reads}" \
-        "${params.tumor_min_nonhost_reads}" >> "${sampleID}.tumor_wgs_screen.tsv"
-    """
-}
-
-process prokkaTumorContigs {
-    label 'mag_hmm'
-    scratch true
-    publishDir { "${params.sample_dir}/${sampleID}/community/annotation" }, mode: 'copy'
-    conda "${projectDir}/conda_envs/prokka_env.yml"
-
-    input:
-    tuple val(sampleID), path(contigs)
-
-    output:
-    tuple val(sampleID), path("prokka_out/${sampleID}.gff"), emit: gff
-    tuple val(sampleID), path("prokka_out/${sampleID}.faa"), emit: faa
-
-    script:
-    """
-    set -euo pipefail
-    prokka --outdir prokka_out --prefix ${sampleID} --metagenome \
-        --cpus ${task.cpus} --force --quiet ${contigs}
-    """
-}
-
-process hmmsearchTumorContigs {
-    label 'mag_hmm'
-    scratch true
-    publishDir { "${params.sample_dir}/${sampleID}/community/annotation" }, mode: 'copy'
-    conda "${params.pks_hmm_env}"
-
-    input:
-    tuple val(sampleID), path(proteins)
-
-    output:
-    tuple val(sampleID), path("${sampleID}.contigs.clb.tblout"), emit: tblout
-
-    script:
-    """
-    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
-    # clb_protein_hmm ${params.dep_digest?.clb_protein_hmm}
-    set -euo pipefail
-    hmmsearch --cpu ${task.cpus} --tblout ${sampleID}.contigs.clb.tblout \
-        -E ${params.hmm_protein_evalue} ${params.clb_protein_hmm} ${proteins}
-    """
-}
-
-process genomadTumorContigs {
-    label 'mag_prophage'
-    scratch true
-    publishDir { "${params.sample_dir}/${sampleID}/community/prophages" }, mode: 'copy'
-    conda "${projectDir}/conda_envs/genomad_env.yml"
-
-    input:
-    tuple val(sampleID), path(contigs)
-
-    output:
-    tuple val(sampleID), path("${sampleID}.contigs.virus_summary.tsv"), emit: summary
-
-    script:
-    """
-    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
-    # genomad_db ${params.dep_digest?.genomad_db}
-    set -euo pipefail
-    genomad end-to-end --cleanup --threads ${task.cpus} --splits ${task.cpus} \
-        ${contigs} genomad_out ${params.genomad_db}
-    summary=\$(find genomad_out -type f -name '*_virus_summary.tsv' -print -quit)
-    [[ -n "\$summary" ]] || { echo "geNomad produced no tumor contig summary" >&2; exit 1; }
-    cp "\$summary" ${sampleID}.contigs.virus_summary.tsv
-    """
-}
-
-process tumorContigContext {
-    label 'mag_hmm'
-    scratch true
-    publishDir { "${params.sample_dir}/${sampleID}/community" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
-    conda "${params.pks_hmm_env}"
-
-    input:
-    tuple val(sampleID), path(gff), path(tblout), path(virusSummary)
-
-    output:
-    path "${sampleID}.contig_pks_context.tsv", emit: context
-    path "${sampleID}.contig_pks_summary.tsv", emit: summary
-    path "${sampleID}.contig_pks_mobility.tsv", emit: mobility
-
-    script:
-    """
-    set -euo pipefail
-    python ${projectDir}/scripts/extract_genomic_context.py \
-        --gff ${gff} --tblout ${tblout} --evalue ${params.hmm_protein_evalue} \
-        --window ${params.context_window_bp} \
-        --genomad ${virusSummary} \
-        --min-provirus-length ${params.provirus_min_length_bp} \
-        --min-provirus-hallmarks ${params.provirus_min_hallmarks} \
-        --out ${sampleID}.contig_pks_context.tsv
-    awk -F '\\t' 'BEGIN{OFS="\\t"} NR==1{print "sample","locus_tag","clb_gene","contig","has_integrase","has_transposase","nearby_trna","in_prophage","prophage_id","prophage_virus_score"; next} {print "${sampleID}",\$1,\$2,\$4,\$5,\$6,\$7,\$8,\$9,\$10}' \
-        ${sampleID}.contig_pks_context.tsv > ${sampleID}.contig_pks_mobility.tsv
-    awk -F '\\t' -v sample="${sampleID}" -v minimum="${params.tumor_min_clb_genes}" '
-        BEGIN { OFS="\\t" }
-        NR > 1 && !seen[\$4 SUBSEP \$2]++ { genes[\$4]++ }
-        END {
-            print "sample","contig","distinct_clb_genes","pks_class"
-            for (contig in genes) {
-                class = genes[contig] == 19 ? "complete" : (genes[contig] >= minimum ? "partial" : "fragment")
-                print sample,contig,genes[contig],class
-            }
-        }' ${sampleID}.contig_pks_context.tsv > ${sampleID}.contig_pks_summary.tsv
-    """
-}
-
-workflow tumorWGS {
-    take:
-    reads
-
-    main:
-    // Eligibility is calculated from pks candidate evidence, but assembly receives
-    // the complete host-depleted read stream joined back by sample ID in main.nf.
-    megahitAssemble(reads)
-    tumor_nonempty_contigs_ch = megahitAssemble.out.contigs
-        .join(megahitAssemble.out.contig_count, by: 0)
-        .filter { sampleID, contigs, countFile -> countFile.text.trim().toInteger() > 0 }
-        .map { sampleID, contigs, countFile -> tuple(sampleID, contigs) }
-
-    if (params.enable_strain_typing.toString().toBoolean()) {
-        tumorStrainTyping(tumor_nonempty_contigs_ch.map { sampleID, contigs -> tuple(sampleID, "tumor_contigs", contigs) })
-    }
-
-    prokkaTumorContigs(tumor_nonempty_contigs_ch)
-    hmmsearchTumorContigs(prokkaTumorContigs.out.faa)
-    genomadTumorContigs(tumor_nonempty_contigs_ch)
-    tumor_context_input_ch = prokkaTumorContigs.out.gff
-        .join(hmmsearchTumorContigs.out.tblout, by: 0)
-        .join(genomadTumorContigs.out.summary, by: 0)
-    tumorContigContext(tumor_context_input_ch)
+    emit:
+    // Consumed by main.nf's masterSummary gate (build_master_summary.py's
+    // MAG/community/strain-typing columns) -- not by cohortReport, which never
+    // reads this lane's output.
+    mag_summary       = magSummaryTable.out.summary
+    community_summary = communityProphageSummary.out.inventory
+                            .mix(communityProphageSummary.out.interactions)
+                            .mix(communityProphageSummary.out.mobility)
+    // strainTypeSummary emits tuple(val(sampleID), path(...)) -- strip the sampleID so
+    // this matches mag_summary/community_summary's bare-path shape. Left as the tuple,
+    // main.nf's optional_lane_gate.mix(...) silently accepts it, and masterSummary's
+    // path-typed collected input later fails with "Not a valid path value: '<sampleID>'"
+    // the moment strain typing is enabled -- caught live on the 2026-09-24 validate1 run.
+    strain_summary    = strain_typing_summary_ch.map { sampleID, table -> table }
+    // U1: the unbinned pool's own canonical-locus call, one file per sample that had
+    // anything left unbinned. Bare-path, matching mag_summary/community_summary/
+    // strain_summary's shape (see the strain_summary comment above for why that shape
+    // matters to main.nf's optional_lane_gate). Already folded into mag_summary itself
+    // (pks_mag_summary.tsv carries it as a distinct row -- see build_mag_summary.py);
+    // emitted again here, named, so it is not only discoverable by reading a table.
+    unbinned_locus_evidence = unbinned_locus_evidence_ch.map { sampleID, evidence -> evidence }
 }

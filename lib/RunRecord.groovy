@@ -72,8 +72,8 @@ class RunRecord {
             "input:${params.input_data_type}".toString(),
         ]
         [
-            'enable_mags', 'tumor_enable_mags', 'tumor_targeted_assembly',
-            'tumor_full_contig_context', 'diamond_rescue', 'pks_community_taxa',
+            'enable_mags', 'tumor_targeted_assembly',
+            'diamond_rescue', 'pks_community_taxa',
             'enable_strain_typing', 'pks_taxa',
         ].each { flag ->
             if (params[flag]?.toString()?.toBoolean()) requested << flag

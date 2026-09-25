@@ -1,8 +1,9 @@
 nextflow.enable.dsl = 2
 
 process krakenPrefilter {
+    label 'sample_stage'
     tag "$sampleID"
-    label 'process_high_disk'
+    label 'prefilter_kraken'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/prefilter" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
     conda "${params.prefilter_env}"
@@ -51,6 +52,7 @@ process buildClbDiamondDb {
 }
 
 process diamondRescue {
+    label 'sample_stage'
     tag "$sampleID"
     label 'process_low'
     scratch true
@@ -86,11 +88,45 @@ process diamondRescue {
     """
 }
 
-process mergePksCandidates {
+// Not yet invoked from the workflow. Joining diamondRescue.out.matches with
+// krakenPrefilter.out.taxonomy by sampleID, and passing the kraken database path
+// through, is wiring in main.nf's workflow {} block -- out of scope here. Once that
+// join is added, this process turns diamond.tsv's discarded sseqid and
+// krakenPrefilter's per-read taxid into a table build_cohort_report.py already knows
+// how to read (it looks for this exact published path and renders nothing if it is
+// absent).
+process diamondRescueTaxonomy {
+    label 'sample_stage'
     tag "$sampleID"
     label 'process_low'
     scratch true
-    publishDir { "${params.sample_dir}/${sampleID}/prefilter" }, mode: 'copy', enabled: params.save_intermediates, saveAs: { fn -> fn - "${sampleID}." }
+    publishDir { "${params.sample_dir}/${sampleID}/prefilter" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
+    conda "${params.prefilter_env}"
+
+    input:
+    tuple val(sampleID), path(diamond_matches), path(kraken_output)
+
+    output:
+    path "${sampleID}.diamond_rescue_taxonomy.tsv"
+
+    script:
+    """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # kraken_db ${params.dep_digest?.kraken_db}  scripts ${params.dep_digest?.scripts}
+    set -euo pipefail
+    python "${params.scripts}/summarize_diamond_rescue_taxonomy.py" \
+      --sample "${sampleID}" --diamond "${diamond_matches}" \
+      --kraken-output "${kraken_output}" --kraken-db "${params.kraken_db}" \
+      --output "${sampleID}.diamond_rescue_taxonomy.tsv"
+    """
+}
+
+process mergePksCandidates {
+    label 'sample_stage'
+    tag "$sampleID"
+    label 'process_low'
+    scratch true
+    publishDir { "${params.sample_dir}/${sampleID}/prefilter" }, mode: 'copy', enabled: params.save_intermediates.toString().toBoolean(), saveAs: { fn -> fn - "${sampleID}." }
     conda "${params.fastp_env}"
     input:
     tuple val(sampleID), path(primary), path(rescued)
@@ -113,6 +149,7 @@ process mergePksCandidates {
 }
 
 process sampleBracken {
+    label 'sample_stage'
     tag "$sampleID"
     label 'process_high_disk'
     scratch true
@@ -128,10 +165,51 @@ process sampleBracken {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # kraken_db ${params.dep_digest?.kraken_db}
     set -euo pipefail
+
+    # Ludmil, revised report finding 4: this called bracken -t 2 unconditionally.
+    # Bracken itself fails when no taxon at the requested rank reaches its read
+    # threshold, so a thin community-taxonomy sample turned into a task failure
+    # instead of an explicit below-threshold/no-call state. pks_taxa.nf's Bracken
+    # process already guards exactly this way -- same pre-check, same threshold --
+    # mirrored here rather than invented fresh.
+    GENUS_READS=\$(awk -F '\\t' '
+      \$8 == "genus" && \$2 ~ /^[0-9]+\$/ && \$2+0 > best {
+        best = \$2+0
+      }
+      END {
+        print best+0
+      }
+    ' "${kraken_report}")
+
+    SPECIES_READS=\$(awk -F '\\t' '
+      \$8 == "species" && \$2 ~ /^[0-9]+\$/ && \$2+0 > best {
+        best = \$2+0
+      }
+      END {
+        print best+0
+      }
+    ' "${kraken_report}")
+
     for LEVEL in G S; do
+      bracken_output="${sampleID}.bracken.\${LEVEL}.report.txt"
+      bracken_kraken_report="${sampleID}.bracken.\${LEVEL}.krakenreport.txt"
+
+      if [[ "\$LEVEL" == "G" ]]; then
+        LVL_READS="\$GENUS_READS"
+      else
+        LVL_READS="\$SPECIES_READS"
+      fi
+
+      if [[ "\$LVL_READS" -lt 2 ]]; then
+        echo "Skipping Bracken level \$LEVEL for ${sampleID}: no taxon reaches 2 reads (best=\$LVL_READS)"
+        : > "\$bracken_output"
+        : > "\$bracken_kraken_report"
+        continue
+      fi
+
       bracken -d "${params.kraken_db}" -i "${kraken_report}" \
-        -o "${sampleID}.bracken.\${LEVEL}.report.txt" \
-        -w "${sampleID}.bracken.\${LEVEL}.krakenreport.txt" \
+        -o "\$bracken_output" \
+        -w "\$bracken_kraken_report" \
         -r "${params.bracken_read_length}" -l "\$LEVEL" -t 2
     done
     """

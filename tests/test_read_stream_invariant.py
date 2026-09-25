@@ -29,7 +29,6 @@ class ReadStreamInvariantTests(unittest.TestCase):
     def test_no_assembly_path_reads_the_narrowed_stream(self):
         for forbidden in ("pksMAG(PROFILING_READS)",
                           "tumor_assembly_reads_ch = PROFILING_READS",
-                          "tumorWGS(PROFILING_READS)",
                           "MAG_ASSEMBLY_READS = PROFILING_READS"):
             self.assertNotIn(forbidden, BODY)
 

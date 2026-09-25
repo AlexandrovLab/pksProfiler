@@ -30,12 +30,64 @@ decisions; dashed outlines are optional or conditional.</sub>
 | **How strong is that evidence?** | tumour or metagenome | an [evidence tier](#how-strong-is-the-evidence) per sample | nothing — always runs |
 | **Does the island reassemble from its own reads?** | tumour | two independent assemblies, and whether they agree | `--sample_type tumor_wgs` |
 | **Which organism is carrying it?** | metagenome | draft genomes, completeness, species | `--enable_mags true` |
-| **Could the island move between bacteria?** | metagenome, or tumour contigs | whether an integrase or a tRNA site sits within 50 kb of the island — the features that let DNA transfer, which is a hint and not proof that it did | `--enable_mags true`, or `--tumor_full_contig_context true` for tumours; both need `--genomad_db` |
+| **Could the island move between bacteria?** | metagenome | whether an integrase or a tRNA site sits within 50 kb of the island — the features that let DNA transfer, which is a hint and not proof that it did | `--enable_mags true`; needs `--genomad_db` |
 | **What is around the carrier?** | metagenome | prophages, and the DNA-damage-response genes in every neighbouring organism | automatic with `--enable_mags` |
 | **What strain is the carrier?** | assembled output | sequence type, clonal complex, phylogroup | automatic |
 | **What else is in the sample?** | any | species abundances | `--pks_taxa true` |
 
 Flags, extra databases and the caveats for each are in the [documentation](#documentation).
+
+## What can each sample type actually answer?
+
+The table above says which flag turns a capability on. This says what to go look at once it has
+run — real questions, which sample type answers them, and where the answer lives. None of it is
+recomputed for display: everything below is read straight from files the pipeline already wrote.
+
+**Is the island present, and how confident is the call?** — tumour and metagenome. Every sample
+gets a [read-level evidence tier](#how-strong-is-the-evidence) — `by_sample/<sample>/read_evidence.tsv`,
+and the tier badge plus reads/genes/breadth columns in `cohort/pks_cohort_report.html`. For a
+metagenome the same tier is shown but isn't used to decide which draft genomes get investigated:
+it was fitted on tumour breadth distributions, not metagenome depth, and every bin still gets its
+own alignment-confirmed check regardless of it (below).
+
+**Which specific contigs or genomes support that call?** — tumour: two independent reassemblies of
+the recruited reads (MEGAHIT, metaSPAdes), each scored for reference coverage and supporting
+contigs, plus a structural call and an assembler-agreement verdict (`concordant` / `discordant` /
+`single_assembler_only` / `no_contig_support`) — `contigs/final_evidence/final_pks_evidence.tsv`,
+the `contig_validation.svg` figure, and the Contigs / Island recovered / Assemblers columns of the
+cohort report. Metagenome: every recovered genome bin gets its own alignment-confirmed locus tier,
+independent of raw HMM domain hits — `genomes/pks_mag_summary.tsv` and the report's "Genome bins"
+panel (taxonomy, completeness, locus tier, locus breadth).
+
+**Why did I get nothing for this sample?** — tumour: `contigs/recruitment/` and the Contigs
+column's hover text show how many reads were actually recruited and paired before assembly ran, so
+"no reads reached the assembler" reads differently from "reads went in, no contig came out."
+Metagenome: `genomes/mag_status.tsv` distinguishes no contigs / contigs but no bins / bins but no
+pks signal / a positive bin — and even a sample with no real bins still gets an alignment check
+against MetaBAT2's pooled unbinned contigs, which shows up in the same "Genome bins" panel as a
+bin named `unbinned`.
+
+**What else in this sample, or across the cohort, has clb-gene homology?** — metagenome only.
+Reads the fast classifier missed but a sensitive DIAMOND rescue caught, by organism and which clb
+gene, are in `prefilter/diamond_rescue_taxonomy.tsv` and the report's "Community clb homology"
+panel. With `--pks_taxa`, `cohort/taxonomy/pks.clb_species_support.tsv` lists every species across
+the whole cohort with direct read support for a clb gene, as its own table at the bottom of the
+cohort report.
+
+**Does the carrier sit near anything that could move the island, or wake a neighbour's
+prophage?** — metagenome only. A one-line prophage-association call per bin (yes/no, region count)
+is in the "Genome bins" panel; the full picture — nearby integrase/tRNA sites, and every
+neighbour's own prophage load and DNA-damage-response genes — is in
+`community/pks_island_mobility.tsv` and `community/pks_community_interactions.tsv`
+([details](docs/running/community_context.md)).
+
+**What strain is it?** — metagenome only, and only for recovered genome bins; the cohort report
+doesn't read this lane. Sequence type, clonal complex and phylogroup are in
+`by_sample/<sample>/strain/` and the typing columns of `cohort/pks.master_summary.tsv`. Fragmented,
+low-coverage assemblies routinely come back `insufficient_loci` rather than a guessed type — see
+[How strong is the evidence?](#how-strong-is-the-evidence).
+
+Full column-by-column detail for every file above is in the [output reference](docs/output.md).
 
 ## Quick start
 
@@ -80,7 +132,6 @@ Each row adds flags to the command above. Nothing is replaced.
 | To also get | Add | Details |
 |---|---|---|
 | island reassembly, two assemblers | `--sample_type tumor_wgs` | [assembly](docs/running/assembly.md) |
-| prophage and mobility context | `--tumor_full_contig_context true --genomad_db <dir>` | [assembly](docs/running/assembly.md) |
 | which organism carries it | `--sample_type metagenome --enable_mags true` plus `--gtdbtk_db --checkm2_db --genomad_db` | [MAGs](docs/running/mags.md) |
 | community and neighbour context | automatic with `--enable_mags` | [community context](docs/running/community_context.md) |
 | strain type and phylogroup | automatic; disable with `--enable_strain_typing false` | [strain typing](docs/running/strain_typing.md) |
@@ -162,8 +213,10 @@ than silently absent.
 
 ### One table with everything
 
-Each stage writes its own results, which is awkward to read across. This joins them into one row
-per sample — whatever ran, with `NA` where a stage did not:
+Each stage writes its own results, which is awkward to read across. `cohort/pks.master_summary.tsv`
+joins them into one row per sample — whatever ran, with `NA` where a stage did not — and is written
+automatically at the end of every run. You can also run it by hand against a finished (or partly
+finished) results directory, since it only reads published output:
 
 ```bash
 python3 scripts/build_master_summary.py --results results \
@@ -173,8 +226,7 @@ python3 scripts/build_master_summary.py --results results \
 The width of the table tells you what the run did: with everything enabled you get read counts,
 the evidence tier and breadth, the structural call from reassembly, the *pks*-positive genome's
 species and completeness, prophage and neighbour counts, island mobility flags, and the sequence
-type and phylogroup — about 30 columns. It reads only published output, so it is safe to re-run
-at any time without re-running the pipeline.
+type and phylogroup — about 30 columns.
 
 ### What the output looks like, and what it answers
 

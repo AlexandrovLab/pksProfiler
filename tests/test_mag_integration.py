@@ -43,17 +43,6 @@ class MagRoutingTests(unittest.TestCase):
         self.assertIn('tier in contig_tiers', MAIN)
         self.assertIn("tumor_assembly_reads_ch = MAPPED_READS", MAIN)
         self.assertIn("targetedPksAssembly(tumor_assembly_reads_ch, targeted_profiles_ch)", MAIN)
-        self.assertRegex(MAIN, r"params\.tumor_enable_mags\s*=\s*false")
-        self.assertRegex(MAIN, r"params\.tumor_full_contig_context\s*=\s*false")
-
-    def test_tumor_contig_analyses_are_present(self):
-        for process in ("prokkaTumorContigs", "hmmsearchTumorContigs", "genomadTumorContigs", "tumorContigContext"):
-            self.assertIn(process, MAG)
-        self.assertIn("contig_pks_context.tsv", MAG)
-        self.assertIn("contig_pks_summary.tsv", MAG)
-        for classification in ("complete", "partial", "fragment"):
-            self.assertIn(classification, MAG)
-        self.assertIn("contig_pks_mobility.tsv", MAG)
 
 
 class MagModuleContractTests(unittest.TestCase):
@@ -67,11 +56,22 @@ class MagModuleContractTests(unittest.TestCase):
     def test_empty_bin_output_is_explicitly_optional(self):
         self.assertRegex(
             MAG,
-            r'path\("bins/bin\.\*\.fa"\), emit: bins, optional: true',
+            r'path\("bins/bin\.\[0-9\]\*\.fa"\), emit: bins, optional: true',
         )
         self.assertIn('emit: status', MAG)
         self.assertIn('contig_count', MAG)
         self.assertIn('bin_count', MAG)
+
+    def test_unbinned_contigs_are_pooled_and_explicitly_optional(self):
+        # U1: real bins (numeric suffix) and the unbinned pool are two distinct,
+        # non-overlapping glob patterns -- the unbinned file must never be counted
+        # as a bin, which is exactly the false positivity this pipeline argues
+        # against elsewhere (the --tumor_enable_mags removal, same commit series).
+        self.assertRegex(
+            MAG,
+            r'path\("bins/bin\.unbinned\.fa"\), emit: unbinned, optional: true',
+        )
+        self.assertIn("--unbinned", MAG)
 
     def test_sample_status_distinguishes_successful_mag_outcomes(self):
         for status in ("no_contigs", "contigs_no_bins", "bins_no_pks", "pks_positive_bins"):

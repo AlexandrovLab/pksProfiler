@@ -21,6 +21,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Install pandas and matplotlib
+        # build_hmm_matrix.py, mergeGeneCounts.py and plot_bracken_taxa.py import
+        # pandas (see conda_envs/pks_align_env.yml, pks_hmm_env.yml,
+        # krakenUniq_bracken_env.yml, all pinned to 2.3.x); plot_bracken_taxa.py also
+        # imports matplotlib. This job otherwise runs dependency-free by design;
+        # these two are the exception the tests exercising those three scripts need.
+        run: pip install "pandas==2.3.0" "matplotlib==3.10.3"
       - name: Run test suite
         run: PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -p 'test_*.py' -v
 
@@ -40,6 +47,15 @@ jobs:
         uses: nf-core/setup-nextflow@v2
         with:
           version: "24.10.0"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pandas and matplotlib
+        # tests/run_checks.sh's own first step runs the full unittest suite (the
+        # same one the unit-tests job runs) before its Nextflow validation checks --
+        # see that job's "Install pandas and matplotlib" step for why these two are
+        # needed.
+        run: pip install "pandas==2.3.0" "matplotlib==3.10.3"
       - name: Compile the workflow
         run: nextflow run main.nf --help
       - name: Build the workflow graph for each flag combination
@@ -55,4 +71,86 @@ jobs:
           printf 'x' > ci-refs/human-GCA-phix-db.mmi
           DB_ROOT="$PWD/ci-refs" bash tests/check_workflow_construction.sh
       - name: Validation regression checks
-        run: bash tests/run_checks.sh
+        # run_checks.sh's own last step calls check_workflow_construction.sh again,
+        # without a DB_ROOT override -- it defaults to the real TSCC path (correct for
+        # someone running this by hand on TSCC), which does not exist on this runner.
+        # Reuse the ci-refs stand-ins the step above already created for the same script.
+        run: DB_ROOT="$PWD/ci-refs" bash tests/run_checks.sh
+
+  # Ludmil's audit, u-3: a real (non -preview) execution, so bowtie2/minimap2/fastp/
+  # samtools/nhmmscan interacting through the real Nextflow channel wiring is checked
+  # at least once, not just the graph. Six real pipeline runs now (paired FASTQ, BAM,
+  # CRAM, single-end FASTQ, --profiling_method hmm, and a 5-sample cohort -- see
+  # tests/check_e2e_execution.sh's own header for what each covers). Manual-only for
+  # now, NOT on every push/PR: a GitHub-hosted runner has no persistent conda cache
+  # (unlike CONDA_CACHE_DIR on TSCC, which already has every env this needs pre-built
+  # from conda_envs/*.yml), so this job's cold-start cost -- solving and installing
+  # bowtie2/minimap2/fastp/samtools/subread/deeptools/R+circlize/hmmer/seqtk/seqkit from
+  # bioconda from scratch -- has not been measured and could be a large multiple of the
+  # few minutes tests/check_e2e_execution.sh takes locally with every environment
+  # already cached. Promote this to `pull_request` once that cost is known and
+  # acceptable; until then, run it by hand from the Actions tab when this area changes,
+  # or nightly on a schedule if the runtime turns out to be reasonable.
+  e2e-execution:
+    name: End-to-end execution (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install Nextflow
+        uses: nf-core/setup-nextflow@v2
+        with:
+          version: "24.10.0"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: latest
+          auto-update-conda: false
+          auto-activate-base: true
+      - name: Install minimap2 for fixture index building
+        # Nextflow builds its own minimap2 (and every other tool) inside the
+        # pipeline's own conda envs; this one is only for the tests/fixtures/
+        # generate_e2e_fixtures.py index-build step, before the pipeline runs.
+        shell: bash -l {0}
+        run: conda install -y -n base -c bioconda -c conda-forge minimap2
+      - name: Run the real end-to-end execution check
+        shell: bash -l {0}
+        env:
+          # No shared cache on a GitHub-hosted runner; every conda env this run
+          # needs is solved and built fresh, into the runner's own temp space.
+          CONDA_CACHE_DIR: ${{ runner.temp }}/conda_cache
+        run: bash tests/check_e2e_execution.sh
+      - name: Run the real malformed-input execution check
+        # F21: a truncated BAM and a BAM with corrupted leading magic bytes, run
+        # alongside a healthy sample in one cohort -- same conda envs as the step
+        # above, so no additional setup.
+        shell: bash -l {0}
+        env:
+          CONDA_CACHE_DIR: ${{ runner.temp }}/conda_cache
+        run: bash tests/check_malformed_input_execution.sh
+
+  # tests/check_metagenome_mag_execution.sh: a real (non -preview) execution of the
+  # metagenome --enable_mags lane, sized so MetaBAT2 recovers zero real bins and the
+  # whole assembly is pooled as "unbinned" (real tool behaviour, confirmed by running
+  # it, not something a stand-in database can simulate) -- the exact scenario that
+  # exposed genomes/pks_mag_summary.tsv silently never being written for a zero-bin
+  # sample (Modules/pks_mag.nf's stubBinlessMagQuality fixes it). Deliberately NOT
+  # wired into a job here, even a workflow_dispatch one like e2e-execution above: it
+  # needs the real GTDB-Tk (~100+ GB), CheckM2 (~3 GB) and geNomad reference databases
+  # -- there is no small stand-in, tests/check_workflow_construction.sh's own
+  # need()-and-skip pattern would defeat the point of an execution test whose entire
+  # subject is these databases actually being read by real tools, and fetching them
+  # fresh on a GitHub-hosted runner on every dispatch is not a reasonable cost. Run it
+  # by hand on TSCC instead, where they already live:
+  #
+  #     DB_ROOT=/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs \
+  #         bash tests/check_metagenome_mag_execution.sh
+  #
+  # Revisit if this ever runs on a self-hosted runner with those databases already local.

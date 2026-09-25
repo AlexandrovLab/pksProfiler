@@ -1,7 +1,7 @@
 nextflow.enable.dsl=2
 
 process plotPKS {
-
+    label 'sample_stage'
     label 'process_low'
     scratch true
     publishDir "${params.sample_dir}", mode: 'copy',
@@ -120,6 +120,7 @@ process cohortReport {
     input:
     path(results_marker)
     path(report_script)
+    path(expected_samples)
 
     output:
     path "pks_cohort_report.html", emit: report
@@ -133,11 +134,50 @@ process cohortReport {
     // params.cohort_dir. An earlier version also wrote them into a `cohort/` subdirectory,
     // which put them one level below where the output declarations look: the script
     // exited 0, the report existed, and Nextflow failed the task for a missing output.
+    // Ludmil, revised report finding 5: `results_marker` makes the task wait for the
+    // channels mixed into it (see main.nf's cohort_report_gate); `expected_samples` is
+    // that same wait turned into a filter, so a directory left over from an earlier
+    // run at this --outdir can be waited past but never reported on.
     """
     set -euo pipefail
     python3 "${report_script}" \
         --results "${params.outdir}" \
         --output pks_cohort_report.html \
-        --table  pks_cohort_report.tsv
+        --table  pks_cohort_report.tsv \
+        --expected-samples "${expected_samples}"
+    """
+}
+
+
+// ─── One table with every stage joined ────────────────────────────────────────
+
+process masterSummary {
+    label 'process_low'
+    publishDir "${params.cohort_dir}", mode: 'copy'
+    conda "${params.pks_hmm_env}"
+
+    input:
+    path(results_marker)
+    path(report_script)
+    path(expected_samples)
+
+    output:
+    path "pks.master_summary.tsv", emit: table
+
+    script:
+    // Dead-or-unwired-code item d-2: build_master_summary.py was a correct, working
+    // script but only ever documented as something you run yourself after a pipeline
+    // run. Automated here on the same pattern as cohortReport, one process up:
+    // results_marker gates on every optional lane the script actually reads from
+    // (see main.nf's master_summary_gate), and expected_samples filters out anything
+    // left over from an older run at this --outdir. The script itself is unchanged
+    // in what it reads or how -- still safe to re-run by hand against a finished
+    // results tree, which is why --expected-samples stayed optional there.
+    """
+    set -euo pipefail
+    python3 "${report_script}" \
+        --results "${params.outdir}" \
+        --output pks.master_summary.tsv \
+        --expected-samples "${expected_samples}"
     """
 }

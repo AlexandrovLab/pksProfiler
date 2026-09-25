@@ -97,9 +97,8 @@ class WiringTests(unittest.TestCase):
     MAG = (ROOT / "Modules/pks_mag.nf").read_text()
 
     def test_typing_runs_on_assemblies_not_reads(self):
-        # Both call sites take assembled units; neither takes a reads channel.
+        # The call site takes an assembled unit, not a reads channel.
         self.assertIn("magStrainTyping(bins_flat_ch", self.MAG)
-        self.assertIn('tumorStrainTyping(tumor_nonempty_contigs_ch', self.MAG)
         self.assertNotIn("StrainTyping(reads", self.MAG)
 
     def test_assembly_floor_is_enforced_in_the_module(self):

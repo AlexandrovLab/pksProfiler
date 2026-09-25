@@ -130,8 +130,11 @@ process pksProfiler_align {
         # the file: classifyPksReadEvidence takes it as an input, passes it straight to
         # its own output, and recomputes depth from the BAM. This is the same tool and
         # the same filters that recomputation uses, so the two now agree by construction.
+        # Ludmil, revised report finding 6: pks_shift+1 dropped the true first base
+        # of the island (2193827). pks_start_1based/pks_end_1based are already the
+        # correct 1-based inclusive bounds -- a samtools region needs no +/-1 at all.
         samtools depth -aa -s -Q 40 \
-            -r "${params.pks_contig}:${params.pks_shift.toString().toInteger() + 1}-${params.pks_shift.toString().toInteger() + params.pks_island_len.toString().toInteger()}" \
+            -r "${params.pks_contig}:${params.pks_start_1based}-${params.pks_end_1based}" \
             "${bam}" > "${bedtools_cov}"
     fi
     """

@@ -46,6 +46,16 @@ check its completeness score before you trust the species name — a genome that
 is a hint, not an identification. **If a sample yields zero contigs, that is reported as a genuine negative**, not
 an error.
 
+**Contigs that never made it into a bin are checked too.** Binning can decline to place a contig at
+all — low abundance, or too little else in the sample for composition-based binning to work with —
+and that contig is not thereby uninteresting: it may still carry real *clb* alignment evidence. The
+pooled per-sample "unbinned" set is aligned to the canonical locus the same way a bin is, and
+appears as its own row in `mag_summary.tsv` (`unit_type` column: `bin` vs `unbinned`). A positive
+call there means *this sample carries clb sequence outside any recovered genome* — not *one more
+genome is pks-positive* — and the cohort table (`build_master_summary.py`) keeps the two apart with
+separate columns (`mag_bins_pks_positive` vs `mag_unbinned_pks_positive`), never adding one into
+the other.
+
 Once draft genomes are recovered, [community and prophage context](community_context.md) describes what surrounds the island.
 
 ---

@@ -1,4 +1,5 @@
 process extractPksIslandReads {
+  label 'sample_stage'
   label 'process_medium'
   scratch true
   publishDir { "${params.sample_dir}/${sampleID}/taxonomy" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
@@ -18,9 +19,14 @@ process extractPksIslandReads {
     # pks_annotation ${params.dep_digest?.pks_annotation}  scripts ${params.dep_digest?.scripts}
   set -euo pipefail
 
+  # Ludmil, revised report finding 6: this was already the correct 0-based BED
+  # conversion of the 1-based annotation (pks_shift-1 .. pks_shift+len) -- the
+  # only one of the affected call sites that got it right on its own. Migrated
+  # to the canonical params directly so there is one source of truth, not
+  # independently re-derived +/-1 arithmetic in every module.
   CHR="${params.pks_contig}"
-  START=\$(( ${params.pks_shift} - 1 ))
-  END=\$(( ${params.pks_shift} + ${params.pks_island_len} ))
+  START=\$(( ${params.pks_start_1based} - 1 ))
+  END=${params.pks_end_1based}
 
   printf "%s\\t%s\\t%s\\n" \
     "\$CHR" "\$START" "\$END" \
@@ -56,6 +62,7 @@ process extractPksIslandReads {
 
 
 process Bracken {
+  label 'sample_stage'
   scratch true
   label 'process_high_disk'
   publishDir { "${params.sample_dir}/${sampleID}/taxonomy" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }

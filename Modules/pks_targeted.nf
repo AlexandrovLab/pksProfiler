@@ -1,6 +1,7 @@
 nextflow.enable.dsl = 2
 
 process classifyPksReadEvidence {
+    label 'sample_stage'
     tag "$sampleID"
     label 'targeted_alignment'
     publishDir { "${params.sample_dir}/${sampleID}" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
@@ -10,17 +11,22 @@ process classifyPksReadEvidence {
     output:
     tuple val(sampleID), path(raw_coverage), path(counts), path("${sampleID}.read_evidence.tsv"), emit: evidence
     script:
-    def islandEnd = params.pks_shift.toString().toInteger() + params.pks_island_len.toString().toInteger()
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # scripts ${params.dep_digest?.scripts}
     set -euo pipefail
-    samtools depth -aa -s -Q 40 -r "${params.pks_contig}:${params.pks_shift.toString().toInteger() + 1}-${islandEnd}" "${bam}" > "${sampleID}.island.raw_depth.tsv"
-    python "${params.scripts}/classify_tumor_pks_evidence.py" --sample "${sampleID}" --qc "${qc}" --counts "${counts}" --depth "${sampleID}.island.raw_depth.tsv" --island-length "${params.pks_island_len}" --multi-gene-reads "${params.tumor_multi_gene_min_pks_reads}" --multi-gene-genes "${params.tumor_multi_gene_min_clb_genes}" --multi-gene-breadth "${params.tumor_multi_gene_min_breadth}" --broad-island-reads "${params.tumor_broad_island_min_pks_reads}" --broad-island-genes "${params.tumor_broad_island_min_clb_genes}" --broad-island-breadth "${params.tumor_broad_island_min_breadth}" --extensive-island-reads "${params.tumor_extensive_island_min_pks_reads}" --extensive-island-genes "${params.tumor_extensive_island_min_clb_genes}" --extensive-island-breadth "${params.tumor_extensive_island_min_breadth}" --output "${sampleID}.read_evidence.tsv"
+    # Ludmil, revised report finding 6: pks_shift+1 dropped the true first base of
+    # the island. pks_start_1based/pks_end_1based are already correct 1-based
+    # inclusive bounds; --island-length must match the row count this now produces
+    # (50768, not the old pks_island_len=50767), or classify_tumor_pks_evidence.py's
+    # own row-count check raises rather than silently disagreeing.
+    samtools depth -aa -s -Q 40 -r "${params.pks_contig}:${params.pks_start_1based}-${params.pks_end_1based}" "${bam}" > "${sampleID}.island.raw_depth.tsv"
+    python "${params.scripts}/classify_tumor_pks_evidence.py" --sample "${sampleID}" --qc "${qc}" --counts "${counts}" --depth "${sampleID}.island.raw_depth.tsv" --island-length "${params.pks_island_len_1based}" --multi-gene-reads "${params.tumor_multi_gene_min_pks_reads}" --multi-gene-genes "${params.tumor_multi_gene_min_clb_genes}" --multi-gene-breadth "${params.tumor_multi_gene_min_breadth}" --broad-island-reads "${params.tumor_broad_island_min_pks_reads}" --broad-island-genes "${params.tumor_broad_island_min_clb_genes}" --broad-island-breadth "${params.tumor_broad_island_min_breadth}" --extensive-island-reads "${params.tumor_extensive_island_min_pks_reads}" --extensive-island-genes "${params.tumor_extensive_island_min_clb_genes}" --extensive-island-breadth "${params.tumor_extensive_island_min_breadth}" --output "${sampleID}.read_evidence.tsv"
     """
 }
 
 process targetedPksRecruit {
+    label 'sample_stage'
     tag "$sampleID"
     label 'targeted_recruit'
     scratch true
@@ -42,6 +48,7 @@ process targetedPksRecruit {
 }
 
 process targetedPksMegahit {
+    label 'sample_stage'
     tag "$sampleID"
     label 'targeted_assembly'
     scratch true
@@ -66,6 +73,7 @@ process targetedPksMegahit {
 }
 
 process targetedPksSpades {
+    label 'sample_stage'
     tag "$sampleID"
     label 'targeted_assembly'
     scratch true
@@ -97,6 +105,7 @@ process targetedPksSpades {
 }
 
 process alignTargetedContigsToCanonicalReference {
+    label 'sample_stage'
     tag "${sampleID}:${assembler}"
     label 'targeted_alignment'
     scratch true
@@ -116,6 +125,7 @@ process alignTargetedContigsToCanonicalReference {
 }
 
 process summarizeTargetedPksEvidence {
+    label 'sample_stage'
     tag "$sampleID"
     label 'targeted_alignment'
     publishDir { "${params.sample_dir}/${sampleID}/contigs/final_evidence" }, mode: 'copy', pattern: "*.tsv", saveAs: { fn -> fn - "${sampleID}." }
@@ -123,7 +133,7 @@ process summarizeTargetedPksEvidence {
     publishDir { "${params.sample_dir}/${sampleID}/figures" }, mode: 'copy', pattern: "*.svg", saveAs: { "contig_validation.svg" }
     conda "${params.targeted_alignment_env}"
     input:
-    tuple val(sampleID), path(megahit_contigs), path(megahit_paf), path(metaspades_contigs), path(metaspades_paf), path(raw_coverage), path(read_evidence)
+    tuple val(sampleID), path(megahit_contigs), path(megahit_paf), path(metaspades_contigs), path(metaspades_paf), path(raw_coverage), path(read_evidence), path(recruitment_stats)
     output:
     tuple val(sampleID), path("${sampleID}.final_pks_evidence.tsv"), emit: evidence
     tuple val(sampleID), path("${sampleID}.raw_depth_megahit_metaspades_IHE3034.svg"), emit: plots
@@ -132,7 +142,12 @@ process summarizeTargetedPksEvidence {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # pks_annotation ${params.dep_digest?.pks_annotation}  pks_reference_fasta ${params.dep_digest?.pks_reference_fasta}  scripts ${params.dep_digest?.scripts}
     set -euo pipefail
-    python "${params.scripts}/summarize_tumor_pks_contigs.py" --sample "${sampleID}" --megahit-contigs "${megahit_contigs}" --metaspades-contigs "${metaspades_contigs}" --megahit-paf "${megahit_paf}" --metaspades-paf "${metaspades_paf}" --raw-depth "${raw_coverage}" --read-evidence "${read_evidence}" --gff "${params.pks_genome_annotation}" --contig "${params.pks_contig}" --region-start "${params.pks_plot_region_start}" --region-end "${params.pks_plot_region_end}" --island-start "${params.pks_shift}" --island-end "${params.pks_shift.toString().toInteger() + params.pks_island_len.toString().toInteger()}" --min-aligned-bp "${params.tumor_contig_min_aligned_bp}" --output-tsv "${sampleID}.final_pks_evidence.tsv" --output-svg "${sampleID}.raw_depth_megahit_metaspades_IHE3034.svg"
+    # Ludmil, revised report finding 6: island-start/-end here are 0-based half-open
+    # (PAF's own convention -- summarize_tumor_pks_contigs.py takes ts/te straight
+    # from PAF fields with no adjustment), so the correct conversion from the
+    # 1-based inclusive annotation is pks_start_1based-1 .. pks_end_1based, not the
+    # bare pks_shift this used to pass, which silently dropped the first base.
+    python "${params.scripts}/summarize_tumor_pks_contigs.py" --sample "${sampleID}" --megahit-contigs "${megahit_contigs}" --metaspades-contigs "${metaspades_contigs}" --megahit-paf "${megahit_paf}" --metaspades-paf "${metaspades_paf}" --raw-depth "${raw_coverage}" --read-evidence "${read_evidence}" --recruitment-stats "${recruitment_stats}" --gff "${params.pks_genome_annotation}" --contig "${params.pks_contig}" --region-start "${params.pks_plot_region_start}" --region-end "${params.pks_plot_region_end}" --island-start "${params.pks_start_1based.toString().toInteger() - 1}" --island-end "${params.pks_end_1based}" --min-aligned-bp "${params.tumor_contig_min_aligned_bp}" --output-tsv "${sampleID}.final_pks_evidence.tsv" --output-svg "${sampleID}.raw_depth_megahit_metaspades_IHE3034.svg"
     """
 }
 
@@ -150,7 +165,7 @@ workflow targetedPksAssembly {
     alignTargetedContigsToCanonicalReference(megahit_ch.mix(metaspades_ch), reference_ch)
     megahit_aligned_ch = alignTargetedContigsToCanonicalReference.out.aligned.filter { sampleID, assembler, contigs, paf -> assembler == 'megahit' }.map { sampleID, assembler, contigs, paf -> tuple(sampleID, contigs, paf) }
     metaspades_aligned_ch = alignTargetedContigsToCanonicalReference.out.aligned.filter { sampleID, assembler, contigs, paf -> assembler == 'metaspades' }.map { sampleID, assembler, contigs, paf -> tuple(sampleID, contigs, paf) }
-    combined_ch = megahit_aligned_ch.join(metaspades_aligned_ch, by: 0).join(profiles, by: 0)
+    combined_ch = megahit_aligned_ch.join(metaspades_aligned_ch, by: 0).join(profiles, by: 0).join(targetedPksRecruit.out.stats, by: 0)
     summarizeTargetedPksEvidence(combined_ch)
     emit:
     evidence = summarizeTargetedPksEvidence.out.evidence

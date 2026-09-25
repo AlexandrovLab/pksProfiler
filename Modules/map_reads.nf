@@ -6,7 +6,7 @@ process mapReads {
     publishDir(
         { "${params.sample_dir}/${sampleID}/intermediates" },
         mode: 'copy',
-        enabled: params.save_intermediates
+        enabled: params.save_intermediates.toString().toBoolean()
     )
     conda "${params.minimap2_env}"
 

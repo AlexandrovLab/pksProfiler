@@ -102,8 +102,12 @@ class OneThresholdEverywhere(unittest.TestCase):
         self.assertEqual([l for l in MAG_CODE.splitlines() if "hit_count" in l], [])
 
     def test_every_consumer_reads_the_same_parameter(self):
-        # which bins get genomic context, the status count, and producer selection
-        self.assertEqual(MAG_CODE.count("params.mag_min_clb_genes"), 3)
+        # which bins get genomic context (this HMM pre-filter), and community producer
+        # selection's HMM leg. mag_status's positivity count no longer reads this
+        # parameter at all -- see LocusEvidenceDecidesPositivity below -- so the
+        # invariant this test protects is now "the two remaining HMM-count consumers
+        # agree", not "all three positivity consumers agree".
+        self.assertEqual(MAG_CODE.count("params.mag_min_clb_genes"), 2)
 
     def test_the_parameter_is_declared_once_and_the_old_one_is_gone(self):
         self.assertIn("params.mag_min_clb_genes = 3", MAIN_CODE)
@@ -112,6 +116,79 @@ class OneThresholdEverywhere(unittest.TestCase):
 
     def test_the_emitted_count_is_named_for_what_it_holds(self):
         self.assertIn("emit: clb_gene_count", MAG)
+
+
+class LocusEvidenceDecidesPositivity(unittest.TestCase):
+    """M1: the HMM gene count alone still admits ERR525841's Bifidobacterium bins --
+    clbB/clbH/clbK domain homology clears mag_min_clb_genes with no island-specific
+    evidence. Positivity is decided by aligning each bin's own assembly to the
+    canonical locus (alignMagBinToCanonicalReference/magBinLocusEvidence) and scoring
+    it the same way read-level evidence already is, not by picking specific genes out
+    of the HMM hits.
+    """
+
+    def test_the_locus_tier_params_are_declared_with_the_read_level_values(self):
+        # Same numbers as classify_tumor_pks_evidence.py's tier thresholds (minus the
+        # read-count criterion, which has no bin-level analogue) -- one evidentiary
+        # standard whether the evidence is reads or an assembled bin.
+        for line in (
+            "params.mag_locus_multi_gene_min_genes         = 3",
+            "params.mag_locus_multi_gene_min_breadth       = .01",
+            "params.mag_locus_broad_island_min_genes       = 8",
+            "params.mag_locus_broad_island_min_breadth     = .075",
+            "params.mag_locus_extensive_island_min_genes   = 10",
+            "params.mag_locus_extensive_island_min_breadth = .15",
+        ):
+            self.assertIn(line, MAIN_CODE)
+
+    def test_pks_reference_fasta_feeds_the_bin_alignment(self):
+        # U1: bins_flat_ch is mixed with the per-sample unbinned pool into
+        # locus_alignment_units_ch before this call, so the same alignment covers
+        # both -- Nextflow forbids invoking a process twice in one workflow, and
+        # every bin is still in there (bins_flat_ch.mix(unbinned_flat_ch)).
+        self.assertIn("alignMagBinToCanonicalReference(locus_alignment_units_ch, pks_reference_ch)", MAG_CODE)
+        self.assertIn("locus_alignment_units_ch = bins_flat_ch.mix(unbinned_flat_ch)", MAG_CODE)
+
+    def test_every_bin_is_aligned_not_only_hmm_candidates(self):
+        # bins_flat_ch, not pks_pos_tblout_ch or any HMM-filtered channel.
+        self.assertIn("Channel.value(file(params.pks_reference_fasta", MAG_CODE)
+
+    def test_mag_status_count_reads_the_locus_tier_not_the_hmm_count(self):
+        # U1: bin_locus_evidence_ch is magBinLocusEvidence.out.evidence with the
+        # unbinned pseudo-unit's row filtered back out -- see
+        # test_unbinned_pool_never_inflates_bin_positivity_counts below for why.
+        self.assertIn("bin_locus_evidence_ch = magBinLocusEvidence.out.evidence", MAG_CODE)
+        self.assertIn("pks_positive_bin_counts_ch = bin_locus_evidence_ch", MAG_CODE)
+        self.assertNotIn("pks_positive_bin_counts_ch = hmmsearchClb.out.clb_gene_count", MAG_CODE)
+
+    def test_positive_tiers_exclude_negative_and_indeterminate(self):
+        self.assertIn(
+            '(tier in ["multi_gene", "broad_island", "extensive_island"]) ? 1 : 0', MAG_CODE,
+        )
+
+    def test_community_and_summary_both_receive_locus_evidence(self):
+        # communityProphageSummary reads locus_evidence_per_sample_ch (real bins only);
+        # magSummaryTable reads mag_summary_locus_evidence_ch (bins + the U1 unbinned
+        # pool, so build_mag_summary.py can report the unbinned call too). Two
+        # different channels now, not the same one joined twice, because the
+        # unbinned pseudo-unit has no taxonomy/annotation for communityProphageSummary
+        # to read but does belong in the per-sample MAG summary table.
+        self.assertEqual(MAG_CODE.count(".join(locus_evidence_per_sample_ch, by: 0, remainder: true)"), 1)
+        self.assertEqual(MAG_CODE.count(".join(mag_summary_locus_evidence_ch, by: 0, remainder: true)"), 1)
+
+    def test_unbinned_pool_never_inflates_bin_positivity_counts(self):
+        # U1: the per-sample pool of contigs MetaBAT2 never binned is not a genome --
+        # a positive call there must never count toward pks_positive_bin_count
+        # (mag_status.tsv) or communityProphageSummary's producer selection.
+        self.assertIn(
+            'bin_locus_evidence_ch = magBinLocusEvidence.out.evidence\n'
+            '        .filter { _sampleID, unitID, _evidence -> unitID != "unbinned" }',
+            MAG,
+        )
+
+    def test_the_specific_gene_mechanism_is_gone(self):
+        self.assertEqual([l for l in MAG_CODE.splitlines() if "has_specific_clb" in l], [])
+        self.assertEqual([l for l in MAIN_CODE.splitlines() if "mag_specific_clb_genes" in l], [])
 
 
 if __name__ == "__main__":

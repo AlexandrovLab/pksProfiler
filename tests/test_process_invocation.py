@@ -51,11 +51,6 @@ class InvocationTests(unittest.TestCase):
         self.assertIn("plotBrackenTaxa as plotPKSTaxa", MAIN)
         self.assertIn("plotBrackenTaxa as plotCommunityTaxa", MAIN)
 
-    def test_mag_flags_are_mutually_exclusive_by_sample_type(self):
-        # Both would invoke pksMAG; each is tied to its own sample_type instead.
-        self.assertIn('enable_mags_b && params.sample_type != "metagenome"', BODY)
-        self.assertIn('tumor_enable_mags_b && params.sample_type != "tumor_wgs"', BODY)
-
 
 class PublishDirTests(unittest.TestCase):
     def test_every_publishdir_param_is_defined(self):

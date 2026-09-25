@@ -23,7 +23,14 @@ params.hmm_model        = "${projectDir}/ref/hmm/clb_population_dna_exact_v1.hmm
 params.bracken_read_length = null // Must match a read length supported by the selected Bracken database.
 
 // ---------------- v0.0.2: sample-type routing ----------------
-params.sample_type = "auto"   // auto | metagenome | tumor_wgs | tumor_wes | tumor_rna
+// Ludmil, revised report finding 9: "auto" was accepted here and by the
+// --sample_type validation below, but nothing ever resolved it to a biological
+// lane -- every branch that reads params.sample_type tests for a concrete value
+// ("metagenome", "tumor_wgs"), so "auto" matched none of them and the read-tier
+// classification, contig analysis and MAG/taxonomy lanes silently never ran,
+// with no error and a gene-count table that looked like a normal, if evidence-
+// free, result. His own first preference: no default: required, and explicit.
+params.sample_type = null     // required: metagenome | tumor_wgs | tumor_wes | tumor_rna
 
 // ---------------- v0.0.2: optional taxonomic prefilter + clb homology rescue ----------------
 // off      -> host-depleted reads go straight to profiling (v0.0.1 behaviour, the default)
@@ -69,8 +76,6 @@ params.tumor_contig_tiers = "broad_island,extensive_island"
 
 // ---------------- v0.0.2: contig analysis ----------------
 params.tumor_targeted_assembly   = true    // recruit + MEGAHIT/metaSPAdes on eligible tumours
-params.tumor_full_contig_context = false   // prophage + neighbouring-gene context; requires --genomad_db
-params.tumor_enable_mags         = false   // genome-resolved binning on tumour reads
 params.enable_mags               = false   // MAG reconstruction; metagenome sample_type only
 
 params.pks_recruit_min_aligned  = 60
@@ -89,13 +94,6 @@ params.targeted_min_contig_len = 300
 // lower value makes metaSPAdes look artificially divergent.
 params.tumor_contig_min_aligned_bp = 200   // T1: total island bases a contig must carry to count as supporting; below clbR (213 bp)
 
-// Legacy read-level eligibility screen inside tumorWGS. Undefined upstream (latent NPE);
-// aligned here with the lowest positive tier. Non-host floor disabled by default -- the
-// tier classifier is the authoritative gate.
-params.tumor_min_clb_genes    = 3
-params.tumor_min_pks_reads    = 5
-params.tumor_min_nonhost_reads = 0
-
 // ---------------- v0.0.2: MAG / prophage ----------------
 params.gtdbtk_db               = null
 params.checkm2_db              = null
@@ -104,10 +102,31 @@ params.clb_protein_hmm         = "${projectDir}/ref/hmm/clb_population_protein_e
 params.hmm_protein_evalue      = 1e-5
 // M3: one definition of a pks-positive bin, used by the status count, by the choice
 // of which bins get genomic context, and by community producer selection. Counted as
-// distinct clb genes, which is what build_mag_summary.py reports. The number itself is
-// M1's to settle -- until per-model gathering thresholds land, the gene calls feeding
-// it are inflated by clbB/clbK domain homology.
+// distinct clb genes, which is what build_mag_summary.py reports.
 params.mag_min_clb_genes = 3
+
+// M1: clbB/clbC/clbH/clbI/clbJ/clbK/clbN/clbO are multi-domain NRPS/PKS megasynthases
+// whose domains are shared with unrelated secondary-metabolite clusters, so an E-value
+// cut alone let a non-Enterobacterales bin clear mag_min_clb_genes on megasynthase
+// hits by domain homology, not island carriage (v0.0.2_functional_test_20260910,
+// ERR525841: 7 of 8 bins called pks-positive this way, including two Bifidobacterium
+// bins). Rather than requiring specific genes by name, each bin's own assembly is
+// aligned to the canonical IHE3034 locus (params.pks_reference_fasta,
+// alignMagBinToCanonicalReference/magBinLocusEvidence in Modules/pks_mag.nf) and
+// scored the same way read-level evidence already is: genes an alignment actually
+// covers, and breadth of the island those alignments span. Tier names and threshold
+// values below are deliberately the same as classify_tumor_pks_evidence.py's read-level
+// tiers, so "positive" means the same thing whether the evidence is reads or a bin.
+// hmmsearchClb (mag_min_clb_genes, above) stays a cheap HMM pre-filter for which bins
+// get genomic-context extraction; it does not decide positivity.
+params.mag_locus_min_identity = 0.90
+params.mag_locus_min_mapq     = 20
+params.mag_locus_multi_gene_min_genes         = 3
+params.mag_locus_multi_gene_min_breadth       = .01
+params.mag_locus_broad_island_min_genes       = 8
+params.mag_locus_broad_island_min_breadth     = .075
+params.mag_locus_extensive_island_min_genes   = 10
+params.mag_locus_extensive_island_min_breadth = .15
 
 // T3: a geNomad provirus must clear both floors to be reported. geNomad called 134
 // "viral contigs" on AA-3850 whose top hits were 369 bp with one gene and one
@@ -132,6 +151,21 @@ params.pks_island_len = 50767       // island length (0..50767 in your file)
 params.pks_contig = 'NC_017628.1'   // contig name in BAM
 params.pks_plot_region_start = 2183826   // plotting window around the island
 params.pks_plot_region_end   = 2254594
+
+// Ludmil, revised report finding 6: the annotation spans 2,193,827-2,244,594
+// inclusive (50,768 bp), but pks_shift/pks_island_len above got a different
+// +/-1 adjustment in every module that turned them into a region -- correct in
+// pks_taxa.nf (pks_shift-1 for a 0-based BED start), off by one bp at the start
+// everywhere else (pksProfiler_align.nf, pks_targeted.nf's two call sites, and
+// this session's own pks_mag.nf locus alignment), silently dropping the true
+// first base of the island. These two values are the single authoritative
+// definition; every correctness-sensitive call site below now derives its own
+// coordinate representation (1-based samtools region, or 0-based BED/PAF start)
+// from them directly. pks_shift/pks_island_len are UNCHANGED, and still used by
+// plotting.nf's coverage-plot window, where a 1 bp offset has no numeric effect.
+params.pks_start_1based    = 2193827   // first base of the annotated island (1-based, inclusive)
+params.pks_end_1based      = 2244594   // last base of the annotated island (1-based, inclusive)
+params.pks_island_len_1based = params.pks_end_1based - params.pks_start_1based + 1   // 50768, not 50767
 
 // Output directories
 params.outdir = "${launchDir}/results"
@@ -246,17 +280,13 @@ include { filterReads } from './Modules/filter_reads.nf'
 include { mapReads } from './Modules/map_reads.nf'
 include { pksProfiler_align as pksProfilerAlign } from './Modules/pksProfiler_align.nf'
 include { pksProfiler_hmm as pksProfilerHMM } from './Modules/pksProfiler_hmm.nf'
-include { plotPKS; masterTableAlign; masterTableHMM; masterQCSummary; cohortReport } from './Modules/plotting.nf'
+include { plotPKS; masterTableAlign; masterTableHMM; masterQCSummary; cohortReport; masterSummary } from './Modules/plotting.nf'
 include { extractPksIslandReads; Bracken; process_bracken as combinePKSTaxa; combineClbTaxonomySupport } from './Modules/pks_taxa.nf'
 include { plotBrackenTaxa as plotPKSTaxa } from './Modules/plot_bracken_taxa.nf'
 include { plotBrackenTaxa as plotCommunityTaxa } from './Modules/plot_bracken_taxa.nf'
 include { classifyPksReadEvidence; targetedPksAssembly } from './Modules/pks_targeted.nf'
-include { pksMAG; tumorWGS } from './Modules/pks_mag.nf'
-// Separate alias so the tumour path cannot collide with the metagenome one:
-// Nextflow forbids invoking a component twice, and validation alone is a weaker
-// guarantee than making the second invocation a different component.
-include { pksMAG as tumorPksMAG } from './Modules/pks_mag.nf'
-include { krakenPrefilter; buildClbDiamondDb; diamondRescue; mergePksCandidates; sampleBracken } from './Modules/pks_prefilter.nf'
+include { pksMAG } from './Modules/pks_mag.nf'
+include { krakenPrefilter; buildClbDiamondDb; diamondRescue; diamondRescueTaxonomy; mergePksCandidates; sampleBracken } from './Modules/pks_prefilter.nf'
 
 // An empty channel, named for what it gates. A local `def` inside the branch that
 // fills it would not be visible where cohortReport is invoked, and Nextflow's parser
@@ -285,8 +315,8 @@ workflow {
 
         Common:
           --input_data_type   auto | bam | cram | fastq            (default: auto)
-          --sample_type       auto | metagenome | tumor_wgs |
-                              tumor_wes | tumor_rna                (default: auto)
+          --sample_type       metagenome | tumor_wgs |
+                              tumor_wes | tumor_rna                (required, no default)
           --profiling_method  bowtie2 | hmm | both                 (default: bowtie2)
           --outdir            results directory                    (default: ./results)
           --save_intermediates  publish extracted/filtered/host-depleted FASTQs
@@ -309,12 +339,14 @@ workflow {
     // in Groovy. Every v0.0.2 boolean is resolved once here; only these locals are tested.
     // toString().toBoolean() maps Boolean true/false and the Strings "true"/"false" alike.
     def enable_mags_b               = params.enable_mags.toString().toBoolean()
-    def tumor_enable_mags_b         = params.tumor_enable_mags.toString().toBoolean()
-    def tumor_full_contig_context_b = params.tumor_full_contig_context.toString().toBoolean()
     def tumor_targeted_assembly_b   = params.tumor_targeted_assembly.toString().toBoolean()
     def diamond_rescue_b            = params.diamond_rescue.toString().toBoolean()
     def pks_community_taxa_b        = params.pks_community_taxa.toString().toBoolean()
     def enable_strain_typing_b      = params.enable_strain_typing.toString().toBoolean()
+    // Ludmil, revised report finding 7: everywhere else tested through its normalized
+    // local; this one was still tested as params.pks_taxa directly at five call sites,
+    // so a CLI --pks_taxa false built the same workflow as --pks_taxa true.
+    def pks_taxa_b                  = params.pks_taxa.toString().toBoolean()
 
     // ---------- Equivalence record (F16) ----------
     // Written now, before any task runs, so a run that dies still leaves a record of
@@ -379,7 +411,15 @@ workflow {
     // every problem at once. Stage prerequisites used to check only that a flag was
     // set: `--hg38_db /typo/human.mmi` satisfied every check and failed in the first
     // mapReads task, after the whole cohort had been extracted.
-    def preflight_status = Preflight.run("${params.scripts}/preflight.py", [
+    //
+    // The config map is built as its own local (not inlined into the Preflight.run(...)
+    // call) because Nextflow 24.10.0 -- the exact floor this manifest declares, and the
+    // exact version CI pins -- fails to compile a multi-line map literal immediately
+    // followed by a trailing `, log)` argument: "Variable `log` already defined in the
+    // process scope". Reproduced directly against 24.10.0 on the pre-fix baseline
+    // commit (870e4fa); root cause of m-1 (Ludmil's email: "Github shows your tests
+    // failing"), CI's "Compile the workflow" step.
+    def preflight_config = [
         sample                   : params.sample,
         input_data_type          : params.input_data_type,
         sample_type              : params.sample_type,
@@ -403,14 +443,23 @@ workflow {
         genomad_db               : params.genomad_db,
         gtdbtk_db                : params.gtdbtk_db,
         checkm2_db               : params.checkm2_db,
-        pks_taxa                 : params.pks_taxa.toString().toBoolean(),
+        pks_taxa                 : pks_taxa_b,
         pks_community_taxa       : pks_community_taxa_b,
         enable_mags              : enable_mags_b,
-        tumor_enable_mags        : tumor_enable_mags_b,
-        tumor_full_contig_context: tumor_full_contig_context_b,
         tumor_targeted_assembly  : tumor_targeted_assembly_b,
         enable_strain_typing     : enable_strain_typing_b,
-    ], log)
+    ]
+    // Nextflow 24.10.0 -- the exact floor this manifest declares, and the exact
+    // version CI pins -- refuses to compile any bare reference to the implicit `log`
+    // binding as a value (a plain `def x = log`, or passing `log` itself as an
+    // argument): "Variable `log` already defined in the process scope". Only the
+    // syntactic method-call form `log.info(...)`/`log.warn(...)`/`log.error(...)` is
+    // safe there; Nextflow 26.x has no such restriction. Reproduced directly against
+    // 24.10.0 on the pre-fix baseline commit (870e4fa); root cause of m-1 (Ludmil's
+    // email: "Github shows your tests failing"), CI's "Compile the workflow" step.
+    // A closure whose body only ever uses that safe method-call form sidesteps it.
+    def preflight_log = { level, message -> level == 'error' ? log.error(message) : level == 'warn' ? log.warn(message) : log.info(message) }
+    def preflight_status = Preflight.run("${params.scripts}/preflight.py", preflight_config, preflight_log)
 
     if (preflight_status != 0) {
         error "Preflight checks failed. Nothing has run; fix the problems above and relaunch."
@@ -430,13 +479,19 @@ workflow {
         exit 1, "Missing required parameter: --t2t_phix_db"
     }
 
-    if (params.pks_taxa && !params.kraken_db) {
+    // Ludmil, revised report finding 9: fail loudly before any task runs, rather
+    // than accept "auto" and silently resolve it to nothing.
+    if (!params.sample_type) {
+        exit 1, "Missing required parameter: --sample_type. Supported: metagenome, tumor_wgs, tumor_wes, tumor_rna"
+    }
+
+    if (pks_taxa_b && !params.kraken_db) {
         exit 1, "Taxonomic profiling requires: --kraken_db"
     }
-	if (params.pks_taxa && !params.bracken_read_length) {
+	if (pks_taxa_b && !params.bracken_read_length) {
 	    exit 1, "Taxonomic profiling requires: --bracken_read_length"
 	}
-	if (params.pks_taxa && (
+	if (pks_taxa_b && (
         !(params.bracken_read_length.toString() ==~ /^[0-9]+$/) ||
         params.bracken_read_length.toString().toInteger() <= 0
     )) {
@@ -599,6 +654,15 @@ workflow {
         MAP_OUT.qc.map { _sampleID, qc_file -> qc_file }
     )
 
+    // masterSummary's own gate: build_master_summary.py also reads MAG,
+    // community/prophage, and strain-typing output, which cohortReport never
+    // needs to wait on. Declared before the earliest branch that can mix into
+    // it (this MAG-assembly one, ahead of even cohort_report_gate's own
+    // reassignment further down) -- masterSummary reads it unconditionally,
+    // and a run with none of these optional lanes enabled genuinely has
+    // nothing to wait on.
+    def optional_lane_gate = channel.empty()
+
     // ---------- v0.0.2: preserve the complete host-depleted stream for MAG assembly ----------
     // Branched before profiling so genome-resolved analysis sees every host-depleted read.
     MAPPED_READS
@@ -607,6 +671,9 @@ workflow {
 
     if (enable_mags_b) {
         pksMAG(MAG_ASSEMBLY_READS)
+        optional_lane_gate = optional_lane_gate.mix(
+            pksMAG.out.mag_summary, pksMAG.out.community_summary, pksMAG.out.strain_summary,
+            pksMAG.out.unbinned_locus_evidence)
     }
 
 	// ---------- v0.0.2: prefilter validation ----------
@@ -640,17 +707,12 @@ workflow {
     }
 
 	// ---------- v0.0.2: sample-type and contig-analysis validation ----------
-    def valid_sample_types = ["auto", "metagenome", "tumor_wgs", "tumor_wes", "tumor_rna"]
+    def valid_sample_types = ["metagenome", "tumor_wgs", "tumor_wes", "tumor_rna"]
     if (!(params.sample_type in valid_sample_types)) {
         exit 1, "Unknown --sample_type: ${params.sample_type}. Supported: ${valid_sample_types.join(', ')}"
     }
     if (enable_mags_b && params.sample_type != "metagenome") {
         exit 1, "--enable_mags requires --sample_type metagenome; tumour assembly is selected with --sample_type tumor_wgs"
-    }
-    // Both flags invoke pksMAG, and Nextflow forbids invoking a process twice. Tying each
-    // to its own sample_type makes them mutually exclusive by construction.
-    if (tumor_enable_mags_b && params.sample_type != "tumor_wgs") {
-        exit 1, "--tumor_enable_mags requires --sample_type tumor_wgs; metagenome binning is selected with --enable_mags"
     }
     if (params.sample_type == "tumor_wgs" && params.profiling_method == "hmm") {
         exit 1, "--sample_type tumor_wgs requires --profiling_method bowtie2 or both for read-level clb screening"
@@ -663,18 +725,15 @@ workflow {
             exit 1, "PKS recruitment index not found: ${params.pks_recruit_index}.*.bt2"
         }
     }
-    if (tumor_full_contig_context_b && !params.genomad_db) {
-        exit 1, "--tumor_full_contig_context requires --genomad_db"
-    }
     // pksMAG runs checkm2, gtdbtk and genomad unconditionally, so all three are required.
-    [enable_mags: enable_mags_b, tumor_enable_mags: tumor_enable_mags_b].each { flag, on ->
+    [enable_mags: enable_mags_b].each { flag, on ->
         if (on) {
             if (!params.gtdbtk_db)  { exit 1, "--${flag} requires --gtdbtk_db" }
             if (!params.checkm2_db) { exit 1, "--${flag} requires --checkm2_db" }
             if (!params.genomad_db) { exit 1, "--${flag} requires --genomad_db for prophage detection" }
         }
     }
-    if ((enable_mags_b || tumor_enable_mags_b || tumor_full_contig_context_b) && !file(params.clb_protein_hmm).exists()) {
+    if (enable_mags_b && !file(params.clb_protein_hmm).exists()) {
         exit 1, "Protein HMM not found: ${params.clb_protein_hmm}"
     }
     // nhmmscan reads the pressed index, not the plain .hmm; hmmsearch needs only the .hmm.
@@ -751,7 +810,7 @@ workflow {
         exit 1, "Unknown --profiling_method: ${params.profiling_method}. Supported: bowtie2, hmm, both"
     }
 
-    if (params.pks_taxa && params.profiling_method == "hmm") {
+    if (pks_taxa_b && params.profiling_method == "hmm") {
         exit 1, "--pks_taxa requires alignment profiling. Use --profiling_method bowtie2 or both."
     }
 
@@ -778,6 +837,15 @@ workflow {
         DIAMOND_RESCUE_OUT = diamondRescue(KRAKEN_PREFILTER_OUT.non_target, CLB_DIAMOND_DB)
         QC_FRAGMENTS = QC_FRAGMENTS.mix(DIAMOND_RESCUE_OUT.qc.map { _sampleID, qc_file -> qc_file })
 
+        // Joins the rescued reads' clb-gene hit (diamond matches) back to their
+        // krakenPrefilter taxid, closing the taxonomic blind spot select_diamond_reads.py
+        // otherwise leaves: which organisms in this community carry clb-gene homology
+        // besides the primary hit. cohortReport already renders the output if present.
+        diamondRescueTaxonomy(
+            DIAMOND_RESCUE_OUT.matches
+                .join(KRAKEN_PREFILTER_OUT.taxonomy.map { sampleID, _report, output -> tuple(sampleID, output) })
+        )
+
         CANDIDATE_OUT = mergePksCandidates(
             KRAKEN_PREFILTER_OUT.primary
                 .join(DIAMOND_RESCUE_OUT.reads)
@@ -792,7 +860,7 @@ workflow {
         // Profiling now runs on a narrowed stream while assembly still uses the complete
         // one, so read-level and assembly-level clb evidence for the same sample are
         // computed on different inputs and may legitimately disagree.
-        if (enable_mags_b || tumor_targeted_assembly_b || tumor_full_contig_context_b) {
+        if (enable_mags_b || tumor_targeted_assembly_b) {
             log.warn "prefilter_mode=balanced narrows profiling only; assembly uses the complete host-depleted stream, so read-level and assembly-level clb evidence are not computed on the same reads"
         }
     } else {
@@ -857,12 +925,14 @@ workflow {
                 targeted_profiles_ch = tumor_eligible_profiles_ch
                     .map { sampleID, rawCoverage, counts, evidenceFile -> tuple(sampleID, rawCoverage, evidenceFile) }
                 targetedPksAssembly(tumor_assembly_reads_ch, targeted_profiles_ch)
-            }
-            if (tumor_full_contig_context_b) {
-                tumorWGS(tumor_assembly_reads_ch)
-            }
-            if (tumor_enable_mags_b) {
-                tumorPksMAG(tumor_assembly_reads_ch)
+                // Ludmil, revised report finding 5: the cohort report reads
+                // contigs/final_evidence/final_pks_evidence.tsv directly from the
+                // published tree. Assembly is the slowest lane in the pipeline, so
+                // without this the report could start, and publish, before it lands.
+                cohort_report_gate = cohort_report_gate.mix(
+                    targetedPksAssembly.out.evidence
+                        .map { _sampleID, evidenceFile -> evidenceFile }
+                )
             }
         }
     }
@@ -887,7 +957,7 @@ workflow {
     }
 
 	// ---------- STEP 3b: Optional PKS-island taxa profiling (align only) ----------
-    if (do_align && params.pks_taxa) {
+    if (do_align && pks_taxa_b) {
         PKS_ALIGN_OUT
 			.map { sampleID, _covtxt, _bedgraph, _counts, bam, bai ->
 			    tuple(sampleID, bam, bai)
@@ -971,6 +1041,11 @@ workflow {
             ALIGN_MERGE.rows.collectFile(name: 'pks.align.counts.manifest.tsv',
                                          newLine: true, sort: true)
         )
+        // Ludmil, revised report finding 5: pks.gene.counts.align.txt is the first
+        // thing build_cohort_report.py reads. Nothing previously made cohortReport
+        // wait for it -- only for the per-sample read-evidence tier -- so the cohort
+        // report could start, and publish an empty gene matrix, before this landed.
+        cohort_report_gate = cohort_report_gate.mix(masterTableAlign.out)
     }
 
     if (do_hmm) {
@@ -1018,5 +1093,18 @@ workflow {
     def cohort_report_script = file("${params.scripts}/build_cohort_report.py",
                                     checkIfExists: true)
     cohortReport(masterQCSummary.out.mix(cohort_report_gate).collect(),
-                 cohort_report_script)
+                 cohort_report_script,
+                 EXPECTED_SAMPLE_IDS)
+
+    // ---------- STEP 7: One table with every stage joined ----------
+    // Dead-or-unwired-code item d-2: this used to be a documented, manual,
+    // post-run script. Automated on the same pattern as cohortReport above --
+    // cohort_report_gate covers the align + targeted-assembly lanes it shares
+    // with the HTML report; optional_lane_gate covers the MAG/community/
+    // strain-typing lanes the HTML report never reads.
+    def master_summary_script = file("${params.scripts}/build_master_summary.py",
+                                     checkIfExists: true)
+    masterSummary(masterQCSummary.out.mix(cohort_report_gate).mix(optional_lane_gate).collect(),
+                  master_summary_script,
+                  EXPECTED_SAMPLE_IDS)
 }

@@ -50,20 +50,63 @@ class SupportingContigsUseTotals(unittest.TestCase):
     def test_a_contig_is_judged_on_its_total_not_its_largest_block(self):
         # three 150 bp blocks of one contig: 450 bp of island between them
         hits = [hit("NODE_1", ISLAND_START + n * 400, 150) for n in range(3)]
-        self.assertEqual(summarize.supporting_contigs(hits, 200), ["NODE_1"])
+        self.assertEqual(summarize.supporting_contigs(hits, ISLAND_START, ISLAND_END, 200),
+                         ["NODE_1"])
 
     def test_a_contig_below_the_floor_in_total_does_not_count(self):
         hits = [hit("NODE_1", ISLAND_START, 90), hit("NODE_1", ISLAND_START + 500, 90)]
-        self.assertEqual(summarize.supporting_contigs(hits, 200), [])
+        self.assertEqual(summarize.supporting_contigs(hits, ISLAND_START, ISLAND_END, 200), [])
 
     def test_a_contig_covering_the_shortest_clb_gene_counts(self):
         # clbR is 213 bp; a 300 bp floor would have rejected this
-        self.assertEqual(summarize.supporting_contigs([hit("NODE_1", ISLAND_START, 213)], 200),
-                         ["NODE_1"])
+        self.assertEqual(
+            summarize.supporting_contigs([hit("NODE_1", ISLAND_START, 213)],
+                                         ISLAND_START, ISLAND_END, 200),
+            ["NODE_1"])
 
     def test_contigs_are_counted_once_however_many_blocks_they_have(self):
         hits = [hit("NODE_1", ISLAND_START + n * 400, 300) for n in range(4)]
-        self.assertEqual(summarize.supporting_contigs(hits, 200), ["NODE_1"])
+        self.assertEqual(summarize.supporting_contigs(hits, ISLAND_START, ISLAND_END, 200),
+                         ["NODE_1"])
+
+
+class SupportingContigsRequireIslandOverlapNotFlankAlignment(unittest.TestCase):
+    """Ludmil, revised report finding 3, his three fixtures verbatim.
+
+    supporting_contigs() used to sum each hit's full aligned length within the
+    wider +/-10kb recruitment window paf() searches, not the portion actually
+    inside the canonical island -- so a contig aligning mostly to a flank could
+    still clear the floor and be reported as island-supporting.
+    """
+
+    # A point comfortably inside the 5kb flank paf() searches around the island,
+    # i.e. before ISLAND_START -- not part of the island itself.
+    FLANK_START = ISLAND_START - 3000
+
+    def test_fixture_a_wholly_in_flank_yields_zero_supporting_contigs(self):
+        # 500 bp alignment entirely in the 5kb flank: no island overlap at all.
+        hits = [hit("NODE_1", self.FLANK_START, 500)]
+        self.assertEqual(summarize.supporting_contigs(hits, ISLAND_START, ISLAND_END, 200), [])
+
+    def test_fixture_b_small_island_overlap_plus_flank_fails_the_floor(self):
+        # One 500 bp block straddling the boundary: 450 bp in the flank, 50 bp
+        # inside the island. Old code counted the full 500 bp; only 50 counts now.
+        hits = [hit("NODE_1", ISLAND_START - 450, 500)]
+        self.assertEqual(summarize.supporting_contigs(hits, ISLAND_START, ISLAND_END, 200), [])
+
+    def test_fixture_c_disjoint_island_blocks_pass_once_totalled(self):
+        # Two blocks wholly inside the island, summing to >=200 bp of real overlap.
+        hits = [hit("NODE_1", ISLAND_START, 120), hit("NODE_1", ISLAND_START + 1000, 100)]
+        self.assertEqual(summarize.supporting_contigs(hits, ISLAND_START, ISLAND_END, 200),
+                         ["NODE_1"])
+
+    def test_a_contig_with_plenty_of_flank_but_no_island_hits_is_never_reported(self):
+        # The exact failure mode from his report: lots of "aligned" bases, none in
+        # the island the count is supposed to be about.
+        hits = [hit("NODE_1", self.FLANK_START, 2000)]
+        self.assertEqual(summarize.supporting_contigs(hits, ISLAND_START, ISLAND_END, 200), [])
+        # Coverage/breadth is unaffected -- it was never scoped to the flank.
+        self.assertEqual(summarize.union_length(hits, ISLAND_START, ISLAND_END), 0)
 
 
 class AgreementNoLongerFollowsTheFilter(unittest.TestCase):

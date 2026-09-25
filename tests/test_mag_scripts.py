@@ -156,6 +156,14 @@ locus_tag\tclb_gene\tevalue\tcontig\thas_integrase\thas_transposase\tflanking_ge
 bin_001_1\tclbA\t1e-10\tbin_001\tTrue\tFalse\tgyrB;fliA
 """
 
+# magBinLocusEvidence's output for a bin whose own assembly aligns across the
+# canonical locus -- the alignment-confirmed call build_mag_summary.py and
+# build_community_prophage.py now join in, instead of trusting HMM gene count alone.
+LOCUS_EVIDENCE_POSITIVE = """\
+sample\tbin_id\tlocus_tier\tlocus_genes_detected\tlocus_genes\tlocus_breadth
+SAMPLE1\tbin_001\tmulti_gene\t5\tclbA,clbB,clbD,clbP,clbQ\t0.020000
+"""
+
 
 class TestBuildMagSummary(unittest.TestCase):
     def setUp(self):
@@ -216,11 +224,15 @@ class TestBuildMagSummary(unittest.TestCase):
             context_dir = os.path.join(tmp, "context")
             os.makedirs(context_dir)
             self._write(context_dir, "bin_001.context.tsv", CONTEXT_CONTENT)
+            locus_dir = os.path.join(tmp, "locus")
+            os.makedirs(locus_dir)
+            self._write(locus_dir, "bin_001.locus_evidence.tsv", LOCUS_EVIDENCE_POSITIVE)
             out = os.path.join(tmp, "summary.tsv")
             import sys
             sys.argv = ["build_mag_summary.py",
                         "--checkm2", checkm2, "--gtdbtk", gtdbtk,
                         "--tblout_dir", tblout_dir, "--context_dir", context_dir,
+                        "--locus_dir", locus_dir,
                         "--sample", "SAMPLE1", "--evalue", "1e-5", "--out", out]
             self.mod.main()
             with open(out) as fh:
@@ -234,6 +246,119 @@ class TestBuildMagSummary(unittest.TestCase):
         self.assertIn("clbB", rows[0]["clb_genes"])
         self.assertEqual(rows[0]["has_integrase"], "True")
         self.assertEqual(rows[0]["unexpected_taxon_flag"], "False")
+        self.assertEqual(rows[0]["locus_tier"], "multi_gene")
+        self.assertEqual(rows[0]["locus_genes_detected"], "5")
+
+    def test_missing_locus_evidence_reads_as_unmeasured_not_negative(self):
+        """A bin absent from locus_dir was never aligned -- NA, not a failed tier."""
+        with tempfile.TemporaryDirectory() as tmp:
+            checkm2 = self._write(tmp, "quality.tsv", CHECKM2_CONTENT)
+            gtdbtk = self._write(tmp, "gtdbtk.tsv", GTDBTK_CONTENT)
+            tblout_dir = os.path.join(tmp, "tblout")
+            os.makedirs(tblout_dir)
+            self._write(tblout_dir, "bin_001.tblout", TBLOUT_PKS_CONTENT)
+            context_dir = os.path.join(tmp, "context")
+            os.makedirs(context_dir)
+            locus_dir = os.path.join(tmp, "locus")
+            os.makedirs(locus_dir)
+            out = os.path.join(tmp, "summary.tsv")
+            import sys
+            sys.argv = ["build_mag_summary.py",
+                        "--checkm2", checkm2, "--gtdbtk", gtdbtk,
+                        "--tblout_dir", tblout_dir, "--context_dir", context_dir,
+                        "--locus_dir", locus_dir,
+                        "--sample", "SAMPLE1", "--evalue", "1e-5", "--out", out]
+            self.mod.main()
+            with open(out) as fh:
+                rows = list(csv.DictReader(fh, delimiter="\t"))
+        self.assertEqual(rows[0]["locus_tier"], "NA")
+
+    # -----------------------------------------------------------------------
+    # U1: unbinned-contig pks positivity (real bin binning left something out)
+    # -----------------------------------------------------------------------
+
+    # magBinLocusEvidence's output for the per-sample pool of contigs MetaBAT2 never
+    # placed in any bin -- "unbinned" is a stand-in bin_id, exactly like a real one,
+    # produced by the identical summarize_mag_bin_locus_evidence.py --bin-id call.
+    LOCUS_EVIDENCE_UNBINNED_POSITIVE = (
+        "sample\tbin_id\tlocus_tier\tlocus_genes_detected\tlocus_genes\tlocus_breadth\n"
+        "SAMPLE1\tunbinned\tbroad_island\t9\tclbA,clbB,clbD,clbK,clbN,clbO,clbP,clbQ,clbS\t0.180000\n"
+    )
+
+    def _write_bin_and_unbinned_fixture(self, tmp, unbinned_content):
+        checkm2 = self._write(tmp, "quality.tsv", CHECKM2_CONTENT)
+        gtdbtk = self._write(tmp, "gtdbtk.tsv", GTDBTK_CONTENT)
+        tblout_dir = os.path.join(tmp, "tblout")
+        os.makedirs(tblout_dir)
+        self._write(tblout_dir, "bin_001.tblout", TBLOUT_PKS_CONTENT)
+        context_dir = os.path.join(tmp, "context")
+        os.makedirs(context_dir)
+        locus_dir = os.path.join(tmp, "locus")
+        os.makedirs(locus_dir)
+        self._write(locus_dir, "bin_001.locus_evidence.tsv", LOCUS_EVIDENCE_POSITIVE)
+        if unbinned_content is not None:
+            self._write(locus_dir, "unbinned.locus_evidence.tsv", unbinned_content)
+        return checkm2, gtdbtk, tblout_dir, context_dir, locus_dir
+
+    def _run_with(self, tmp, checkm2, gtdbtk, tblout_dir, context_dir, locus_dir):
+        out = os.path.join(tmp, "summary.tsv")
+        import sys
+        sys.argv = ["build_mag_summary.py",
+                    "--checkm2", checkm2, "--gtdbtk", gtdbtk,
+                    "--tblout_dir", tblout_dir, "--context_dir", context_dir,
+                    "--locus_dir", locus_dir,
+                    "--sample", "SAMPLE1", "--evalue", "1e-5", "--out", out]
+        self.mod.main()
+        with open(out) as fh:
+            return list(csv.DictReader(fh, delimiter="\t"))
+
+    def test_unbinned_positive_call_is_its_own_row_not_folded_into_a_bin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._write_bin_and_unbinned_fixture(tmp, self.LOCUS_EVIDENCE_UNBINNED_POSITIVE)
+            rows = self._run_with(tmp, *fixture)
+        self.assertEqual(len(rows), 2)
+        bins = [r for r in rows if r["unit_type"] == "bin"]
+        unbinned = [r for r in rows if r["unit_type"] == "unbinned"]
+        self.assertEqual(len(bins), 1)
+        self.assertEqual(bins[0]["bin_id"], "bin_001")
+        self.assertEqual(len(unbinned), 1)
+        self.assertEqual(unbinned[0]["bin_id"], "unbinned")
+        self.assertEqual(unbinned[0]["locus_tier"], "broad_island")
+        self.assertEqual(unbinned[0]["locus_genes_detected"], "9")
+        # Not a genome: none of the bin-specific fields were measured for it.
+        self.assertEqual(unbinned[0]["taxonomy"], "NA")
+        self.assertEqual(unbinned[0]["completeness"], "NA")
+        self.assertEqual(unbinned[0]["clb_genes_detected"], "NA")
+
+    def test_existing_bin_rows_are_explicitly_typed_bin(self):
+        """Old readers keyed only on bin_id; unit_type must not silently change
+        what a plain per-bin row looks like."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._write_bin_and_unbinned_fixture(tmp, None)
+            rows = self._run_with(tmp, *fixture)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["unit_type"], "bin")
+
+    def test_no_unbinned_evidence_file_means_no_unbinned_row(self):
+        """Nothing to report when metabat2Bin.out.unbinned never emitted for this
+        sample (e.g. every contig got binned, or there were no contigs at all)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._write_bin_and_unbinned_fixture(tmp, None)
+            rows = self._run_with(tmp, *fixture)
+        self.assertNotIn("unbinned", [r["bin_id"] for r in rows])
+
+    def test_a_negative_unbinned_tier_is_still_reported(self):
+        """Checked and found nothing is not the same as never checked -- the row
+        still appears, distinguishing the two the same way magSampleStatus does."""
+        negative = (
+            "sample\tbin_id\tlocus_tier\tlocus_genes_detected\tlocus_genes\tlocus_breadth\n"
+            "SAMPLE1\tunbinned\tnegative\t0\t\t0.000000\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = self._write_bin_and_unbinned_fixture(tmp, negative)
+            rows = self._run_with(tmp, *fixture)
+        unbinned = next(r for r in rows if r["unit_type"] == "unbinned")
+        self.assertEqual(unbinned["locus_tier"], "negative")
 
 
 # ---------------------------------------------------------------------------
@@ -292,10 +417,14 @@ x3\t-\tclbS\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
             gff_dir = os.path.join(tmp, "gff")
             tbl_dir = os.path.join(tmp, "tbl")
             virus_dir = os.path.join(tmp, "virus")
-            os.makedirs(gff_dir); os.makedirs(tbl_dir); os.makedirs(virus_dir)
+            locus_dir = os.path.join(tmp, "locus")
+            os.makedirs(gff_dir); os.makedirs(tbl_dir); os.makedirs(virus_dir); os.makedirs(locus_dir)
             self._write(gff_dir, "bin_001.gff", gff)
             self._write(tbl_dir, "bin_001.tblout", three_hits)
             self._write(virus_dir, "bin_001.virus_summary.tsv", GENOMAD_CONTENT)
+            # M1: a producer now also needs its own assembly to align across the
+            # canonical locus at a positive tier -- clbB/clbC alone would not qualify.
+            self._write(locus_dir, "bin_001.locus_evidence.tsv", LOCUS_EVIDENCE_POSITIVE)
             taxonomy = self._write(
                 tmp, "taxonomy.tsv",
                 "user_genome\tclassification\nbin_001\td__Bacteria;o__Enterobacterales\n",
@@ -309,6 +438,7 @@ x3\t-\tclbS\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
                     "build_community_prophage.py", "--sample", "S1",
                     "--gtdbtk", taxonomy, "--gff-dir", gff_dir,
                     "--tblout-dir", tbl_dir, "--genomad-dir", virus_dir,
+                    "--locus-dir", locus_dir,
                     "--prophage-out", inventory, "--interaction-out", interactions,
                     "--mobility-out", mobility,
                 ]
@@ -325,6 +455,203 @@ x3\t-\tclbS\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
         self.assertEqual(rows[0]["interpretation"], "co-occurrence_only_not_evidence_of_induction")
         self.assertEqual(mobility_rows[0]["provisional_pks_class"], "partial_pks_candidate")
         self.assertEqual(mobility_rows[0]["mobility_interpretation"], "no_local_HGT_marker_detected")
+        self.assertEqual(mobility_rows[0]["locus_tier"], "multi_gene")
+
+    def test_megasynthase_only_bin_is_not_a_producer(self):
+        """M1: clbB/clbK/clbH clear BIOSYNTHETIC_CLB and the gene-count floor, but the
+        bin's own assembly does not align across the canonical locus (the ERR525841
+        Bifidobacterium pattern) -- must not produce an interaction row, and must read
+        as HMM-only, not a confirmed pks candidate.
+        """
+        gff = """##gff-version 3
+c1\tProkka\tCDS\t1\t100\t.\t+\t.\tID=x1;gene=hypothetical;product=hypothetical protein
+"""
+        megasynthase_only = """#
+x1\t-\tclbB\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
+x2\t-\tclbK\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
+x3\t-\tclbH\t-\t1e-20\t50\t0\t1e-20\t50\t0\t1\t1\t1\t1\t10\t1\t10\t1\t10\t1\thit
+"""
+        locus_negative = (
+            "sample\tbin_id\tlocus_tier\tlocus_genes_detected\tlocus_genes\tlocus_breadth\n"
+            "S1\tbin_002\tnegative\t0\t\t0.000000\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            gff_dir = os.path.join(tmp, "gff")
+            tbl_dir = os.path.join(tmp, "tbl")
+            virus_dir = os.path.join(tmp, "virus")
+            locus_dir = os.path.join(tmp, "locus")
+            os.makedirs(gff_dir); os.makedirs(tbl_dir); os.makedirs(virus_dir); os.makedirs(locus_dir)
+            self._write(gff_dir, "bin_002.gff", gff)
+            self._write(tbl_dir, "bin_002.tblout", megasynthase_only)
+            self._write(virus_dir, "bin_002.virus_summary.tsv", GENOMAD_CONTENT)
+            self._write(locus_dir, "bin_002.locus_evidence.tsv", locus_negative)
+            taxonomy = self._write(
+                tmp, "taxonomy.tsv",
+                "user_genome\tclassification\n"
+                "bin_002\td__Bacteria;p__Actinobacteria;o__Bifidobacteriales;"
+                "g__Bifidobacterium;s__Bifidobacterium longum\n",
+            )
+            inventory = os.path.join(tmp, "inventory.tsv")
+            interactions = os.path.join(tmp, "interactions.tsv")
+            mobility = os.path.join(tmp, "mobility.tsv")
+            old_argv = sys.argv
+            try:
+                sys.argv = [
+                    "build_community_prophage.py", "--sample", "S1",
+                    "--gtdbtk", taxonomy, "--gff-dir", gff_dir,
+                    "--tblout-dir", tbl_dir, "--genomad-dir", virus_dir,
+                    "--locus-dir", locus_dir,
+                    "--prophage-out", inventory, "--interaction-out", interactions,
+                    "--mobility-out", mobility,
+                ]
+                self.mod.main()
+            finally:
+                sys.argv = old_argv
+            with open(interactions) as fh:
+                rows = list(csv.DictReader(fh, delimiter="\t"))
+            with open(mobility) as fh:
+                mobility_rows = list(csv.DictReader(fh, delimiter="\t"))
+        self.assertEqual(rows, [])  # bin_002 hits a recipient (itself) but is no producer
+        self.assertEqual(mobility_rows[0]["provisional_pks_class"], "hmm_candidate_locus_not_confirmed")
+        self.assertEqual(mobility_rows[0]["biosynthetic_clb_detected"], "True")
+        self.assertEqual(mobility_rows[0]["locus_tier"], "negative")
+
+
+# ---------------------------------------------------------------------------
+# summarize_mag_bin_locus_evidence / mag_utils.read_locus_evidence
+# ---------------------------------------------------------------------------
+
+# island-start=0, island-end=1000 in these tests (real coordinates aren't the point).
+LOCUS_GFF = """\
+##gff-version 3
+c1\tRefSeq\tgene\t1\t100\t.\t+\t.\tID=g1;Name=clbA
+c1\tRefSeq\tgene\t200\t400\t.\t+\t.\tID=g2;Name=clbB
+c1\tRefSeq\tgene\t600\t900\t.\t+\t.\tID=g3;Name=clbC
+"""
+
+
+def paf_line(contig="c1", qlen=1000, ts=0, te=1000, aligned=1000, identity=1.0, mapq=60):
+    nm = int(round(aligned * (1 - identity)))
+    return "\t".join(str(x) for x in (
+        contig, qlen, 0, aligned, "+", "ref", 1000, ts, te, aligned - nm, aligned, mapq,
+    ))
+
+
+class TestMagBinLocusEvidence(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_script("summarize_mag_bin_locus_evidence")
+
+    def _write(self, tmp, name, content):
+        p = os.path.join(tmp, name)
+        with open(p, "w") as f:
+            f.write(content)
+        return p
+
+    def test_no_alignment_is_negative(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paf = self._write(tmp, "empty.paf", "")
+            gff = self._write(tmp, "ref.gff", LOCUS_GFF)
+            hits = self.mod.paf_hits(paf, 0, 1000, 0.90, 20)
+        self.assertEqual(hits, [])
+        self.assertEqual(self.mod.classify(0, 0.0, {
+            "multi_gene": (3, .01), "broad_island": (8, .075), "extensive_island": (10, .15),
+        }), "negative")
+
+    def test_full_length_alignment_covers_all_genes_and_full_breadth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paf = self._write(tmp, "full.paf", paf_line() + "\n")
+            gff = self._write(tmp, "ref.gff", LOCUS_GFF)
+            hits = self.mod.paf_hits(paf, 0, 1000, 0.90, 20)
+            genes = self.mod.genes_covered(gff, "c1", 0, 1000, hits)
+        self.assertEqual(self.mod.union_length(hits), 1000)
+        self.assertEqual(genes, {"clbA", "clbB", "clbC"})
+
+    def test_low_identity_alignment_is_dropped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paf = self._write(tmp, "low_identity.paf", paf_line(identity=0.5) + "\n")
+            hits = self.mod.paf_hits(paf, 0, 1000, 0.90, 20)
+        self.assertEqual(hits, [])
+
+    def test_partial_alignment_covers_only_overlapping_genes(self):
+        # Covers clbA (1-100) and part of clbB (200-400) but not clbC (600-900).
+        with tempfile.TemporaryDirectory() as tmp:
+            paf = self._write(tmp, "partial.paf", paf_line(te=300, aligned=300) + "\n")
+            gff = self._write(tmp, "ref.gff", LOCUS_GFF)
+            hits = self.mod.paf_hits(paf, 0, 1000, 0.90, 20)
+            genes = self.mod.genes_covered(gff, "c1", 0, 1000, hits)
+        self.assertEqual(genes, {"clbA", "clbB"})
+
+    def test_classify_picks_the_highest_tier_that_holds(self):
+        thresholds = {"multi_gene": (3, .01), "broad_island": (8, .075), "extensive_island": (10, .15)}
+        self.assertEqual(self.mod.classify(10, 0.20, thresholds), "extensive_island")
+        self.assertEqual(self.mod.classify(8, 0.08, thresholds), "broad_island")
+        self.assertEqual(self.mod.classify(3, 0.02, thresholds), "multi_gene")
+        self.assertEqual(self.mod.classify(1, 0.005, thresholds), "localized_indeterminate")
+        self.assertEqual(self.mod.classify(0, 0.0, thresholds), "negative")
+
+    def test_end_to_end_bifidobacterium_pattern_is_negative_not_positive(self):
+        """The ERR525841 false positive: HMM hits to megasynthase domains with no
+        actual alignment to the reference locus (a different genus, no shared synteny).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            paf = self._write(tmp, "bin.paf", "")  # no alignment survives at all
+            gff = self._write(tmp, "ref.gff", LOCUS_GFF)
+            out = os.path.join(tmp, "evidence.tsv")
+            import sys
+            sys.argv = ["summarize_mag_bin_locus_evidence.py",
+                        "--sample", "ERR525841", "--bin-id", "bin.1", "--paf", paf,
+                        "--gff", gff, "--contig", "c1",
+                        "--island-start", "0", "--island-end", "1000", "--output", out]
+            self.mod.main()
+            with open(out) as fh:
+                rows = list(csv.DictReader(fh, delimiter="\t"))
+        self.assertEqual(rows[0]["locus_tier"], "negative")
+        self.assertEqual(rows[0]["locus_genes_detected"], "0")
+
+    def test_read_locus_evidence_keys_by_bin_id(self):
+        mag_utils = load_script("mag_utils")
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write(tmp, "bin.1.locus_evidence.tsv",
+                        "sample\tbin_id\tlocus_tier\tlocus_genes_detected\tlocus_genes\tlocus_breadth\n"
+                        "S1\tbin.1\textensive_island\t12\tclbA,clbB\t0.900000\n")
+            result = mag_utils.read_locus_evidence(tmp)
+        self.assertIn("bin.1", result)
+        self.assertEqual(result["bin.1"]["locus_tier"], "extensive_island")
+
+    def test_bin_id_unbinned_works_unmodified_for_the_pooled_contig_pseudo_unit(self):
+        """U1: Modules/pks_mag.nf reuses this exact script for the per-sample pool of
+        contigs MetaBAT2 never placed in any bin, passing --bin-id unbinned instead of
+        a real bin's ID. The script has no bin-specific logic -- --bin-id is an opaque
+        label threaded straight through to the output's bin_id column and the output
+        filename -- so this needs no code change here, only this regression test
+        confirming that stays true.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            # A full-length alignment, same as test_full_length_alignment_covers_all_genes_
+            # and_full_breadth above (100% breadth, all 3 LOCUS_GFF genes covered), but
+            # scored as the unbinned pool rather than a bin. Caps at multi_gene, not a
+            # higher tier, because LOCUS_GFF only has 3 genes to find -- the default
+            # thresholds need >=8/>=10 genes for broad_island/extensive_island.
+            paf = self._write(tmp, "unbinned.paf", paf_line() + "\n")
+            gff = self._write(tmp, "ref.gff", LOCUS_GFF)
+            out = os.path.join(tmp, "unbinned.locus_evidence.tsv")
+            import sys
+            sys.argv = ["summarize_mag_bin_locus_evidence.py",
+                        "--sample", "SAMPLE1", "--bin-id", "unbinned", "--paf", paf,
+                        "--gff", gff, "--contig", "c1",
+                        "--island-start", "0", "--island-end", "1000", "--output", out]
+            self.mod.main()
+            with open(out) as fh:
+                rows = list(csv.DictReader(fh, delimiter="\t"))
+            self.assertEqual(rows[0]["bin_id"], "unbinned")
+            self.assertEqual(rows[0]["locus_tier"], "multi_gene")
+
+            mag_utils = load_script("mag_utils")
+            result = mag_utils.read_locus_evidence(tmp)
+        self.assertIn("unbinned", result)
+        self.assertEqual(result["unbinned"]["locus_tier"], "multi_gene")
+
+
 if __name__ == "__main__":
     unittest.main()
 

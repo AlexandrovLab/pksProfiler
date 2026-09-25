@@ -116,12 +116,12 @@ fi
 
 if need "tumour, contig context" "$GENOMAD"; then
     construct "tumour, contig context" --sample_type tumor_wgs --profiling_method bowtie2 \
-              --tumor_full_contig_context true --genomad_db "$GENOMAD"
+              --genomad_db "$GENOMAD"
 fi
 
 if need "tumour, everything on" "$KRAKEN" "$GENOMAD"; then
     construct "tumour, everything on" --sample_type tumor_wgs --profiling_method both \
-              --tumor_targeted_assembly true --tumor_full_contig_context true \
+              --tumor_targeted_assembly true \
               --tumor_contig_tiers multi_gene,broad_island,extensive_island \
               --pks_taxa true --kraken_db "$KRAKEN" --bracken_read_length 150 \
               --genomad_db "$GENOMAD"

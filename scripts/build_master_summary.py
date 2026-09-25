@@ -21,6 +21,8 @@ import os
 import sys
 from collections import defaultdict
 
+from mag_utils import POSITIVE_LOCUS_TIERS
+
 # Column groups, in the order they appear. Each group is skipped entirely when the stage
 # that produces it left no files behind.
 QC_COLUMNS = ["input_alignment_records", "total_primary_reads", "extracted_unmapped_reads",
@@ -28,9 +30,20 @@ QC_COLUMNS = ["input_alignment_records", "total_primary_reads", "extracted_unmap
               "reads_mapped_ihe3034", "num_clb_genes_align", "reads_clb_genes_align",
               "num_clb_genes_hmm", "reads_clb_genes_hmm"]
 EVIDENCE_COLUMNS = ["read_evidence", "pks_reads", "clb_genes_detected", "island_breadth_1x"]
-CONTIG_COLUMNS = ["final_structural_evidence", "assembler_agreement"]
+CONTIG_COLUMNS = ["final_structural_evidence", "assembler_agreement",
+                  "megahit_reference_covered_bp", "megahit_reference_coverage",
+                  "megahit_supporting_contigs", "metaspades_reference_covered_bp",
+                  "metaspades_reference_coverage", "metaspades_supporting_contigs",
+                  "recruited_fragment_ids", "paired_fragments"]
 MAG_COLUMNS = ["mag_bins_total", "mag_bins_pks_positive", "pks_mag_taxonomy",
-               "pks_mag_completeness", "pks_mag_clb_genes"]
+               "pks_mag_completeness", "pks_mag_clb_genes",
+               # U1: the per-sample pool of contigs MetaBAT2 never placed in any bin,
+               # kept as its own pair of columns rather than folded into mag_bins_*
+               # above -- a positive here means "this sample carries clb sequence
+               # outside any recovered genome," not "one more recovered genome is
+               # pks-positive," and conflating the two would misreport which claim
+               # the evidence actually supports.
+               "mag_unbinned_locus_tier", "mag_unbinned_pks_positive"]
 COMMUNITY_COLUMNS = ["community_prophages_total", "community_pks_producers",
                      "community_neighbours_assessed", "community_neighbours_with_prophage",
                      "island_nearby_integrase", "island_nearby_trna", "island_in_prophage"]
@@ -107,13 +120,19 @@ def read_contigs(results, out):
 def read_mags(results, out):
     found = False
     for path in glob.glob(f"{results}/by_sample/*/genomes/pks_mag_summary.tsv"):
-        bins = list(rows(path))
-        if not bins:
+        all_rows = list(rows(path))
+        if not all_rows:
             continue
-        sample = sample_of(path, bins[0])
+        sample = sample_of(path, all_rows[0])
         if not sample:
             continue
         found = True
+
+        # U1: a row absent "unit_type" (older runs, or fixtures predating that column)
+        # is a bin -- only the unbinned pseudo-unit row ever sets it to "unbinned".
+        bins = [b for b in all_rows if b.get("unit_type", "bin") != "unbinned"]
+        unbinned = next((b for b in all_rows if b.get("unit_type") == "unbinned"), None)
+
         def genes(b):
             try:
                 return int(b.get("distinct_clb_genes") or b.get("clb_genes") or 0)
@@ -126,6 +145,12 @@ def read_mags(results, out):
         out[sample]["pks_mag_taxonomy"] = (best or {}).get("classification") or (best or {}).get("host_taxonomy") or "NA"
         out[sample]["pks_mag_completeness"] = (best or {}).get("completeness", "NA")
         out[sample]["pks_mag_clb_genes"] = str(genes(best)) if best else "0"
+
+        # U1: kept apart from the bin columns above by construction -- see MAG_COLUMNS.
+        if unbinned is not None:
+            tier = unbinned.get("locus_tier", "NA")
+            out[sample]["mag_unbinned_locus_tier"] = tier
+            out[sample]["mag_unbinned_pks_positive"] = "yes" if tier in POSITIVE_LOCUS_TIERS else "no"
     return found
 
 
@@ -198,6 +223,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", required=True, help="a pksProfiler results directory")
     ap.add_argument("--output", required=True)
+    ap.add_argument("--expected-samples", default=None,
+                    help="one sample ID per line; samples outside this list are "
+                         "dropped even if their directory is still on disk")
     a = ap.parse_args()
 
     out = defaultdict(dict)
@@ -215,6 +243,15 @@ def main():
         print(f"  {name:20} {'found' if present else 'not run — columns omitted'}", file=sys.stderr)
         if present:
             columns += cols
+
+    # This walks by_sample/ by path rather than consuming the current run's
+    # channels, so a directory left over from an older run at the same
+    # --results is indistinguishable from one this run produced (the same
+    # class of bug as build_cohort_report.py's, finding 5).
+    if a.expected_samples:
+        with open(a.expected_samples) as fh:
+            expected = {line.strip() for line in fh if line.strip()}
+        out = {sample: cols for sample, cols in out.items() if sample in expected}
 
     if not out:
         sys.exit(f"No per-sample results found under {a.results}")

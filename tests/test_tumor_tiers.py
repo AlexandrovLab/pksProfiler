@@ -97,9 +97,8 @@ class BooleanFlagTests(unittest.TestCase):
     # Everything after the coercion block. The block itself reads params.<flag> once
     # inside asBool(), which is the only legitimate direct read.
     AFTER = BODY.split("Required input validation", 1)[1]
-    FLAGS = ("enable_mags", "tumor_enable_mags", "tumor_full_contig_context",
-             "tumor_targeted_assembly", "diamond_rescue", "pks_community_taxa",
-             "enable_strain_typing")
+    FLAGS = ("enable_mags", "tumor_targeted_assembly", "diamond_rescue",
+             "pks_community_taxa", "enable_strain_typing")
 
     def test_coercion_uses_string_to_boolean(self):
         # Nextflow 26 strict DSL rejects a local closure called as a function,
