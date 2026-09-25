@@ -50,7 +50,7 @@ SAMPLE_STAGE_PROCESSES = {
         "checkm2Predict", "gtdbtkClassify", "prokkaAnnotate", "hmmsearchClb",
         "alignMagBinToCanonicalReference", "magBinLocusEvidence", "genomadProphages",
         "communityProphageSummary", "extractGenomicContext", "magSampleStatus",
-        "magSummaryTable",
+        "magSummaryTable", "stubBinlessMagQuality",
     ],
     "pks_prefilter.nf": ["krakenPrefilter", "diamondRescue", "mergePksCandidates",
                          "sampleBracken"],
