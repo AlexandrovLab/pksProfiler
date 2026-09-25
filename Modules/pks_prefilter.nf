@@ -88,6 +88,39 @@ process diamondRescue {
     """
 }
 
+// Not yet invoked from the workflow. Joining diamondRescue.out.matches with
+// krakenPrefilter.out.taxonomy by sampleID, and passing the kraken database path
+// through, is wiring in main.nf's workflow {} block -- out of scope here. Once that
+// join is added, this process turns diamond.tsv's discarded sseqid and
+// krakenPrefilter's per-read taxid into a table build_cohort_report.py already knows
+// how to read (it looks for this exact published path and renders nothing if it is
+// absent).
+process diamondRescueTaxonomy {
+    label 'sample_stage'
+    tag "$sampleID"
+    label 'process_low'
+    scratch true
+    publishDir { "${params.sample_dir}/${sampleID}/prefilter" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
+    conda "${params.prefilter_env}"
+
+    input:
+    tuple val(sampleID), path(diamond_matches), path(kraken_output)
+
+    output:
+    path "${sampleID}.diamond_rescue_taxonomy.tsv"
+
+    script:
+    """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # kraken_db ${params.dep_digest?.kraken_db}  scripts ${params.dep_digest?.scripts}
+    set -euo pipefail
+    python "${params.scripts}/summarize_diamond_rescue_taxonomy.py" \
+      --sample "${sampleID}" --diamond "${diamond_matches}" \
+      --kraken-output "${kraken_output}" --kraken-db "${params.kraken_db}" \
+      --output "${sampleID}.diamond_rescue_taxonomy.tsv"
+    """
+}
+
 process mergePksCandidates {
     label 'sample_stage'
     tag "$sampleID"

@@ -52,8 +52,8 @@ SAMPLE_STAGE_PROCESSES = {
         "communityProphageSummary", "extractGenomicContext", "magSampleStatus",
         "magSummaryTable", "stubBinlessMagQuality",
     ],
-    "pks_prefilter.nf": ["krakenPrefilter", "diamondRescue", "mergePksCandidates",
-                         "sampleBracken"],
+    "pks_prefilter.nf": ["krakenPrefilter", "diamondRescue", "diamondRescueTaxonomy",
+                         "mergePksCandidates", "sampleBracken"],
     "pks_taxa.nf": ["extractPksIslandReads", "Bracken"],
     "pks_typing.nf": ["mlstTypeAssembly", "assignStrainType", "strainTypeSummary"],
 }
