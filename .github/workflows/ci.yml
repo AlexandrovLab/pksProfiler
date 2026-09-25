@@ -47,6 +47,15 @@ jobs:
         uses: nf-core/setup-nextflow@v2
         with:
           version: "24.10.0"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pandas and matplotlib
+        # tests/run_checks.sh's own first step runs the full unittest suite (the
+        # same one the unit-tests job runs) before its Nextflow validation checks --
+        # see that job's "Install pandas and matplotlib" step for why these two are
+        # needed.
+        run: pip install "pandas==2.3.0" "matplotlib==3.10.3"
       - name: Compile the workflow
         run: nextflow run main.nf --help
       - name: Build the workflow graph for each flag combination
