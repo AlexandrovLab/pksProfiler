@@ -38,8 +38,13 @@ def add_everything(root):
           ["sample", "read_evidence", "pks_reads", "clb_genes_detected", "island_breadth_1x"],
           [["S1", "extensive_island", "1497", "15", "0.731800"]])
     write(root / "by_sample/S1/contigs/final_evidence/final_pks_evidence.tsv",
-          ["sample", "final_structural_evidence", "assembler_agreement"],
-          [["S1", "near_complete_island", "both"]])
+          ["sample", "final_structural_evidence", "assembler_agreement",
+           "megahit_reference_covered_bp", "megahit_reference_coverage",
+           "megahit_supporting_contigs", "metaspades_reference_covered_bp",
+           "metaspades_reference_coverage", "metaspades_supporting_contigs",
+           "recruited_fragment_ids", "paired_fragments"],
+          [["S1", "near_complete_island", "both", "412", "0.812000", "3",
+            "398", "0.789000", "2", "9", "3"]])
     write(root / "by_sample/S1/genomes/pks_mag_summary.tsv",
           ["sample", "bin_id", "classification", "completeness", "distinct_clb_genes"],
           [["S1", "bin.1", "d__Bacteria;s__Escherichia coli", "96.4", "17"],
@@ -87,6 +92,14 @@ class MasterSummaryTests(unittest.TestCase):
         self.assertEqual(s1["reads_clb_genes_align"], "1497")
         self.assertEqual(s1["read_evidence"], "extensive_island")
         self.assertEqual(s1["final_structural_evidence"], "near_complete_island")
+        self.assertEqual(s1["megahit_reference_covered_bp"], "412")
+        self.assertEqual(s1["megahit_reference_coverage"], "0.812000")
+        self.assertEqual(s1["megahit_supporting_contigs"], "3")
+        self.assertEqual(s1["metaspades_reference_covered_bp"], "398")
+        self.assertEqual(s1["metaspades_reference_coverage"], "0.789000")
+        self.assertEqual(s1["metaspades_supporting_contigs"], "2")
+        self.assertEqual(s1["recruited_fragment_ids"], "9")
+        self.assertEqual(s1["paired_fragments"], "3")
         self.assertEqual(s1["mag_bins_total"], "2")
         self.assertEqual(s1["mag_bins_pks_positive"], "1")
         self.assertIn("Escherichia coli", s1["pks_mag_taxonomy"])

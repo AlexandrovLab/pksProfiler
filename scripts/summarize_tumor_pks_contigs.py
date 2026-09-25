@@ -5,6 +5,10 @@ from pathlib import Path
 def rows(path):
     with Path(path).open() as h: return list(csv.DictReader(h, delimiter="\t"))
 
+def recruitment(path):
+    """pks_recruitment.tsv is a metric/value TSV, not one row per sample."""
+    return {r["metric"]: r["value"] for r in rows(path)}
+
 def paf(path, start, end, min_aligned=0, min_identity=.90, min_mapq=20):
     """Every alignment passing the filters, not one per contig.
 
@@ -108,7 +112,7 @@ def structural_call(mh, ms):
 
 def main():
     p=argparse.ArgumentParser()
-    for name in ("sample","megahit-contigs","metaspades-contigs","megahit-paf","metaspades-paf","raw-depth","read-evidence","gff","output-tsv","output-svg"): p.add_argument(f"--{name}",required=True)
+    for name in ("sample","megahit-contigs","metaspades-contigs","megahit-paf","metaspades-paf","raw-depth","read-evidence","recruitment-stats","gff","output-tsv","output-svg"): p.add_argument(f"--{name}",required=True)
     p.add_argument("--contig",default="NC_017628.1"); p.add_argument("--region-start",type=int,default=2183826); p.add_argument("--region-end",type=int,default=2254594)
     p.add_argument("--island-start",type=int,default=2193826); p.add_argument("--island-end",type=int,default=2244594)
     p.add_argument("--min-aligned-bp",type=int,default=200,
@@ -118,7 +122,7 @@ def main():
                         "every alignment passing identity and MAPQ. Default 200 sits below "
                         "the shortest clb gene (clbR, 213 bp), so a contig covering a whole "
                         "gene is never rejected")
-    a=p.parse_args(); ev=rows(a.read_evidence)[0]; length=a.island_end-a.island_start
+    a=p.parse_args(); ev=rows(a.read_evidence)[0]; recruit=recruitment(a.recruitment_stats); length=a.island_end-a.island_start
     # T1: no length floor here. Coverage, and every call derived from it, counts
     # every alignment that passes identity and MAPQ.
     hits={"megahit":paf(a.megahit_paf,a.region_start,a.region_end),"metaspades":paf(a.metaspades_paf,a.region_start,a.region_end)}
@@ -126,8 +130,8 @@ def main():
     supporting={k:supporting_contigs(v,a.island_start,a.island_end,a.min_aligned_bp) for k,v in hits.items()}
     bp={k:union_length(v,a.island_start,a.island_end) for k,v in hits.items()}; cov={k:v/length for k,v in bp.items()}
     call,agreement=structural_call(cov["megahit"],cov["metaspades"])
-    fields=["sample","read_evidence","pks_reads","clb_genes_detected","island_breadth_1x","island_breadth_2x","island_breadth_3x","megahit_reference_covered_bp","megahit_reference_coverage","megahit_supporting_contigs","metaspades_reference_covered_bp","metaspades_reference_coverage","metaspades_supporting_contigs","assembler_agreement","final_structural_evidence"]
-    result=dict(ev,megahit_reference_covered_bp=bp["megahit"],megahit_reference_coverage=f'{cov["megahit"]:.6f}',megahit_supporting_contigs=len(supporting["megahit"]),metaspades_reference_covered_bp=bp["metaspades"],metaspades_reference_coverage=f'{cov["metaspades"]:.6f}',metaspades_supporting_contigs=len(supporting["metaspades"]),assembler_agreement=agreement,final_structural_evidence=call)
+    fields=["sample","read_evidence","pks_reads","clb_genes_detected","island_breadth_1x","island_breadth_2x","island_breadth_3x","megahit_reference_covered_bp","megahit_reference_coverage","megahit_supporting_contigs","metaspades_reference_covered_bp","metaspades_reference_coverage","metaspades_supporting_contigs","assembler_agreement","final_structural_evidence","recruited_fragment_ids","paired_fragments"]
+    result=dict(ev,megahit_reference_covered_bp=bp["megahit"],megahit_reference_coverage=f'{cov["megahit"]:.6f}',megahit_supporting_contigs=len(supporting["megahit"]),metaspades_reference_covered_bp=bp["metaspades"],metaspades_reference_coverage=f'{cov["metaspades"]:.6f}',metaspades_supporting_contigs=len(supporting["metaspades"]),assembler_agreement=agreement,final_structural_evidence=call,recruited_fragment_ids=recruit["recruited_fragment_ids"],paired_fragments=recruit["paired_fragments"])
     with Path(a.output_tsv).open("w",newline="") as h: w=csv.DictWriter(h,fields,delimiter="\t");w.writeheader();w.writerow(result)
     W,H,L,R=1600,1100,100,35; PW=W-L-R; sx=lambda x:L+(x-a.region_start)/(a.region_end-a.region_start)*PW
     svg=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}"><rect width="100%" height="100%" fill="white"/>','<style>text{font-family:Arial,sans-serif;fill:#202124}.title{font-size:24px;font-weight:bold}.label{font-size:14px;font-weight:bold}.small{font-size:10px}.sub{font-size:13px}</style>',f'<text x="{L}" y="34" class="title">Canonical PKS-island contig validation</text>',f'<text x="{L}" y="58" class="sub">{html.escape(a.sample)} • IHE3034 {a.contig} • {ev["read_evidence"]} read evidence • final: {call}</text>',f'<text x="{L}" y="88" class="label">A  Standard reference clb genes</text>',f'<line x1="{L}" y1="112" x2="{W-R}" y2="112" stroke="#444"/>']

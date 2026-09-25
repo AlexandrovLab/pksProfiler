@@ -133,7 +133,7 @@ process summarizeTargetedPksEvidence {
     publishDir { "${params.sample_dir}/${sampleID}/figures" }, mode: 'copy', pattern: "*.svg", saveAs: { "contig_validation.svg" }
     conda "${params.targeted_alignment_env}"
     input:
-    tuple val(sampleID), path(megahit_contigs), path(megahit_paf), path(metaspades_contigs), path(metaspades_paf), path(raw_coverage), path(read_evidence)
+    tuple val(sampleID), path(megahit_contigs), path(megahit_paf), path(metaspades_contigs), path(metaspades_paf), path(raw_coverage), path(read_evidence), path(recruitment_stats)
     output:
     tuple val(sampleID), path("${sampleID}.final_pks_evidence.tsv"), emit: evidence
     tuple val(sampleID), path("${sampleID}.raw_depth_megahit_metaspades_IHE3034.svg"), emit: plots
@@ -147,7 +147,7 @@ process summarizeTargetedPksEvidence {
     # from PAF fields with no adjustment), so the correct conversion from the
     # 1-based inclusive annotation is pks_start_1based-1 .. pks_end_1based, not the
     # bare pks_shift this used to pass, which silently dropped the first base.
-    python "${params.scripts}/summarize_tumor_pks_contigs.py" --sample "${sampleID}" --megahit-contigs "${megahit_contigs}" --metaspades-contigs "${metaspades_contigs}" --megahit-paf "${megahit_paf}" --metaspades-paf "${metaspades_paf}" --raw-depth "${raw_coverage}" --read-evidence "${read_evidence}" --gff "${params.pks_genome_annotation}" --contig "${params.pks_contig}" --region-start "${params.pks_plot_region_start}" --region-end "${params.pks_plot_region_end}" --island-start "${params.pks_start_1based.toString().toInteger() - 1}" --island-end "${params.pks_end_1based}" --min-aligned-bp "${params.tumor_contig_min_aligned_bp}" --output-tsv "${sampleID}.final_pks_evidence.tsv" --output-svg "${sampleID}.raw_depth_megahit_metaspades_IHE3034.svg"
+    python "${params.scripts}/summarize_tumor_pks_contigs.py" --sample "${sampleID}" --megahit-contigs "${megahit_contigs}" --metaspades-contigs "${metaspades_contigs}" --megahit-paf "${megahit_paf}" --metaspades-paf "${metaspades_paf}" --raw-depth "${raw_coverage}" --read-evidence "${read_evidence}" --recruitment-stats "${recruitment_stats}" --gff "${params.pks_genome_annotation}" --contig "${params.pks_contig}" --region-start "${params.pks_plot_region_start}" --region-end "${params.pks_plot_region_end}" --island-start "${params.pks_start_1based.toString().toInteger() - 1}" --island-end "${params.pks_end_1based}" --min-aligned-bp "${params.tumor_contig_min_aligned_bp}" --output-tsv "${sampleID}.final_pks_evidence.tsv" --output-svg "${sampleID}.raw_depth_megahit_metaspades_IHE3034.svg"
     """
 }
 
@@ -165,7 +165,7 @@ workflow targetedPksAssembly {
     alignTargetedContigsToCanonicalReference(megahit_ch.mix(metaspades_ch), reference_ch)
     megahit_aligned_ch = alignTargetedContigsToCanonicalReference.out.aligned.filter { sampleID, assembler, contigs, paf -> assembler == 'megahit' }.map { sampleID, assembler, contigs, paf -> tuple(sampleID, contigs, paf) }
     metaspades_aligned_ch = alignTargetedContigsToCanonicalReference.out.aligned.filter { sampleID, assembler, contigs, paf -> assembler == 'metaspades' }.map { sampleID, assembler, contigs, paf -> tuple(sampleID, contigs, paf) }
-    combined_ch = megahit_aligned_ch.join(metaspades_aligned_ch, by: 0).join(profiles, by: 0)
+    combined_ch = megahit_aligned_ch.join(metaspades_aligned_ch, by: 0).join(profiles, by: 0).join(targetedPksRecruit.out.stats, by: 0)
     summarizeTargetedPksEvidence(combined_ch)
     emit:
     evidence = summarizeTargetedPksEvidence.out.evidence

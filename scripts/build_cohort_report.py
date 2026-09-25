@@ -145,6 +145,8 @@ def collect(results, expected=None):
             "metaspades_contigs": int(number(contigs.get("metaspades_supporting_contigs"))),
             "megahit_cov": number(contigs.get("megahit_reference_coverage")),
             "metaspades_cov": number(contigs.get("metaspades_reference_coverage")),
+            "recruited_fragment_ids": contigs.get("recruited_fragment_ids", ""),
+            "paired_fragments": contigs.get("paired_fragments", ""),
             "figures": [p.name for p in
                         sorted((by_sample / sample / "figures").glob("*"))
                         if p.is_file() and not p.name.startswith(".")],
@@ -250,7 +252,9 @@ def svg_matrix(records):
                           f'{record["metaspades_contigs"]} contigs, '
                           f'{100 * record["metaspades_cov"]:.1f}% · '
                           f'{record["structural"] or "no call"} \u00b7 '
-                          f'{record["agreement"] or "no agreement call"}')
+                          f'{record["agreement"] or "no agreement call"} \u00b7 '
+                          f'{record["recruited_fragment_ids"] or "0"} fragments recruited, '
+                          f'{record["paired_fragments"] or "0"} paired')
             out.append(f'<g data-tip="{esc(contig_tip)}">'
                        f'<title>{esc(contig_tip)}</title>'
                        f'<text x="{CONTIG_X}" y="{y}" class="n">'
