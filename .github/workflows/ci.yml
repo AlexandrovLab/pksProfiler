@@ -71,7 +71,11 @@ jobs:
           printf 'x' > ci-refs/human-GCA-phix-db.mmi
           DB_ROOT="$PWD/ci-refs" bash tests/check_workflow_construction.sh
       - name: Validation regression checks
-        run: bash tests/run_checks.sh
+        # run_checks.sh's own last step calls check_workflow_construction.sh again,
+        # without a DB_ROOT override -- it defaults to the real TSCC path (correct for
+        # someone running this by hand on TSCC), which does not exist on this runner.
+        # Reuse the ci-refs stand-ins the step above already created for the same script.
+        run: DB_ROOT="$PWD/ci-refs" bash tests/run_checks.sh
 
   # Ludmil's audit, u-3: a real (non -preview) execution, so bowtie2/minimap2/fastp/
   # samtools/nhmmscan interacting through the real Nextflow channel wiring is checked
