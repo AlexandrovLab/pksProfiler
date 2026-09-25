@@ -21,6 +21,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Install pandas and matplotlib
+        # build_hmm_matrix.py, mergeGeneCounts.py and plot_bracken_taxa.py import
+        # pandas (see conda_envs/pks_align_env.yml, pks_hmm_env.yml,
+        # krakenUniq_bracken_env.yml, all pinned to 2.3.x); plot_bracken_taxa.py also
+        # imports matplotlib. This job otherwise runs dependency-free by design;
+        # these two are the exception the tests exercising those three scripts need.
+        run: pip install "pandas==2.3.0" "matplotlib==3.10.3"
       - name: Run test suite
         run: PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -p 'test_*.py' -v
 
