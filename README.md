@@ -37,6 +37,58 @@ decisions; dashed outlines are optional or conditional.</sub>
 
 Flags, extra databases and the caveats for each are in the [documentation](#documentation).
 
+## What can each sample type actually answer?
+
+The table above says which flag turns a capability on. This says what to go look at once it has
+run — real questions, which sample type answers them, and where the answer lives. None of it is
+recomputed for display: everything below is read straight from files the pipeline already wrote.
+
+**Is the island present, and how confident is the call?** — tumour and metagenome. Every sample
+gets a [read-level evidence tier](#how-strong-is-the-evidence) — `by_sample/<sample>/read_evidence.tsv`,
+and the tier badge plus reads/genes/breadth columns in `cohort/pks_cohort_report.html`. For a
+metagenome the same tier is shown but isn't used to decide which draft genomes get investigated:
+it was fitted on tumour breadth distributions, not metagenome depth, and every bin still gets its
+own alignment-confirmed check regardless of it (below).
+
+**Which specific contigs or genomes support that call?** — tumour: two independent reassemblies of
+the recruited reads (MEGAHIT, metaSPAdes), each scored for reference coverage and supporting
+contigs, plus a structural call and an assembler-agreement verdict (`concordant` / `discordant` /
+`single_assembler_only` / `no_contig_support`) — `contigs/final_evidence/final_pks_evidence.tsv`,
+the `contig_validation.svg` figure, and the Contigs / Island recovered / Assemblers columns of the
+cohort report. Metagenome: every recovered genome bin gets its own alignment-confirmed locus tier,
+independent of raw HMM domain hits — `genomes/pks_mag_summary.tsv` and the report's "Genome bins"
+panel (taxonomy, completeness, locus tier, locus breadth).
+
+**Why did I get nothing for this sample?** — tumour: `contigs/recruitment/` and the Contigs
+column's hover text show how many reads were actually recruited and paired before assembly ran, so
+"no reads reached the assembler" reads differently from "reads went in, no contig came out."
+Metagenome: `genomes/mag_status.tsv` distinguishes no contigs / contigs but no bins / bins but no
+pks signal / a positive bin — and even a sample with no real bins still gets an alignment check
+against MetaBAT2's pooled unbinned contigs, which shows up in the same "Genome bins" panel as a
+bin named `unbinned`.
+
+**What else in this sample, or across the cohort, has clb-gene homology?** — metagenome only.
+Reads the fast classifier missed but a sensitive DIAMOND rescue caught, by organism and which clb
+gene, are in `prefilter/diamond_rescue_taxonomy.tsv` and the report's "Community clb homology"
+panel. With `--pks_taxa`, `cohort/taxonomy/pks.clb_species_support.tsv` lists every species across
+the whole cohort with direct read support for a clb gene, as its own table at the bottom of the
+cohort report.
+
+**Does the carrier sit near anything that could move the island, or wake a neighbour's
+prophage?** — metagenome only. A one-line prophage-association call per bin (yes/no, region count)
+is in the "Genome bins" panel; the full picture — nearby integrase/tRNA sites, and every
+neighbour's own prophage load and DNA-damage-response genes — is in
+`community/pks_island_mobility.tsv` and `community/pks_community_interactions.tsv`
+([details](docs/running/community_context.md)).
+
+**What strain is it?** — metagenome only, and only for recovered genome bins; the cohort report
+doesn't read this lane. Sequence type, clonal complex and phylogroup are in
+`by_sample/<sample>/strain/` and the typing columns of `cohort/pks.master_summary.tsv`. Fragmented,
+low-coverage assemblies routinely come back `insufficient_loci` rather than a guessed type — see
+[How strong is the evidence?](#how-strong-is-the-evidence).
+
+Full column-by-column detail for every file above is in the [output reference](docs/output.md).
+
 ## Quick start
 
 Needs Linux, [Nextflow](https://www.nextflow.io/docs/latest/install.html) ≥ 24.10 (enforced),
