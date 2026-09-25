@@ -286,7 +286,7 @@ include { plotBrackenTaxa as plotPKSTaxa } from './Modules/plot_bracken_taxa.nf'
 include { plotBrackenTaxa as plotCommunityTaxa } from './Modules/plot_bracken_taxa.nf'
 include { classifyPksReadEvidence; targetedPksAssembly } from './Modules/pks_targeted.nf'
 include { pksMAG } from './Modules/pks_mag.nf'
-include { krakenPrefilter; buildClbDiamondDb; diamondRescue; mergePksCandidates; sampleBracken } from './Modules/pks_prefilter.nf'
+include { krakenPrefilter; buildClbDiamondDb; diamondRescue; diamondRescueTaxonomy; mergePksCandidates; sampleBracken } from './Modules/pks_prefilter.nf'
 
 // An empty channel, named for what it gates. A local `def` inside the branch that
 // fills it would not be visible where cohortReport is invoked, and Nextflow's parser
@@ -836,6 +836,15 @@ workflow {
         CLB_DIAMOND_DB = buildClbDiamondDb(file(params.clb_protein_fasta, checkIfExists: true))
         DIAMOND_RESCUE_OUT = diamondRescue(KRAKEN_PREFILTER_OUT.non_target, CLB_DIAMOND_DB)
         QC_FRAGMENTS = QC_FRAGMENTS.mix(DIAMOND_RESCUE_OUT.qc.map { _sampleID, qc_file -> qc_file })
+
+        // Joins the rescued reads' clb-gene hit (diamond matches) back to their
+        // krakenPrefilter taxid, closing the taxonomic blind spot select_diamond_reads.py
+        // otherwise leaves: which organisms in this community carry clb-gene homology
+        // besides the primary hit. cohortReport already renders the output if present.
+        diamondRescueTaxonomy(
+            DIAMOND_RESCUE_OUT.matches
+                .join(KRAKEN_PREFILTER_OUT.taxonomy.map { sampleID, _report, output -> tuple(sampleID, output) })
+        )
 
         CANDIDATE_OUT = mergePksCandidates(
             KRAKEN_PREFILTER_OUT.primary
