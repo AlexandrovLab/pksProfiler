@@ -104,3 +104,22 @@ jobs:
           # needs is solved and built fresh, into the runner's own temp space.
           CONDA_CACHE_DIR: ${{ runner.temp }}/conda_cache
         run: bash tests/check_e2e_execution.sh
+
+  # tests/check_metagenome_mag_execution.sh: a real (non -preview) execution of the
+  # metagenome --enable_mags lane, sized so MetaBAT2 recovers zero real bins and the
+  # whole assembly is pooled as "unbinned" (real tool behaviour, confirmed by running
+  # it, not something a stand-in database can simulate) -- the exact scenario that
+  # exposed genomes/pks_mag_summary.tsv silently never being written for a zero-bin
+  # sample (Modules/pks_mag.nf's stubBinlessMagQuality fixes it). Deliberately NOT
+  # wired into a job here, even a workflow_dispatch one like e2e-execution above: it
+  # needs the real GTDB-Tk (~100+ GB), CheckM2 (~3 GB) and geNomad reference databases
+  # -- there is no small stand-in, tests/check_workflow_construction.sh's own
+  # need()-and-skip pattern would defeat the point of an execution test whose entire
+  # subject is these databases actually being read by real tools, and fetching them
+  # fresh on a GitHub-hosted runner on every dispatch is not a reasonable cost. Run it
+  # by hand on TSCC instead, where they already live:
+  #
+  #     DB_ROOT=/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs \
+  #         bash tests/check_metagenome_mag_execution.sh
+  #
+  # Revisit if this ever runs on a self-hosted runner with those databases already local.

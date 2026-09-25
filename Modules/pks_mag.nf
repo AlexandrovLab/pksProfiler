@@ -212,6 +212,43 @@ process gtdbtkClassify {
     """
 }
 
+// ─── U1 follow-up: stand-in for a sample with zero real bins ──────────────────
+// checkm2Predict/gtdbtkClassify both key off metabat2Bin.out.bins (real bins only,
+// optional: true), so a sample with zero real bins never gets an entry in either
+// channel. Confirmed via a real (non-mocked) metagenome --enable_mags execution: a
+// small synthetic assembly under MetaBAT2's 200 kb --minClsSize floor pooled every
+// contig into the unbinned pool (see metabat2Bin above) and had ZERO real bins --
+// exactly the "abundance is low or binning is underpowered" case U1's own comment
+// names as the reason the unbinned pool exists. Before this fix, summary_input_ch's
+// strict join on checkm2/gtdbtk silently dropped that sample before its
+// mag_summary_locus_evidence_ch entry (a real, positive unbinned call) ever got a
+// chance to keep it via that join's own remainder: true -- pks_mag_summary.tsv was
+// never written for it at all, the exact blind spot U1 was written to close, just
+// one join upstream of where U1 closed it. This supplies an empty but correctly
+// shaped pair so magSummaryTable still runs for exactly the samples this affects.
+// Deliberately no publish directive here: unlike checkm2Predict/gtdbtkClassify, no
+// real tool ran, and publishing a fake checkm2/gtdbtk directory would misrepresent
+// what happened.
+process stubBinlessMagQuality {
+    label 'sample_stage'
+    label 'process_low'
+    tag "$sampleID"
+
+    input:
+    val sampleID
+
+    output:
+    tuple val(sampleID), path("stub.checkm2_quality_report.tsv"), emit: checkm2
+    tuple val(sampleID), path("stub.gtdbtk.bac120.summary.tsv"), emit: gtdbtk
+
+    script:
+    """
+    set -euo pipefail
+    printf "Name\tCompleteness\tContamination\tGenome_Size\tContig_N50\n" > stub.checkm2_quality_report.tsv
+    printf "user_genome\tclassification\n" > stub.gtdbtk.bac120.summary.tsv
+    """
+}
+
 // ─── Prokka annotation (ALL bins — must run before hmmsearch so locus_tags match) ──
 
 process prokkaAnnotate {
@@ -729,18 +766,65 @@ workflow pksMAG {
     magSampleStatus(mag_status_input_ch)
 
 
-    // remainder: true keeps all samples even when contexts_per_sample_ch has no
-    // entry (i.e. zero pks+ bins); null → [] so the script receives an empty file list.
+    // U1 follow-up (see stubBinlessMagQuality above): give every sample that has a
+    // mag_summary_locus_evidence_ch entry but no real bins (and so no checkm2/gtdbtk
+    // output of its own) a stand-in pair, so the strict join two lines down keeps it
+    // instead of silently dropping it.
+    //
+    // The sentinel mix-in below is not decoration: `join(..., remainder: true)` against
+    // a right-hand channel that is COMPLETELY empty (every sample in the run has zero
+    // real bins -- exactly this fixture) does not null-pad the way it does when the
+    // right-hand channel has some entries just not for this key. Confirmed by standalone
+    // reproduction and a live run: with a truly empty right-hand side, Nextflow's join
+    // silently degenerates and re-emits the left-hand channel's items unchanged (bare
+    // sampleID strings, not [sampleID, null] tuples), and the very next 2-parameter
+    // closure then throws "Invalid method invocation `call` with arguments: <sampleID>
+    // (java.lang.String)" -- a real, live crash, not a hypothetical. A right-hand
+    // channel that can never be structurally empty (it always carries at least the
+    // sentinel, which no real sampleID can ever equal) keeps the join's normal
+    // null-padding behaviour in every case. The same degeneration reaches all the way
+    // through summary_input_ch's own join chain below when a run has zero real bins
+    // AND zero pks+ bins anywhere (this fixture's exact case: tblouts_per_sample_ch and
+    // contexts_per_sample_ch are then ALSO completely empty) -- every channel that
+    // chain joins is guarded with the same sentinel key for the same reason, and the
+    // sentinel row that survives the joins as a result is filtered back out immediately
+    // after, before magSummaryTable (or anything else) ever sees it.
+    def NO_REAL_BINS_SENTINEL = "__stubBinlessMagQuality_no_real_bins_anywhere_sentinel__"
+    samples_with_bins_ch = checkm2Predict.out.report
+        .map { sampleID, _report -> tuple(sampleID, true) }
+        .mix(Channel.value(tuple(NO_REAL_BINS_SENTINEL, true)))
+    binless_samples_needing_summary_ch = mag_summary_locus_evidence_ch
+        .map { sampleID, _evidence -> sampleID }
+        .join(samples_with_bins_ch, by: 0, remainder: true)
+        .filter { _sampleID, has_bins -> has_bins == null }
+        .map { sampleID, _has_bins -> sampleID }
+    stubBinlessMagQuality(binless_samples_needing_summary_ch)
+
+    checkm2_report_ch = checkm2Predict.out.report.mix(stubBinlessMagQuality.out.checkm2)
+        .mix(Channel.value(tuple(NO_REAL_BINS_SENTINEL, "SENTINEL")))
+    gtdbtk_summary_ch = gtdbtkClassify.out.summary.mix(stubBinlessMagQuality.out.gtdbtk)
+        .mix(Channel.value(tuple(NO_REAL_BINS_SENTINEL, "SENTINEL")))
+    tblouts_per_sample_ch = tblouts_per_sample_ch
+        .mix(Channel.value(tuple(NO_REAL_BINS_SENTINEL, [])))
+    contexts_per_sample_ch = contexts_per_sample_ch
+        .mix(Channel.value(tuple(NO_REAL_BINS_SENTINEL, [])))
+    mag_summary_locus_evidence_ch = mag_summary_locus_evidence_ch
+        .mix(Channel.value(tuple(NO_REAL_BINS_SENTINEL, [])))
+
+    // remainder: true keeps all samples even when contexts_per_sample_ch or
+    // tblouts_per_sample_ch have no entry (zero pks+ bins, or -- since the fix just
+    // above -- zero bins at all); null → [] so the script receives an empty file list.
     // locus_evidence here is mag_summary_locus_evidence_ch (bins + the U1 unbinned
     // pool), not locus_evidence_per_sample_ch -- build_mag_summary.py's locus_dir
     // needs the unbinned call too, to report it as its own row.
-    summary_input_ch = checkm2Predict.out.report
-        .join(gtdbtkClassify.out.summary, by: 0)
-        .join(tblouts_per_sample_ch, by: 0)
+    summary_input_ch = checkm2_report_ch
+        .join(gtdbtk_summary_ch, by: 0)
+        .join(tblouts_per_sample_ch, by: 0, remainder: true)
         .join(contexts_per_sample_ch, by: 0, remainder: true)
         .join(mag_summary_locus_evidence_ch, by: 0, remainder: true)
+        .filter { sampleID, checkm2, gtdbtk, tblouts, contexts, locus_evidence -> sampleID != NO_REAL_BINS_SENTINEL }
         .map { sampleID, checkm2, gtdbtk, tblouts, contexts, locus_evidence ->
-            tuple(sampleID, checkm2, gtdbtk, tblouts, contexts ?: [], locus_evidence ?: [])
+            tuple(sampleID, checkm2, gtdbtk, tblouts ?: [], contexts ?: [], locus_evidence ?: [])
         }
 
     magSummaryTable(summary_input_ch)
