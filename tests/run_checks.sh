@@ -38,7 +38,7 @@ validation_status=$?
 set -e
 
 if [[ "$validation_status" -eq 0 ]] ||
-   ! grep -Fq 'Duplicate patient value(s): duplicate' <<< "$validation_output"; then
+   ! grep -Fq "duplicate patient value 'duplicate'" <<< "$validation_output"; then
     printf '%s\n' "$validation_output" >&2
     echo "ERROR: Duplicate-sample validation regression failed." >&2
     exit 1
@@ -46,9 +46,22 @@ fi
 
 echo "All checks passed"
 
+# preflight.py now rejects a run outright on ANY problem, including a merely-missing
+# reference file -- and main.nf's own parameter validation (sample_type, tier,
+# mag-routing) only runs after preflight succeeds. The checks below exist to reach
+# that later, main.nf-level validation, so their fastq1/reference paths must actually
+# exist; only the specific flag each check passes should be what's being tested. A
+# literal nonexistent placeholder here silently produces a preflight-level failure
+# instead, and the expected message never has a chance to appear.
+printf 'placeholder' > "$test_dir/placeholder.fastq.gz"
+printf 'placeholder' > "$test_dir/placeholder-hg38.mmi"
+printf 'placeholder' > "$test_dir/placeholder-t2t.mmi"
+mkdir -p "$test_dir/placeholder-gtdbtk-db" "$test_dir/placeholder-genomad-db"
+printf 'placeholder' > "$test_dir/placeholder-checkm2-db"
+
 printf '%s\n' \
     'patient,fastq1' \
-    'sample1,/does/not/exist.fastq.gz' \
+    "sample1,$test_dir/placeholder.fastq.gz" \
     > "$test_dir/single.csv"
 
 check_validation() {
@@ -65,8 +78,8 @@ check_validation() {
             -work-dir "$test_dir/work-$name" \
             --sample "$test_dir/single.csv" \
             --input_data_type fastq \
-            --hg38_db unused-for-validation \
-            --t2t_phix_db unused-for-validation \
+            --hg38_db "$test_dir/placeholder-hg38.mmi" \
+            --t2t_phix_db "$test_dir/placeholder-t2t.mmi" \
             --outdir "$test_dir/results-$name" \
             "$@" \
             2>&1
@@ -89,17 +102,20 @@ check_validation \
 check_validation \
     tumor-mag \
     '--enable_mags requires --sample_type metagenome' \
-    --sample_type tumor_wgs --enable_mags true
+    --sample_type tumor_wgs --enable_mags true \
+    --gtdbtk_db "$test_dir/placeholder-gtdbtk-db" \
+    --checkm2_db "$test_dir/placeholder-checkm2-db" \
+    --genomad_db "$test_dir/placeholder-genomad-db"
 check_validation \
     missing-gtdbtk \
-    '--enable_mags requires --gtdbtk_db' \
+    '--gtdbtk_db is not set' \
     --sample_type metagenome --enable_mags true
 check_validation \
     missing-genomad \
-    '--enable_mags requires --genomad_db' \
+    '--genomad_db is not set' \
     --sample_type metagenome --enable_mags true \
-    --gtdbtk_db unused-for-validation \
-    --checkm2_db unused-for-validation
+    --gtdbtk_db "$test_dir/placeholder-gtdbtk-db" \
+    --checkm2_db "$test_dir/placeholder-checkm2-db"
 echo "All checks passed"
 
 echo "Checking tumour contig tier validation"
