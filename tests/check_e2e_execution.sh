@@ -49,6 +49,12 @@
 #      than two rows at least once, with membership checked exactly (every sample
 #      appears, none duplicated) rather than just "both of the original two are in
 #      there somewhere".
+#   9. runs the pipeline a sixth time on single-end FASTQ (fastq1 only, no fastq2) --
+#      every run above is paired-end. No new fixtures: one FASTQ half each of the
+#      existing broad/negative fixtures is already a real, independently-validated
+#      single-end read set (see the comment above this run below for the exact
+#      numbers, which differ from their paired-end namesakes since single-end halves
+#      the bases covered).
 #
 # This is slower than the other two test tiers (real conda envs, real alignment) but
 # still small: at most ~110 reads per sample, tiny synthetic references, no
@@ -479,5 +485,86 @@ if ! python3 "$repo_dir/tests/fixtures/assert_e2e_outputs.py" \
     exit 1
 fi
 
+# ---------------------------------------------------------------------------------
+# Sixth run: single-end FASTQ (fastq1 only, no fastq2). Ludmil's u-3 wish list names
+# this explicitly and every real run above is paired-end. main.nf's fastq branch only
+# adds fastq2 to the reads list `if (fastq2)` is non-empty (main.nf's sample_sheet_fastq
+# mapping), and preflight.py only requires a fastq1 column -- fastq2 is checked for
+# existence/non-emptiness like any other optional column, never required. Single-end is
+# a real, already-supported input mode, not one invented for this test.
+#
+# No new fixtures needed: filterReads' fastp lane runs single-input files through `fastp
+# -i` directly (Modules/filter_reads.nf's `input_list.size() == 1` branch), so any one
+# of the existing paired-end fixture's own FASTQ halves is already a valid, independently
+# real 150 bp single-end read set --
+#   - positive: broad_R1.fastq.gz alone -- the 17 BROAD_WINDOWS mate1 reads (see
+#     generate_e2e_fixtures.py), each individually confirmed by the same standalone
+#     bowtie2 --very-sensitive --no-unal | samtools view -q40 run that validated the
+#     paired broad_island fixture (every mate maps uniquely, MAPQ 42, CIGAR 150M) --
+#     but taken alone (no mate2), covering half the bases the paired run does: 17 * 150
+#     = 2550 bp of the 50,768 bp island = 5.02% breadth. That clears multi_gene's floor
+#     (>=5 reads, >=3 genes, >=1% breadth) but not broad_island's (>=7.5% breadth), so
+#     single-end lands on multi_gene here -- a real, different tier than its paired-end
+#     namesake, not the same result recomputed.
+#   - negative: negative_R1.fastq.gz alone -- 4 reads of unrelated pseudorandom sequence.
+#
+# Neither fastp nor host depletion mate-suffixes a single-input read (there is no mate
+# to tag), so assert_e2e_outputs.py's --single-end flag swaps the paired-end u-1
+# mate-survival check for a single-end read-identity one, and the expected reads/genes/
+# breadth are overridden to match this fixture instead of the paired-end constants.
+# ---------------------------------------------------------------------------------
 echo
-echo "e2e execution check passed (paired FASTQ, BAM, CRAM, HMM profiling, and a 5-sample cohort; positive/negative/broad/extensive/borderline fixtures)"
+echo "Running the real pipeline on single-end FASTQ input (fastq1 only, no fastq2)"
+POS_SE_SAMPLE=e2e_single_end_positive
+NEG_SE_SAMPLE=e2e_single_end_negative
+
+printf 'patient,fastq1\n' > "$work/single_end_sheet.csv"
+printf '%s,%s\n' "$POS_SE_SAMPLE" "$fixtures/broad_R1.fastq.gz" >> "$work/single_end_sheet.csv"
+printf '%s,%s\n' "$NEG_SE_SAMPLE" "$fixtures/negative_R1.fastq.gz" >> "$work/single_end_sheet.csv"
+
+nf_se_log="$work/nextflow_single_end.log"
+(
+    cd "$work" && nextflow run "$repo_dir/main.nf" \
+        -work-dir "$work/work_single_end" \
+        -c "$work/e2e_local.config" \
+        --sample "$work/single_end_sheet.csv" \
+        --input_data_type fastq \
+        --sample_type tumor_wgs \
+        --profiling_method bowtie2 \
+        --hg38_db "$fixtures/hg38.mmi" \
+        --t2t_phix_db "$fixtures/t2t.mmi" \
+        --save_intermediates true \
+        --conda_cache_dir "$CONDA_CACHE_DIR" \
+        --outdir "$work/results_single_end"
+) > "$nf_se_log" 2>&1
+nf_se_status=$?
+
+if [[ $nf_se_status -ne 0 ]]; then
+    echo "ERROR: the real single-end FASTQ pipeline run failed (exit $nf_se_status). Last 60 lines:" >&2
+    tail -60 "$nf_se_log" >&2
+    echo "Full log: $nf_se_log" >&2
+    KEEP_WORK=1
+    exit 1
+fi
+
+echo "Single-end FASTQ pipeline finished. Checking real output values."
+if ! python3 "$repo_dir/tests/fixtures/assert_e2e_outputs.py" \
+        --results "$work/results_single_end" \
+        --positive-sample "$POS_SE_SAMPLE" \
+        --negative-sample "$NEG_SE_SAMPLE" \
+        --single-end \
+        --positive-source-fastq "$fixtures/broad_R1.fastq.gz" \
+        --negative-source-fastq "$fixtures/negative_R1.fastq.gz" \
+        --positive-expected-reads 17 \
+        --positive-expected-genes 8 \
+        --positive-gene-names clbS,clbQ,clbD,clbA,clbG,clbF,clbM,clbN \
+        --positive-min-breadth 0.03 \
+        --positive-max-breadth 0.075 \
+        --negative-expected-reads 4; then
+    echo "ERROR: single-end FASTQ e2e output assertions failed. Results kept at: $work/results_single_end" >&2
+    KEEP_WORK=1
+    exit 1
+fi
+
+echo
+echo "e2e execution check passed (paired FASTQ, BAM, CRAM, single-end FASTQ, HMM profiling, and a 5-sample cohort; positive/negative/broad/extensive/borderline fixtures)"

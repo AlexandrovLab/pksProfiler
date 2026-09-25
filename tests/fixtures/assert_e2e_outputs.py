@@ -199,6 +199,17 @@ def mate_suffix_census(fastq_gz_path):
     return bases, suffix_seen
 
 
+def read_names(fastq_gz_path):
+    """Return the list of read ids (QNAME, whitespace-truncated) in a gzip/bgzip FASTQ."""
+    names = []
+    with gzip.open(fastq_gz_path, "rt") as handle:
+        for i, line in enumerate(handle):
+            if i % 4 != 0:
+                continue
+            names.append(line.rstrip("\n")[1:].split(" ")[0])
+    return names
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--results", required=True, type=Path)
@@ -222,6 +233,34 @@ def main():
              "exactly, and cohort-wide roll-ups are checked for exact membership "
              "(one row per sample, none missing, none duplicated) across the full "
              "named set instead of the weaker 'contains both' check used without it.")
+    parser.add_argument(
+        "--single-end", action="store_true",
+        help="the positive/negative samples are single-end FASTQ (fastq1 only, no "
+             "fastq2). filterReads never mate-suffixes a single-file input (see "
+             "Modules/filter_reads.nf's input_list.size()==1 branch), so the u-1 "
+             "mate-pair survival check does not apply; a simpler single-read survival "
+             "check runs instead. Use --positive-expected-reads/--positive-expected-"
+             "genes/--positive-min-breadth/--positive-max-breadth/--positive-gene-"
+             "names/--negative-expected-reads to describe a single-end fixture, which "
+             "carries half the bases (and so a different tier and gene set) of its "
+             "paired-end namesake built from the same window positions.")
+    parser.add_argument("--positive-expected-reads", type=int, default=None)
+    parser.add_argument("--positive-expected-genes", type=int, default=None)
+    parser.add_argument("--positive-min-breadth", type=float, default=None)
+    parser.add_argument("--positive-max-breadth", type=float, default=None)
+    parser.add_argument(
+        "--positive-gene-names", default=None,
+        help="comma-separated clb gene names the positive sample must detect "
+             "(defaults to the paired-end fixture's clbS,clbN,clbD,clbA).")
+    parser.add_argument("--negative-expected-reads", type=int, default=None)
+    parser.add_argument("--positive-expected-tier", default="multi_gene")
+    parser.add_argument(
+        "--positive-source-fastq", default=None,
+        help="--single-end only: the exact FASTQ staged as the positive sample's "
+             "fastq1, so post-host-depletion read identity can be checked against it.")
+    parser.add_argument(
+        "--negative-source-fastq", default=None,
+        help="--single-end only: same as --positive-source-fastq, for the negative sample.")
     args = parser.parse_args()
 
     results = args.results
@@ -229,12 +268,22 @@ def main():
     extra_samples = parse_cohort_samples(args.cohort_samples)
     all_samples = [pos, neg] + [name for name, _tier in extra_samples]
 
+    # Overridable positive/negative expectations -- default to the original paired-end
+    # fixture's numbers so every existing call site (BAM/CRAM/HMM/cohort) is unaffected.
+    pos_reads = args.positive_expected_reads if args.positive_expected_reads is not None else POSITIVE_EXPECTED_READS
+    pos_genes = args.positive_expected_genes if args.positive_expected_genes is not None else len(POSITIVE_EXPECTED_GENES)
+    pos_min_breadth = args.positive_min_breadth if args.positive_min_breadth is not None else POSITIVE_MIN_BREADTH
+    pos_max_breadth = args.positive_max_breadth if args.positive_max_breadth is not None else POSITIVE_MAX_BREADTH
+    pos_gene_names = (set(args.positive_gene_names.split(",")) if args.positive_gene_names
+                      else POSITIVE_EXPECTED_GENES)
+    neg_reads = args.negative_expected_reads if args.negative_expected_reads is not None else NEGATIVE_READS
+
     if args.profiling_method == "bowtie2":
         # ---------- read_evidence.tsv (tumour tier classification) ----------
-        check_read_evidence_tier(results, pos, "multi_gene",
-                                  expected_reads=POSITIVE_EXPECTED_READS,
-                                  expected_genes=len(POSITIVE_EXPECTED_GENES),
-                                  expected_breadth_range=(POSITIVE_MIN_BREADTH, POSITIVE_MAX_BREADTH))
+        check_read_evidence_tier(results, pos, args.positive_expected_tier,
+                                  expected_reads=pos_reads,
+                                  expected_genes=pos_genes,
+                                  expected_breadth_range=(pos_min_breadth, pos_max_breadth))
         check_read_evidence_tier(results, neg, "negative", expected_reads=0)
 
         for sample, tier in extra_samples:
@@ -260,10 +309,10 @@ def main():
                     total += count
                     if count > 0:
                         genes_with_reads.add(fields[0])
-            check("counts.txt assigns reads to exactly the 4 simulated genes",
-                  genes_with_reads == POSITIVE_EXPECTED_GENES, f"got {sorted(genes_with_reads)}")
+            check(f"counts.txt assigns reads to exactly the {len(pos_gene_names)} simulated genes",
+                  genes_with_reads == pos_gene_names, f"got {sorted(genes_with_reads)}")
             check("counts.txt clb column total matches read_evidence's pks_reads",
-                  total == POSITIVE_EXPECTED_READS, f"got {total}")
+                  total == pos_reads, f"got {total}")
         else:
             check("positive sample's counts.txt exists", False)
     else:
@@ -282,7 +331,7 @@ def main():
     check("cohort QC summary exists", qc_path.exists())
     if qc_path.exists():
         rows = {row["Sample"]: row for row in read_tsv(qc_path)}
-        expected_reads_by_sample = {pos: POSITIVE_EXPECTED_READS, neg: NEGATIVE_READS}
+        expected_reads_by_sample = {pos: pos_reads, neg: neg_reads}
         for sample, tier in extra_samples:
             expected_reads_by_sample[sample] = TIER_FIXTURE_EXPECTATIONS[tier][0]
 
@@ -306,8 +355,8 @@ def main():
                   row["reads_after_t2t_phix"] == str(after_fastp), f"got {row['reads_after_t2t_phix']!r}")
 
         if args.profiling_method == "bowtie2":
-            check("positive reads_clb_genes_align == 8",
-                  rows.get(pos, {}).get("reads_clb_genes_align") == str(POSITIVE_EXPECTED_READS))
+            check(f"positive reads_clb_genes_align == {pos_reads}",
+                  rows.get(pos, {}).get("reads_clb_genes_align") == str(pos_reads))
             check("negative reads_clb_genes_align == 0",
                   rows.get(neg, {}).get("reads_clb_genes_align") == "0")
             for sample, tier in extra_samples:
@@ -329,28 +378,53 @@ def main():
                       row.get("extracted_unmapped_reads") == str(args.expect_extracted_unmapped_reads),
                       f"got {row.get('extracted_unmapped_reads')!r}")
 
-    # ---------- u-1: both mates of every fragment survive host depletion ----------
-    # This is the empirical version of the mate_pair_check_20260923 investigation:
-    # that investigation found no live bug, but had no real pipeline run to check
-    # against. This does. save_intermediates=true (set by check_e2e_execution.sh)
-    # publishes exactly the file checked here. Independent of --profiling-method: host
-    # depletion runs upstream of the align/hmm branch either way.
-    expected_pairs_by_sample = {pos: len(POSITIVE_EXPECTED_GENES), neg: NEGATIVE_PAIRS}
-    for sample, tier in extra_samples:
-        expected_pairs_by_sample[sample] = TIER_FIXTURE_EXPECTATIONS[tier][0] // 2
+    if args.single_end:
+        # ---------- single-end: every read survives host depletion, none duplicated ----------
+        # filterReads never mate-suffixes a single-file input (Modules/filter_reads.nf's
+        # input_list.size()==1 branch skips the awk tagging block entirely and calls
+        # fastp -i directly), so there is no mate to lose and mate_suffix_census's "every
+        # read id has a /1 or /2" assumption does not hold here -- it would raise on the
+        # first untagged read id. This is the single-end analogue: read identity and
+        # count survive host depletion intact, checked directly against the exact FASTQ
+        # bytes staged for the run rather than a fixture-side read count, so a real
+        # duplication or drop is caught even if it happened to preserve the total.
+        expected_names_by_sample = {pos: args.positive_source_fastq, neg: args.negative_source_fastq}
+        for sample, source_fastq in expected_names_by_sample.items():
+            depleted_path = results / "by_sample" / sample / "intermediates" / f"{sample}.host_depleted.fastq.gz"
+            check(f"{sample} host_depleted.fastq.gz (save_intermediates) exists", depleted_path.exists())
+            if not depleted_path.exists() or not source_fastq:
+                continue
+            source_names = read_names(Path(source_fastq))
+            depleted_names = read_names(depleted_path)
+            check(f"{sample}: every single-end read ({len(source_names)}) survives host depletion, "
+                  "none dropped, none duplicated",
+                  sorted(depleted_names) == sorted(source_names),
+                  f"source had {len(source_names)} reads, depleted has {len(depleted_names)}; "
+                  f"missing={sorted(set(source_names) - set(depleted_names))}, "
+                  f"extra={sorted(set(depleted_names) - set(source_names))}")
+    else:
+        # ---------- u-1: both mates of every fragment survive host depletion ----------
+        # This is the empirical version of the mate_pair_check_20260923 investigation:
+        # that investigation found no live bug, but had no real pipeline run to check
+        # against. This does. save_intermediates=true (set by check_e2e_execution.sh)
+        # publishes exactly the file checked here. Independent of --profiling-method: host
+        # depletion runs upstream of the align/hmm branch either way.
+        expected_pairs_by_sample = {pos: pos_reads // 2, neg: neg_reads // 2}
+        for sample, tier in extra_samples:
+            expected_pairs_by_sample[sample] = TIER_FIXTURE_EXPECTATIONS[tier][0] // 2
 
-    for sample, expected_pairs in expected_pairs_by_sample.items():
-        depleted_path = results / "by_sample" / sample / "intermediates" / f"{sample}.host_depleted.fastq.gz"
-        check(f"{sample} host_depleted.fastq.gz (save_intermediates) exists", depleted_path.exists())
-        if not depleted_path.exists():
-            continue
-        bases, suffixes = mate_suffix_census(depleted_path)
-        check(f"{sample}: every original fragment ({expected_pairs}) appears exactly twice after host depletion",
-              len(bases) == expected_pairs and set(bases.values()) == {2},
-              f"got {len(bases)} distinct fragments, counts {sorted(set(bases.values()))}")
-        check(f"{sample}: every fragment kept BOTH /1 and /2 (u-1 mate-suffix survival)",
-              all(mates == {"1", "2"} for mates in suffixes.values()),
-              f"got {[(k, sorted(v)) for k, v in suffixes.items() if v != {'1', '2'}]}")
+        for sample, expected_pairs in expected_pairs_by_sample.items():
+            depleted_path = results / "by_sample" / sample / "intermediates" / f"{sample}.host_depleted.fastq.gz"
+            check(f"{sample} host_depleted.fastq.gz (save_intermediates) exists", depleted_path.exists())
+            if not depleted_path.exists():
+                continue
+            bases, suffixes = mate_suffix_census(depleted_path)
+            check(f"{sample}: every original fragment ({expected_pairs}) appears exactly twice after host depletion",
+                  len(bases) == expected_pairs and set(bases.values()) == {2},
+                  f"got {len(bases)} distinct fragments, counts {sorted(set(bases.values()))}")
+            check(f"{sample}: every fragment kept BOTH /1 and /2 (u-1 mate-suffix survival)",
+                  all(mates == {"1", "2"} for mates in suffixes.values()),
+                  f"got {[(k, sorted(v)) for k, v in suffixes.items() if v != {'1', '2'}]}")
 
     # ---------- cohort-wide roll-ups exist and carry every sample ----------
     check_cohort_membership(results, all_samples, strict=bool(extra_samples))

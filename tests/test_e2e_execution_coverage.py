@@ -19,13 +19,17 @@ with every environment already cached, so it is not part of the fast tier
 
 Scope note: the first pass (commit 73ed947) covered paired FASTQ and BAM input,
 --sample_type tumor_wgs, --profiling_method bowtie2, positive and negative fixtures,
-and the u-1 mate-suffix survival check through host depletion. This follow-up closes
-the rest of Ludmil's wish list: CRAM input (extractReads' --cram_reference branch,
-validate_cram_reference.py's @SQ/MD5 check), --profiling_method hmm alone
-(pksProfilerHMM/hmm_best_hit.py, real nhmmscan hits and a real zero-hit run), and a
-5-sample cohort spanning broad_island/extensive_island/localized_indeterminate on top
-of the original multi_gene/negative pair, with exact (not just "both are present")
-cohort-membership checks on the roll-up tables.
+and the u-1 mate-suffix survival check through host depletion. The next pass closed
+CRAM input (extractReads' --cram_reference branch, validate_cram_reference.py's
+@SQ/MD5 check), --profiling_method hmm alone (pksProfilerHMM/hmm_best_hit.py, real
+nhmmscan hits and a real zero-hit run), and a 5-sample cohort spanning
+broad_island/extensive_island/localized_indeterminate on top of the original
+multi_gene/negative pair, with exact (not just "both are present") cohort-membership
+checks on the roll-up tables. F21's integration-coverage pass closes the last item,
+single-end FASTQ (fastq1 only, no fastq2) -- confirmed a real, already-supported input
+mode (preflight.py only requires fastq1; main.nf only adds fastq2 to the reads list
+when the column is non-empty) before adding coverage for it, per this repo's own stated
+preference for real coverage over speculative support.
 """
 import stat
 import unittest
@@ -114,6 +118,41 @@ class CramInputExecutionCoverage(unittest.TestCase):
     def test_it_checks_cram_output_with_the_same_f01_metric_as_bam(self):
         cram_section = self.script[self.script.index("Third input form: CRAM"):]
         self.assertIn("--expect-extracted-unmapped-reads 8", cram_section)
+
+
+class SingleEndInputExecutionCoverage(unittest.TestCase):
+    """F21: every run above is paired-end; this is the one closing single-end FASTQ."""
+
+    def setUp(self):
+        self.script = SCRIPT.read_text()
+        self.assertions = ASSERTIONS.read_text()
+
+    def test_it_runs_a_single_fastq1_only_sheet(self):
+        self.assertIn("patient,fastq1\\n", self.script)
+        # Must not be the two-column paired sheet header reused by accident.
+        se_section = self.script[self.script.index("single_end_sheet.csv"):]
+        self.assertNotIn("fastq2", se_section[:se_section.index("outdir")])
+
+    def test_it_does_not_invent_new_fixtures_for_single_end(self):
+        # No new FASTQ-generation call for single-end: it reuses one FASTQ half each
+        # of fixtures already validated for the paired-end runs above.
+        se_section = self.script[self.script.index("single-end FASTQ input"):]
+        self.assertIn("broad_R1.fastq.gz", se_section)
+        self.assertIn("negative_R1.fastq.gz", se_section)
+
+    def test_assertions_support_a_single_end_mode_distinct_from_the_mate_pair_check(self):
+        # u-1's mate-suffix check assumes every read id carries a /1 or /2; single-end
+        # input is never mate-suffixed at all (Modules/filter_reads.nf's
+        # input_list.size()==1 branch), so this must be a genuinely different check,
+        # not the paired one run over half as many reads.
+        self.assertIn("--single-end", self.assertions)
+        self.assertIn("read_names", self.assertions)
+
+    def test_single_end_expectations_are_overridable_not_hardcoded_paired_constants(self):
+        for flag in ("--positive-expected-reads", "--positive-expected-genes",
+                     "--positive-gene-names", "--negative-expected-reads"):
+            self.assertIn(flag, self.script)
+            self.assertIn(flag.replace("-", "_").lstrip("_"), self.assertions)
 
 
 class HmmProfilingExecutionCoverage(unittest.TestCase):

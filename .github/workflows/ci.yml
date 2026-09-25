@@ -59,8 +59,8 @@ jobs:
 
   # Ludmil's audit, u-3: a real (non -preview) execution, so bowtie2/minimap2/fastp/
   # samtools/nhmmscan interacting through the real Nextflow channel wiring is checked
-  # at least once, not just the graph. Five real pipeline runs now (paired FASTQ, BAM,
-  # CRAM, --profiling_method hmm, and a 5-sample cohort -- see
+  # at least once, not just the graph. Six real pipeline runs now (paired FASTQ, BAM,
+  # CRAM, single-end FASTQ, --profiling_method hmm, and a 5-sample cohort -- see
   # tests/check_e2e_execution.sh's own header for what each covers). Manual-only for
   # now, NOT on every push/PR: a GitHub-hosted runner has no persistent conda cache
   # (unlike CONDA_CACHE_DIR on TSCC, which already has every env this needs pre-built
@@ -107,6 +107,14 @@ jobs:
           # needs is solved and built fresh, into the runner's own temp space.
           CONDA_CACHE_DIR: ${{ runner.temp }}/conda_cache
         run: bash tests/check_e2e_execution.sh
+      - name: Run the real malformed-input execution check
+        # F21: a truncated BAM and a BAM with corrupted leading magic bytes, run
+        # alongside a healthy sample in one cohort -- same conda envs as the step
+        # above, so no additional setup.
+        shell: bash -l {0}
+        env:
+          CONDA_CACHE_DIR: ${{ runner.temp }}/conda_cache
+        run: bash tests/check_malformed_input_execution.sh
 
   # tests/check_metagenome_mag_execution.sh: a real (non -preview) execution of the
   # metagenome --enable_mags lane, sized so MetaBAT2 recovers zero real bins and the
