@@ -117,6 +117,36 @@ def read_contigs(results, out):
     return found
 
 
+# The columns read_mags() needs from pks_mag_summary.tsv (build_mag_summary.py's
+# FIELDNAMES). tests/test_master_summary.py builds that file with the real producer,
+# so a rename on either side fails a test instead of silently zeroing the table.
+MAG_SUMMARY_REQUIRED = ("unit_type", "taxonomy", "completeness",
+                        "locus_tier", "locus_genes_detected", "locus_breadth")
+LOCUS_TIER_ORDER = ("multi_gene", "broad_island", "extensive_island")
+
+
+def int_or_zero(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def float_or_zero(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def locus_rank(b):
+    """Strongest locus evidence first: tier, then genes detected, then breadth."""
+    tier = b.get("locus_tier")
+    return (LOCUS_TIER_ORDER.index(tier) if tier in LOCUS_TIER_ORDER else -1,
+            int_or_zero(b.get("locus_genes_detected")),
+            float_or_zero(b.get("locus_breadth")))
+
+
 def read_mags(results, out):
     found = False
     for path in glob.glob(f"{results}/by_sample/*/genomes/pks_mag_summary.tsv"):
@@ -133,18 +163,26 @@ def read_mags(results, out):
         bins = [b for b in all_rows if b.get("unit_type", "bin") != "unbinned"]
         unbinned = next((b for b in all_rows if b.get("unit_type") == "unbinned"), None)
 
-        def genes(b):
-            try:
-                return int(b.get("distinct_clb_genes") or b.get("clb_genes") or 0)
-            except ValueError:
-                return 0
-        positive = [b for b in bins if genes(b) > 0]
-        best = max(positive, key=genes) if positive else None
+        # Ludmil, 2026-09-25 report P0-2: this read distinct_clb_genes/clb_genes and
+        # classification/host_taxonomy -- columns build_mag_summary.py no longer writes
+        # (clb_genes is now a comma-joined name list, so int() failed and returned 0),
+        # and called a bin positive on HMM gene count. Every current-schema bin therefore
+        # read as negative: mag_bins_pks_positive 0, best None, taxonomy NA. Positivity is
+        # the alignment-confirmed canonical-locus tier, the same rule the MAG lane and
+        # the cohort report use; a file without that column is refused, not guessed at.
+        missing = [c for c in MAG_SUMMARY_REQUIRED if bins and c not in bins[0]]
+        if missing:
+            sys.exit(f"ERROR: {path} lacks {', '.join(missing)}: it predates the "
+                     "locus-tier MAG schema (scripts/build_mag_summary.py). Rebuild it "
+                     "rather than summarising it with the wrong positivity rule.")
+
+        positive = [b for b in bins if b.get("locus_tier") in POSITIVE_LOCUS_TIERS]
+        best = max(positive, key=locus_rank) if positive else None
         out[sample]["mag_bins_total"] = str(len(bins))
         out[sample]["mag_bins_pks_positive"] = str(len(positive))
-        out[sample]["pks_mag_taxonomy"] = (best or {}).get("classification") or (best or {}).get("host_taxonomy") or "NA"
-        out[sample]["pks_mag_completeness"] = (best or {}).get("completeness", "NA")
-        out[sample]["pks_mag_clb_genes"] = str(genes(best)) if best else "0"
+        out[sample]["pks_mag_taxonomy"] = (best or {}).get("taxonomy") or "NA"
+        out[sample]["pks_mag_completeness"] = (best or {}).get("completeness") or "NA"
+        out[sample]["pks_mag_clb_genes"] = str(int_or_zero(best.get("locus_genes_detected"))) if best else "0"
 
         # U1: kept apart from the bin columns above by construction -- see MAG_COLUMNS.
         if unbinned is not None:

@@ -113,8 +113,13 @@ Column groups appear only when the stage that produces them ran:
 | community context | `community_prophages_total`, `community_pks_producers`, `community_neighbours_assessed`, `community_neighbours_with_prophage`, `island_nearby_integrase`, `island_nearby_trna`, `island_in_prophage` |
 | strain typing | `typing_status`, `ST`, `clonal_complex`, `phylogroup` |
 
-Where a sample has several draft genomes, the reported one is the *pks*-positive genome
-carrying the most *clb* genes. A sample that was profiled and found negative keeps its
+A draft genome counts as *pks*-positive when its own assembly aligns across the canonical
+island at a positive locus tier (`multi_gene`, `broad_island` or `extensive_island`, from
+`locus_tier` in `pks_mag_summary.tsv`). HMM domain hits alone do not make a genome positive.
+`mag_bins_total` counts every recovered bin. Where a sample has several positive genomes,
+the reported one has the strongest locus tier, then the most canonical-locus *clb* genes
+(`pks_mag_clb_genes` is that count), then the greatest island breadth. Contigs that were never
+binned are reported separately (`mag_unbinned_*`) and are never counted as a genome. A sample that was profiled and found negative keeps its
 row, with `NA` in the later groups.
 
 ## Primary result files

@@ -5,6 +5,7 @@ so the width of the table tells you what the run actually did.
 """
 import csv
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,58 @@ def write(path, header, rows, delim="\t"):
         w = csv.writer(fh, delimiter=delim)
         w.writerow(header)
         w.writerows(rows)
+
+
+MAG_PRODUCER = ROOT / "scripts/build_mag_summary.py"
+
+
+def mag_summary_via_producer(root, sample, bins, unbinned=None):
+    """Write by_sample/<sample>/genomes/pks_mag_summary.tsv by running the real producer.
+
+    Ludmil, 2026-09-25 report P0-2: these tests used to hand-write that file in a schema
+    the producer had stopped writing (distinct_clb_genes, classification), so they kept
+    passing while the reader returned zero positive MAGs for every real run. Building it
+    with build_mag_summary.py makes this a producer-to-consumer contract test.
+
+    bins: [(bin_id, taxonomy, completeness, hmm_genes, locus_tier, locus_genes, breadth)]
+    unbinned: (locus_tier, locus_genes, breadth) or None
+    """
+    work = root / "_mag_producer" / sample
+    shutil.rmtree(work, ignore_errors=True)  # a test's own tempdir: start each call fresh
+    for d in ("tblout", "context", "locus"):
+        (work / d).mkdir(parents=True, exist_ok=True)
+    header = "sample\tbin_id\tlocus_tier\tlocus_genes_detected\tlocus_genes\tlocus_breadth\n"
+    checkm2 = ["Name\tCompleteness\tContamination\tGenome_Size\tContig_N50"]
+    gtdbtk = ["user_genome\tclassification"]
+    for bin_id, taxonomy, completeness, hmm_genes, tier, n_genes, breadth in bins:
+        checkm2.append(f"{bin_id}\t{completeness}\t1.0\t4500000\t100000")
+        gtdbtk.append(f"{bin_id}\t{taxonomy}")
+        lines = ["#"] + [f"{bin_id}_{i}\t-\t{g}\t-\t1e-10\t35.0\t0.0\t1.5e-10\t34.8\t0.0"
+                         "\t1.0\t1\t1\t1\t200\t10\t205\t8\t207\t0.95\thit"
+                         for i, g in enumerate(hmm_genes, 1)]
+        (work / "tblout" / f"{bin_id}.tblout").write_text("\n".join(lines) + "\n")
+        (work / "locus" / f"{bin_id}.locus_evidence.tsv").write_text(
+            header + f"{sample}\t{bin_id}\t{tier}\t{n_genes}\tclbA\t{breadth}\n")
+    if unbinned is not None:
+        tier, n_genes, breadth = unbinned
+        (work / "locus" / "unbinned.locus_evidence.tsv").write_text(
+            header + f"{sample}\tunbinned\t{tier}\t{n_genes}\tclbA\t{breadth}\n")
+    (work / "checkm2.tsv").write_text("\n".join(checkm2) + "\n")
+    (work / "gtdbtk.tsv").write_text("\n".join(gtdbtk) + "\n")
+    out = root / "by_sample" / sample / "genomes" / "pks_mag_summary.tsv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([sys.executable, str(MAG_PRODUCER),
+                    "--checkm2", str(work / "checkm2.tsv"), "--gtdbtk", str(work / "gtdbtk.tsv"),
+                    "--tblout_dir", str(work / "tblout"), "--context_dir", str(work / "context"),
+                    "--locus_dir", str(work / "locus"), "--sample", sample,
+                    "--out", str(out)],
+                   check=True, capture_output=True, text=True,
+                   env={**os.environ, "PYTHONPATH": str(ROOT / "scripts")})
+    return out
+
+
+ECOLI = "d__Bacteria;o__Enterobacterales;s__Escherichia coli"
+BFRAG = "d__Bacteria;o__Bacteroidales;s__Bacteroides fragilis"
 
 
 def minimal(root):
@@ -45,10 +98,10 @@ def add_everything(root):
            "recruited_fragment_ids", "paired_fragments"],
           [["S1", "near_complete_island", "both", "412", "0.812000", "3",
             "398", "0.789000", "2", "9", "3"]])
-    write(root / "by_sample/S1/genomes/pks_mag_summary.tsv",
-          ["sample", "bin_id", "classification", "completeness", "distinct_clb_genes"],
-          [["S1", "bin.1", "d__Bacteria;s__Escherichia coli", "96.4", "17"],
-           ["S1", "bin.2", "d__Bacteria;s__Bacteroides fragilis", "88.1", "0"]])
+    mag_summary_via_producer(root, "S1", [
+        ("bin.1", ECOLI, "96.4", ["clbA", "clbB", "clbN"], "extensive_island", 17, "0.910000"),
+        ("bin.2", BFRAG, "88.1", [], "negative", 0, "0.000000"),
+    ])
     write(root / "by_sample/S1/community/community_prophage_inventory.tsv",
           ["sample", "bin_id", "prophage_id"],
           [["S1", "bin.2", "p1"], ["S1", "bin.2", "p2"]])
@@ -130,6 +183,48 @@ class MasterSummaryTests(unittest.TestCase):
         # bin.2 is more numerous in the file but carries no clb genes; bin.1 must win.
         self.assertNotIn("Bacteroides", s1["pks_mag_taxonomy"])
 
+    def test_positivity_is_the_locus_tier_not_the_hmm_gene_count(self):
+        """P0-2: an HMM-rich, locus-negative bin is not a pks+ MAG, and an
+        HMM-negative, locus-positive one is (P0-3 keeps it in the file)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); minimal(root); add_everything(root)
+            mag_summary_via_producer(root, "S1", [
+                ("bin.1", BFRAG, "90.0", ["clbA", "clbB", "clbC", "clbD"], "negative", 0, "0.000000"),
+                ("bin.2", ECOLI, "95.0", [], "broad_island", 9, "0.150000"),
+            ])
+            rows, _ = run(root)
+        s1 = next(r for r in rows if r["sample"] == "S1")
+        self.assertEqual(s1["mag_bins_total"], "2")
+        self.assertEqual(s1["mag_bins_pks_positive"], "1")
+        self.assertIn("Escherichia coli", s1["pks_mag_taxonomy"])
+        self.assertEqual(s1["pks_mag_clb_genes"], "9")
+        self.assertEqual(s1["pks_mag_completeness"], "95.0")
+
+    def test_the_strongest_locus_tier_wins_among_positive_bins(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); minimal(root); add_everything(root)
+            mag_summary_via_producer(root, "S1", [
+                ("bin.1", BFRAG, "90.0", [], "multi_gene", 12, "0.050000"),
+                ("bin.2", ECOLI, "95.0", [], "extensive_island", 18, "0.950000"),
+            ])
+            rows, _ = run(root)
+        s1 = next(r for r in rows if r["sample"] == "S1")
+        self.assertEqual(s1["mag_bins_pks_positive"], "2")
+        self.assertIn("Escherichia coli", s1["pks_mag_taxonomy"])
+        self.assertEqual(s1["pks_mag_clb_genes"], "18")
+
+    def test_a_pre_locus_schema_file_is_refused_not_misread(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); minimal(root); add_everything(root)
+            write(root / "by_sample/S1/genomes/pks_mag_summary.tsv",
+                  ["sample", "bin_id", "classification", "completeness", "distinct_clb_genes"],
+                  [["S1", "bin.1", ECOLI, "96.4", "17"]])
+            r = subprocess.run([sys.executable, str(SCRIPT), "--results", str(root),
+                                "--output", str(root / "o.tsv")],
+                               capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("predates the locus-tier MAG schema", r.stderr)
+
     def test_unbinned_row_is_reported_but_never_counted_as_a_bin(self):
         """U1: pks_mag_summary.tsv can carry an extra unit_type=unbinned row for the
         per-sample pool of contigs MetaBAT2 never placed in any bin -- a positive call
@@ -139,12 +234,10 @@ class MasterSummaryTests(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); minimal(root); add_everything(root)
-            write(root / "by_sample/S1/genomes/pks_mag_summary.tsv",
-                  ["sample", "bin_id", "unit_type", "classification", "completeness",
-                   "distinct_clb_genes", "locus_tier"],
-                  [["S1", "bin.1", "bin", "d__Bacteria;s__Escherichia coli", "96.4", "17", "extensive_island"],
-                   ["S1", "bin.2", "bin", "d__Bacteria;s__Bacteroides fragilis", "88.1", "0", "negative"],
-                   ["S1", "unbinned", "unbinned", "NA", "NA", "NA", "broad_island"]])
+            mag_summary_via_producer(root, "S1", [
+                ("bin.1", ECOLI, "96.4", ["clbA"], "extensive_island", 17, "0.910000"),
+                ("bin.2", BFRAG, "88.1", [], "negative", 0, "0.000000"),
+            ], unbinned=("broad_island", 9, "0.180000"))
             rows, _ = run(root)
         s1 = next(r for r in rows if r["sample"] == "S1")
         # Still 2, not 3: the unbinned row is not a bin.
@@ -164,9 +257,7 @@ class MasterSummaryTests(unittest.TestCase):
     def test_a_negative_unbinned_tier_reads_as_not_positive(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); minimal(root); add_everything(root)
-            write(root / "by_sample/S1/genomes/pks_mag_summary.tsv",
-                  ["sample", "bin_id", "unit_type", "locus_tier"],
-                  [["S1", "unbinned", "unbinned", "negative"]])
+            mag_summary_via_producer(root, "S1", [], unbinned=("negative", 0, "0.000000"))
             rows, _ = run(root)
         s1 = next(r for r in rows if r["sample"] == "S1")
         self.assertEqual(s1["mag_bins_total"], "0")
