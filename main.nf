@@ -654,14 +654,24 @@ workflow {
         MAP_OUT.qc.map { _sampleID, qc_file -> qc_file }
     )
 
-    // masterSummary's own gate: build_master_summary.py also reads MAG,
-    // community/prophage, and strain-typing output, which cohortReport never
-    // needs to wait on. Declared before the earliest branch that can mix into
+    // Gate for the MAG, community/prophage and strain-typing lanes. Both
+    // masterSummary and cohortReport wait on it: build_master_summary.py reads all
+    // three, and build_cohort_report.py renders the MAG bins and prophage context. Declared before the earliest branch that can mix into
     // it (this MAG-assembly one, ahead of even cohort_report_gate's own
     // reassignment further down) -- masterSummary reads it unconditionally,
     // and a run with none of these optional lanes enabled genuinely has
     // nothing to wait on.
     def optional_lane_gate = channel.empty()
+
+    // Ludmil, 2026-09-25 report P0-5: cohortReport renders more than cohort_report_gate
+    // waited for -- MAG bins and the unbinned pool (pks_mag_summary.tsv), prophage
+    // context, DIAMOND-rescue taxonomy, the clb species-support table and every
+    // per-sample figure -- so on a run where those lanes finish after read evidence,
+    // the report could be built, and published, without them. Every producer of a file
+    // build_cohort_report.py reads mixes into this gate as well. Declared here, ahead of
+    // the first producer, and never reassigned (cohort_report_gate is reassigned in the
+    // alignment branch, which would drop anything mixed into it before that point).
+    def report_display_gate = channel.empty()
 
     // ---------- v0.0.2: preserve the complete host-depleted stream for MAG assembly ----------
     // Branched before profiling so genome-resolved analysis sees every host-depleted read.
@@ -845,6 +855,7 @@ workflow {
             DIAMOND_RESCUE_OUT.matches
                 .join(KRAKEN_PREFILTER_OUT.taxonomy.map { sampleID, _report, output -> tuple(sampleID, output) })
         )
+        report_display_gate = report_display_gate.mix(diamondRescueTaxonomy.out)
 
         CANDIDATE_OUT = mergePksCandidates(
             KRAKEN_PREFILTER_OUT.primary
@@ -856,6 +867,7 @@ workflow {
 
         if (pks_community_taxa_b) {
             plotCommunityTaxa(sampleBracken(KRAKEN_PREFILTER_OUT.taxonomy).reports)
+            report_display_gate = report_display_gate.mix(plotCommunityTaxa.out)
         }
         // Profiling now runs on a narrowed stream while assembly still uses the complete
         // one, so read-level and assembly-level clb evidence for the same sample are
@@ -954,6 +966,7 @@ workflow {
             .set { COVERAGE_BEDGRAPH }
 
         plotPKS(COVERAGE_BEDGRAPH)
+        report_display_gate = report_display_gate.mix(plotPKS.out)
     }
 
 	// ---------- STEP 3b: Optional PKS-island taxa profiling (align only) ----------
@@ -1007,6 +1020,7 @@ workflow {
 	    .set { BRACKEN_GS_REPORTS }
 
 		plotPKSTaxa(BRACKEN_GS_REPORTS)
+		report_display_gate = report_display_gate.mix(plotPKSTaxa.out, combineClbTaxonomySupport.out)
 
 	
 		BRACKEN_PER_SAMPLE
@@ -1092,7 +1106,12 @@ workflow {
     // v0.0.1 thresholds and could disagree with the run it described.
     def cohort_report_script = file("${params.scripts}/build_cohort_report.py",
                                     checkIfExists: true)
-    cohortReport(masterQCSummary.out.mix(cohort_report_gate).collect(),
+    // Waits for every lane whose output the report displays: read evidence, gene
+    // counts and targeted assembly (cohort_report_gate); MAG, community and strain
+    // summaries (optional_lane_gate); rescue taxonomy, species support and figures
+    // (report_display_gate).
+    cohortReport(masterQCSummary.out.mix(cohort_report_gate, optional_lane_gate,
+                                          report_display_gate).collect(),
                  cohort_report_script,
                  EXPECTED_SAMPLE_IDS)
 
@@ -1101,7 +1120,8 @@ workflow {
     // post-run script. Automated on the same pattern as cohortReport above --
     // cohort_report_gate covers the align + targeted-assembly lanes it shares
     // with the HTML report; optional_lane_gate covers the MAG/community/
-    // strain-typing lanes the HTML report never reads.
+    // strain-typing lanes (the HTML report reads the MAG and community ones too,
+    // and waits on this gate as well since P0-5).
     def master_summary_script = file("${params.scripts}/build_master_summary.py",
                                      checkIfExists: true)
     masterSummary(masterQCSummary.out.mix(cohort_report_gate).mix(optional_lane_gate).collect(),

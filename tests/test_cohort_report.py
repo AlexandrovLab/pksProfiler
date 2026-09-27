@@ -264,7 +264,47 @@ class TheCohortReportTaskWaitsForWhatItReads(unittest.TestCase):
         qc_pos = body.index("masterQCSummary(")
         self.assertIn("EXPECTED_SAMPLE_IDS", body[qc_pos:qc_pos + 300])
         report_pos = body.index("cohortReport(")
-        self.assertIn("EXPECTED_SAMPLE_IDS", body[report_pos:report_pos + 150])
+        self.assertIn("EXPECTED_SAMPLE_IDS", body[report_pos:report_pos + 300])
+
+    # Ludmil, 2026-09-25 report P0-5: every file build_cohort_report.py reads, and the
+    # process whose completion publishes it. The report must wait for each of them.
+    DISPLAYED_PRODUCERS = {
+        "genomes/pks_mag_summary.tsv": "optional_lane_gate",
+        "community/community_prophage_inventory.tsv": "optional_lane_gate",
+        "prefilter/diamond_rescue_taxonomy.tsv": "diamondRescueTaxonomy",
+        "cohort/taxonomy/pks.clb_species_support.tsv": "combineClbTaxonomySupport",
+        "figures/circos.pdf": "plotPKS",
+        "figures (island taxa)": "plotPKSTaxa",
+        "figures (community taxa)": "plotCommunityTaxa",
+    }
+
+    def test_the_report_waits_on_all_three_gates(self):
+        body = MAIN.split("workflow {", 1)[1]
+        call = body[body.index("cohortReport("):]
+        call = call[:call.index(".collect()")]
+        for gate in ("cohort_report_gate", "optional_lane_gate", "report_display_gate"):
+            with self.subTest(gate=gate):
+                self.assertIn(gate, call)
+
+    def test_every_displayed_producer_feeds_a_gate(self):
+        body = MAIN.split("workflow {", 1)[1]
+        mixes = [line for line in body.splitlines() if "report_display_gate.mix(" in line]
+        for path, producer in self.DISPLAYED_PRODUCERS.items():
+            if producer == "optional_lane_gate":
+                continue
+            with self.subTest(path=path):
+                self.assertTrue(any(f"{producer}.out" in line for line in mixes),
+                                f"{producer} publishes {path} but no gate waits for it")
+
+    def test_the_display_gate_is_never_reassigned(self):
+        body = MAIN.split("workflow {", 1)[1]
+        import re
+        assignments = re.findall(r"report_display_gate\s*=\s*(\S+)", body)
+        self.assertTrue(assignments)
+        for rhs in assignments:
+            with self.subTest(rhs=rhs):
+                self.assertTrue(rhs.startswith("channel.empty()") or
+                                rhs.startswith("report_display_gate.mix("), rhs)
 
     def test_the_process_declares_and_passes_the_expected_samples_input(self):
         process = PLOTTING.split("process cohortReport {", 1)[1].split("\nprocess ", 1)[0]
