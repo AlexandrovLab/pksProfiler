@@ -398,7 +398,7 @@ class RecruitmentStatsSurfaceInTheContigHoverText(unittest.TestCase):
         self.assertIn("9 fragments recruited, 3 paired", html_path.read_text())
 
 
-MAG_SUMMARY_HEADER = ("sample\tbin_id\ttaxonomy\tcompleteness\tcontamination\tgenome_size\t"
+MAG_SUMMARY_HEADER = ("sample\tbin_id\tunit_type\ttaxonomy\tcompleteness\tcontamination\tgenome_size\t"
                      "contig_n50\tclb_genes_detected\tclb_genes\tbest_evalue\thas_integrase\t"
                      "has_transposase\tflanking_genes\tunexpected_taxon_flag\tlocus_tier\t"
                      "locus_genes_detected\tlocus_breadth\n")
@@ -424,7 +424,7 @@ class GenomeBinsPanel(unittest.TestCase):
         genomes.mkdir(parents=True, exist_ok=True)
         (genomes / "pks_mag_summary.tsv").write_text(
             MAG_SUMMARY_HEADER +
-            "S_ext\tbin_001\td__Bacteria;o__Enterobacterales;s__Escherichia coli\t"
+            "S_ext\tbin_001\tbin\td__Bacteria;o__Enterobacterales;s__Escherichia coli\t"
             "92.5\t1.2\t4500000\t125000\t10\tclbA,clbB\t1e-20\tTrue\tFalse\tgyrB\tFalse\t"
             "broad_island\t9\t0.09\n")
         community = self.results / "by_sample/S_ext/community"
@@ -479,7 +479,7 @@ class GenomeBinsPanel(unittest.TestCase):
         genomes.mkdir(parents=True, exist_ok=True)
         (genomes / "pks_mag_summary.tsv").write_text(
             MAG_SUMMARY_HEADER +
-            "S_broad\tbin_002\tunclassified\t50.0\t2.0\t3000000\t50000\t2\tclbA\t1e-8\t"
+            "S_broad\tbin_002\tbin\tunclassified\t50.0\t2.0\t3000000\t50000\t2\tclbA\t1e-8\t"
             "False\tFalse\t\tFalse\tNA\tNA\tNA\n")
         by_sample = {r["sample"]: r for r in report.collect(self.results)}
         self.assertEqual(by_sample["S_broad"]["bins"][0]["locus_tier"], "NA")
@@ -488,6 +488,59 @@ class GenomeBinsPanel(unittest.TestCase):
                         "--output", str(html)], capture_output=True, text=True)
         self.assertIn("Not aligned", html.read_text())
 
+
+    def test_the_fixture_header_is_the_producers_header(self):
+        # A hand-written schema that drifted from build_mag_summary.py is how the master
+        # summary's P0-2 bug stayed green; keep this fixture tied to the producer.
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import build_mag_summary
+        self.assertEqual(MAG_SUMMARY_HEADER.rstrip("\n").split("\t"),
+                         build_mag_summary.FIELDNAMES)
+
+    def write_s_ext(self, *rows):
+        (self.results / "by_sample/S_ext/genomes/pks_mag_summary.tsv").write_text(
+            MAG_SUMMARY_HEADER + "".join(rows))
+
+    UNBINNED_ROW = ("S_ext\tunbinned\tunbinned\tNA\tNA\tNA\tNA\tNA\tNA\t\tNA\tNA\tNA\t\tNA\t"
+                    "broad_island\t9\t0.18\n")
+
+    def test_the_unbinned_pool_is_not_a_genome_bin(self):
+        """Ludmil, 2026-09-25 report P0-4."""
+        self.write_s_ext(
+            "S_ext\tbin_001\tbin\td__Bacteria;o__Enterobacterales;s__Escherichia coli\t"
+            "92.5\t1.2\t4500000\t125000\t10\tclbA,clbB\t1e-20\tTrue\tFalse\tgyrB\tFalse\t"
+            "negative\t0\t0.0\n", self.UNBINNED_ROW)
+        record = {r["sample"]: r for r in report.collect(self.results)}["S_ext"]
+        self.assertEqual([b["bin_id"] for b in record["bins"]], ["bin_001"])
+        self.assertEqual(record["unbinned"]["locus_tier"], "broad_island")
+        html = Path(self.tmp.name) / "report_unbinned.html"
+        subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.results),
+                        "--output", str(html)], capture_output=True, text=True, check=True)
+        text = html.read_text()
+        self.assertIn("1 bin, 0 pks+ (+ unbinned pks+)", text)
+        self.assertIn("not a genome bin and not a carrier attribution", text)
+        self.assertNotIn("<td>unbinned</td>", text)
+
+    def test_an_unbinned_pool_alone_still_gets_a_panel_but_zero_bins(self):
+        self.write_s_ext(self.UNBINNED_ROW)
+        record = {r["sample"]: r for r in report.collect(self.results)}["S_ext"]
+        self.assertEqual(record["bins"], [])
+        html = Path(self.tmp.name) / "report_unbinned_only.html"
+        subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.results),
+                        "--output", str(html)], capture_output=True, text=True, check=True)
+        self.assertIn("0 bins, 0 pks+ (+ unbinned pks+)", html.read_text())
+
+    def test_unmeasured_completeness_reads_na_not_zero_percent(self):
+        self.write_s_ext(
+            "S_ext\tbin_001\tbin\tunclassified\tNA\tNA\tNA\tNA\t0\t\tNA\tFalse\tFalse\t\tFalse\t"
+            "broad_island\t9\t0.09\n")
+        record = {r["sample"]: r for r in report.collect(self.results)}["S_ext"]
+        self.assertIsNone(record["bins"][0]["completeness"])
+        html = Path(self.tmp.name) / "report_na.html"
+        subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.results),
+                        "--output", str(html)], capture_output=True, text=True, check=True)
+        self.assertNotIn("<td>0.0%</td>", html.read_text())
+        self.assertIn("<td>NA</td>", html.read_text())
 
 class DiamondRescueTaxonomyPanel(unittest.TestCase):
     """Item 2: DIAMOND-rescued reads, joined back to their krakenPrefilter organism.

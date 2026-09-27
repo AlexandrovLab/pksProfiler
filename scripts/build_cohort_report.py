@@ -135,19 +135,41 @@ def mag_bins(sample_dir):
         bin_id = row.get("bin_id", "")
         prophage_regions[bin_id] = prophage_regions.get(bin_id, 0) + 1
 
+    # Ludmil, 2026-09-25 report P0-4: the unbinned pseudo-row (contigs MetaBAT2 never
+    # placed in a bin) was rendered as one more genome bin, so community-level evidence
+    # could be read as a reconstructed carrier genome; and completeness went through
+    # number(), which turns NA into 0.0 -- printed as "0.0%", a measured empty genome.
+    # Bins are genomes only; the unbinned pool is returned separately by
+    # mag_unbinned(); completeness stays None when it was not measured.
     bins = []
     for row in read_tsv(sample_dir / "genomes/pks_mag_summary.tsv"):
+        if row.get("unit_type", "bin") == "unbinned":
+            continue
         bin_id = row.get("bin_id", "")
         bins.append({
             "bin_id": bin_id,
             "taxonomy": row.get("taxonomy", "unclassified"),
-            "completeness": number(row.get("completeness")),
+            "completeness": number(row.get("completeness"), default=None),
             "locus_tier": row.get("locus_tier") or "NA",
             "locus_genes_detected": row.get("locus_genes_detected", "NA"),
             "locus_breadth": row.get("locus_breadth", "NA"),
             "prophage_regions": prophage_regions.get(bin_id, 0),
         })
     return bins
+
+
+def mag_unbinned(sample_dir):
+    """The unbinned-contig pool's locus evidence, or None.
+
+    Community-level evidence: clb sequence on contigs that no recovered genome
+    contains. Never a genome bin and never a carrier attribution.
+    """
+    for row in read_tsv(sample_dir / "genomes/pks_mag_summary.tsv"):
+        if row.get("unit_type") == "unbinned":
+            return {"locus_tier": row.get("locus_tier") or "NA",
+                    "locus_genes_detected": row.get("locus_genes_detected", "NA"),
+                    "locus_breadth": row.get("locus_breadth", "NA")}
+    return None
 
 
 def diamond_rescue_reads(sample_dir):
@@ -219,6 +241,7 @@ def collect(results, expected=None):
                         sorted((by_sample / sample / "figures").glob("*"))
                         if p.is_file() and not p.name.startswith(".")],
             "bins": mag_bins(by_sample / sample),
+            "unbinned": mag_unbinned(by_sample / sample),
             "diamond_rescue": diamond_rescue_reads(by_sample / sample),
         })
 
@@ -369,9 +392,12 @@ def svg_matrix(records):
         if not record["figures"]:
             out.append(f'<text x="{FIG_X}" y="{y}" class="n" style="fill:#bbb">none</text>')
 
-        if record["bins"]:
+        if record["bins"] or record.get("unbinned"):
             positive = sum(1 for b in record["bins"] if b["locus_tier"] in POSITIVE_LOCUS_TIERS)
             label = f'{len(record["bins"])} bin{"s" if len(record["bins"]) != 1 else ""}, {positive} pks+'
+            unbinned = record.get("unbinned")
+            if unbinned and unbinned["locus_tier"] in POSITIVE_LOCUS_TIERS:
+                label += " (+ unbinned pks+)"
             anchor = detail_anchor("bins", record["sample"])
             out.append(f'<a href="#{esc(anchor)}"><title>open per-bin evidence</title>'
                        f'<text x="{BIN_X}" y="{y}" class="n" '
@@ -441,12 +467,28 @@ def prophage_note(count):
     return f"yes, {count} region{'s' if count != 1 else ''}"
 
 
+def completeness_or_na(value):
+    return "NA" if value is None else f"{value:.1f}%"
+
+
+def unbinned_note(record):
+    unbinned = record.get("unbinned")
+    if not unbinned:
+        return ""
+    return (f'<p class="n">Unbinned contigs (community-level evidence; not a genome bin and '
+            f'not a carrier attribution): locus tier '
+            f'<span class="tierbadge" style="background:{TIER_FILL.get(unbinned["locus_tier"], "#d9d9d9")};'
+            f'color:{TIER_INK.get(unbinned["locus_tier"], "white")}">'
+            f'{esc(TIER_LABEL.get(unbinned["locus_tier"], unbinned["locus_tier"]))}</span>, '
+            f'breadth {esc(pct_or_na(unbinned["locus_breadth"]))}.</p>')
+
+
 def bin_table(record):
     if not record["bins"]:
-        return ""
+        return unbinned_note(record)
     rows = "".join(
         f'<tr><td>{esc(b["bin_id"])}</td><td>{esc(b["taxonomy"])}</td>'
-        f'<td>{b["completeness"]:.1f}%</td>'
+        f'<td>{completeness_or_na(b["completeness"])}</td>'
         f'<td><span class="tierbadge" style="background:{TIER_FILL.get(b["locus_tier"], "#d9d9d9")};'
         f'color:{TIER_INK.get(b["locus_tier"], "white")}">'
         f'{esc(TIER_LABEL.get(b["locus_tier"], b["locus_tier"]))}</span></td>'
@@ -455,7 +497,8 @@ def bin_table(record):
         for b in record["bins"])
     return (f'<table class="detail"><thead><tr><th>Bin</th><th>Taxonomy</th>'
             f'<th>Completeness</th><th>Locus tier</th><th>Locus breadth</th>'
-            f'<th>Prophage-associated</th></tr></thead><tbody>{rows}</tbody></table>')
+            f'<th>Prophage-associated</th></tr></thead><tbody>{rows}</tbody></table>'
+            + unbinned_note(record))
 
 
 def rescue_table(record):
@@ -480,7 +523,7 @@ def detail_panels(records):
     """
     panels = []
     for record in records:
-        if record["bins"]:
+        if record["bins"] or record.get("unbinned"):
             anchor = detail_anchor("bins", record["sample"])
             panels.append(
                 f'<div class="figpanel" id="{esc(anchor)}">'
