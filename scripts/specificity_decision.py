@@ -1,0 +1,409 @@
+#!/usr/bin/env python3
+"""Decision rule for the read-level pks competitive-remapping specificity check.
+
+Combines Arm A (KrakenUniq reclassification against a true+decoy panel) and Arm B
+(competitive_realign_score.py's dual-index alignment-score-margin verdict) with the
+sample's existing read_evidence.tsv (classify_tumor_pks_evidence.py's tier call) to
+answer one question: does the pipeline's read-level pks-positive call survive being
+re-checked against a panel of pks-negative decoys, or is it indistinguishable from
+cross-mapping onto conserved megasynthase domains that clbB/clbC/clbH/clbI/clbJ/clbK/
+clbN/clbO share with unrelated bacterial secondary-metabolite clusters (the same
+domain-homology failure M1 already caught once at the assembled-MAG-bin level --
+see tests/test_pks_positive_definition.py)?
+
+A read survives only if BOTH arms confirm it independently:
+  * Arm A: its KrakenUniq LCA assignment resolves specifically to the pks+ clade
+    (not collapsed to genus/family) at or above --arm-a-min-confidence, AND its
+    unique-k-mer count is at or above --arm-a-min-unique-kmers (KrakenUniq's own
+    statistic for "how much of this call rests on broad unique coverage versus a
+    handful of shared conserved k-mers").
+  * Arm B: competitive_realign_score.py classified it "confirmed_true".
+
+From the surviving set:
+  N_supporting  = pks_reads from the original read_evidence.tsv (the read set Arm A/B
+                  were run on -- reads already passing the pipeline's own MAPQ>=40-vs-
+                  IHE3034 filter; this check never re-runs primary detection)
+  N_survive     = reads confirmed by both arms
+  R             = N_survive / N_supporting, with a bootstrap 95% CI (resampling reads
+                  with replacement, default 1000 iterations, stdlib `random` only)
+  recomputed tier   = classify_tumor_pks_evidence.classify() on survivor reads only,
+                      so tier recomputation is the pipeline's own definition, not a
+                      reinvented parallel one. Needs survivor read counts, survivor
+                      clb-gene coverage (from --read-gene-assignment, the same
+                      read-to-gene file assign_reads_to_genes.py already produces),
+                      and survivor island breadth. Breadth is EXACT when
+                      --survivor-depth is given (a samtools-depth-shaped file over
+                      the survivor-only read set, same schema classify_tumor_pks_
+                      evidence.breadths() already reads); otherwise it is
+                      APPROXIMATED from summed read-to-gene overlap_bp among
+                      survivors divided by island length, which is monotonically
+                      non-increasing as reads are dropped (same direction as the
+                      true quantity) but double-counts overlapping reads, so it is
+                      reported with breadth_source=approximate rather than silently
+                      passed off as the real thing.
+  non-megasynthase breadth = how many of clbA/clbD/clbG/clbM/clbP/clbQ/clbS (the pks-
+                      specific genes that do NOT share the megasynthase genes' broadly
+                      conserved domains) still have >=1 survivor read assigned.
+
+Verdict:
+  UNDERPOWERED                          N_supporting < --min-supporting-reads,
+                                         regardless of the point estimate.
+  SURVIVES                              R >= --retention-threshold AND its CI lower
+                                         bound >= --retention-ci-lower-threshold AND
+                                         the recomputed tier drops by at most
+                                         --max-tier-drop AND non-megasynthase breadth
+                                         covers >= --non-megasynthase-min-genes genes.
+  NOT_DISTINGUISHABLE_FROM_CROSS_MAPPING otherwise (this includes R < 0.5 as named in
+                                         the spec, the tier-drop or breadth criteria
+                                         failing, and the region strictly between --
+                                         there are three named outcomes in this phase,
+                                         not a fourth "maybe": failing SURVIVES without
+                                         being UNDERPOWERED is reported as not
+                                         distinguishable from cross-mapping, fail-
+                                         closed rather than silently optimistic).
+
+A single decoy genome/species is never allowed to be silently folded into a bare
+pass/fail count: every non-surviving read's absorbing decoy is in the per-read report,
+and any decoy absorbing more than --absorber-fraction-threshold of the non-surviving
+reads at a near-threshold margin (|delta_AS| <= --absorber-near-threshold-margin, or
+an Arm-B "ambiguous" call, i.e. genuinely close calls rather than a landslide) is
+named explicitly in the summary with manual_followup_required=True -- it may be a
+real, currently-unpanelled close relative, not generic noise.
+"""
+import argparse
+import csv
+import importlib.util
+import random
+import sys
+from pathlib import Path
+
+SCRIPTS_DIR = Path(__file__).resolve().parent
+_spec = importlib.util.spec_from_file_location(
+    "classify_tumor_pks_evidence", SCRIPTS_DIR / "classify_tumor_pks_evidence.py")
+classify_tumor = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(classify_tumor)
+
+MEGASYNTHASE_GENES = {"clbB", "clbC", "clbH", "clbI", "clbJ", "clbK", "clbN", "clbO"}
+NON_MEGASYNTHASE_GENES = ("clbA", "clbD", "clbG", "clbM", "clbP", "clbQ", "clbS")
+
+TIER_ORDER = ("negative", "localized_indeterminate", "multi_gene", "broad_island", "extensive_island")
+
+SURVIVES = "SURVIVES"
+NOT_DISTINGUISHABLE = "NOT_DISTINGUISHABLE_FROM_CROSS_MAPPING"
+UNDERPOWERED = "UNDERPOWERED"
+
+
+def read_single_row_tsv(path):
+    with Path(path).open() as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    if len(rows) != 1:
+        raise ValueError(f"Expected exactly one data row in {path}, found {len(rows)}")
+    return rows[0]
+
+
+def read_gene_assignment(path):
+    """assign_reads_to_genes.py's read_id/Gene/overlap_bp TSV -> {read_id: (gene, overlap_bp)}."""
+    assignment = {}
+    with Path(path).open() as handle:
+        for row in csv.DictReader(handle, delimiter="\t"):
+            assignment[row["read_id"]] = (row["Gene"], int(row["overlap_bp"]))
+    return assignment
+
+
+def read_arm_a(path):
+    """One row per read: read_id, assigned_clade, confidence, unique_kmer_count."""
+    rows = {}
+    with Path(path).open() as handle:
+        for row in csv.DictReader(handle, delimiter="\t"):
+            rows[row["read_id"]] = row
+    return rows
+
+
+def read_arm_b(path):
+    with Path(path).open() as handle:
+        rows = {row["read_id"]: row for row in csv.DictReader(handle, delimiter="\t")}
+    return rows
+
+
+def arm_a_confirms(row, target_clade, min_confidence, min_unique_kmers):
+    if row is None:
+        return False
+    if row["assigned_clade"] != target_clade:
+        return False
+    if float(row["confidence"]) < min_confidence:
+        return False
+    if int(row["unique_kmer_count"]) < min_unique_kmers:
+        return False
+    return True
+
+
+def bootstrap_ci(outcomes, iterations, seed, alpha=0.05):
+    """outcomes: list of 0/1, one per original supporting read. Resample with
+    replacement `iterations` times and return (lower, upper) percentiles of the
+    retention fraction. stdlib-only (no numpy dependency), matching the rest of
+    this repo's scripts.
+    """
+    n = len(outcomes)
+    if n == 0:
+        return 0.0, 0.0
+    rng = random.Random(seed)
+    fractions = []
+    for _ in range(iterations):
+        resample = rng.choices(outcomes, k=n)
+        fractions.append(sum(resample) / n)
+    fractions.sort()
+    lower_index = int((alpha / 2) * iterations)
+    upper_index = min(iterations - 1, int((1 - alpha / 2) * iterations))
+    return fractions[lower_index], fractions[upper_index]
+
+
+def recompute_breadth(survivor_ids, gene_assignment, island_length, survivor_depth_path):
+    """Returns (breadth_1x, source) where source is "exact" or "approximate"."""
+    if survivor_depth_path:
+        b1, _b2, _b3 = classify_tumor.breadths(survivor_depth_path, island_length)
+        return b1, "exact"
+    if not island_length:
+        return 0.0, "approximate"
+    total_overlap = sum(overlap for read_id, (_gene, overlap) in gene_assignment.items()
+                        if read_id in survivor_ids)
+    return min(1.0, total_overlap / island_length), "approximate"
+
+
+def recompute_genes(survivor_ids, gene_assignment, gene_set=None):
+    genes = {gene for read_id, (gene, _overlap) in gene_assignment.items()
+             if read_id in survivor_ids and (gene_set is None or gene in gene_set)}
+    return genes
+
+
+def absorber_report(non_survivors, arm_b_rows, near_threshold_margin):
+    """{decoy_name: {"count": n, "near_threshold_count": n}} over non-surviving reads."""
+    absorbers = {}
+    for read_id in non_survivors:
+        row = arm_b_rows.get(read_id)
+        if row is None:
+            decoy = "unknown_missing_from_arm_b"
+            near = True  # cannot rule out a close call for a read we have no data on
+        else:
+            decoy = row.get("b1_decoy_contig") or row.get("b2_decoy_contig") or "unknown"
+            if not decoy:
+                decoy = "unknown"
+            delta = row.get("b1_delta_as", "")
+            is_ambiguous = row.get("classification") == "ambiguous"
+            try:
+                near = is_ambiguous or (delta != "" and abs(float(delta)) <= near_threshold_margin)
+            except ValueError:
+                near = True
+        entry = absorbers.setdefault(decoy, {"count": 0, "near_threshold_count": 0})
+        entry["count"] += 1
+        if near:
+            entry["near_threshold_count"] += 1
+    return absorbers
+
+
+def tier_drop(original_tier, recomputed_tier):
+    """How many rungs recomputed_tier falls below original_tier on TIER_ORDER.
+    Negative means recomputed_tier is HIGHER (cannot normally happen, since survivors
+    are a subset of the original reads, but is not treated as a failure if it does)."""
+    return TIER_ORDER.index(original_tier) - TIER_ORDER.index(recomputed_tier)
+
+
+def decide(sample, read_evidence, gene_assignment, arm_a_rows, arm_b_rows, args):
+    n_supporting = int(read_evidence["pks_reads"])
+    original_tier = read_evidence["read_evidence"]
+
+    all_read_ids = sorted(gene_assignment) if gene_assignment else sorted(
+        set(arm_a_rows) | set(arm_b_rows))
+
+    survivors = set()
+    outcomes = []
+    for read_id in all_read_ids:
+        arm_a_ok = arm_a_confirms(arm_a_rows.get(read_id), args.arm_a_target_clade,
+                                   args.arm_a_min_confidence, args.arm_a_min_unique_kmers)
+        arm_b_row = arm_b_rows.get(read_id)
+        arm_b_ok = arm_b_row is not None and arm_b_row.get("classification") == "confirmed_true"
+        survives = arm_a_ok and arm_b_ok
+        outcomes.append(1 if survives else 0)
+        if survives:
+            survivors.add(read_id)
+
+    n_survive = len(survivors)
+    retention = (n_survive / n_supporting) if n_supporting else 0.0
+    ci_lower, ci_upper = bootstrap_ci(outcomes, args.bootstrap_iterations, args.bootstrap_seed)
+
+    recomputed_genes = recompute_genes(survivors, gene_assignment)
+    recomputed_breadth, breadth_source = recompute_breadth(
+        survivors, gene_assignment, args.island_length, args.survivor_depth)
+    thresholds = {
+        "multi_gene": (args.multi_gene_reads, args.multi_gene_genes, args.multi_gene_breadth),
+        "broad_island": (args.broad_island_reads, args.broad_island_genes, args.broad_island_breadth),
+        "extensive_island": (args.extensive_island_reads, args.extensive_island_genes, args.extensive_island_breadth),
+    }
+    recomputed_tier = classify_tumor.classify(n_survive, len(recomputed_genes), recomputed_breadth, thresholds)
+    drop = tier_drop(original_tier, recomputed_tier)
+    tier_ok = drop <= args.max_tier_drop
+
+    non_mega_covered = recompute_genes(survivors, gene_assignment, set(NON_MEGASYNTHASE_GENES))
+    breadth_ok = len(non_mega_covered) >= args.non_megasynthase_min_genes
+
+    non_survivors = [r for r in all_read_ids if r not in survivors]
+    absorbers = absorber_report(non_survivors, arm_b_rows, args.absorber_near_threshold_margin)
+    n_non_survive = len(non_survivors)
+    flagged = {}
+    for decoy, stats in absorbers.items():
+        fraction = stats["count"] / n_non_survive if n_non_survive else 0.0
+        if fraction > args.absorber_fraction_threshold and stats["near_threshold_count"] > 0:
+            flagged[decoy] = {"count": stats["count"], "fraction": fraction}
+    manual_followup_required = bool(flagged)
+
+    if n_supporting < args.min_supporting_reads:
+        verdict = UNDERPOWERED
+    elif (retention >= args.retention_threshold and ci_lower >= args.retention_ci_lower_threshold
+          and tier_ok and breadth_ok):
+        verdict = SURVIVES
+    else:
+        verdict = NOT_DISTINGUISHABLE
+
+    return {
+        "sample": sample,
+        "verdict": verdict,
+        "n_supporting": n_supporting,
+        "n_survive": n_survive,
+        "retention": retention,
+        "retention_ci_lower": ci_lower,
+        "retention_ci_upper": ci_upper,
+        "bootstrap_iterations": args.bootstrap_iterations,
+        "original_tier": original_tier,
+        "recomputed_tier": recomputed_tier,
+        "tier_drop": drop,
+        "recomputed_clb_genes_detected": len(recomputed_genes),
+        "recomputed_island_breadth_1x": recomputed_breadth,
+        "breadth_source": breadth_source,
+        "non_megasynthase_genes_covered": len(non_mega_covered),
+        "non_megasynthase_genes": ",".join(sorted(non_mega_covered)),
+        "non_megasynthase_min_genes": args.non_megasynthase_min_genes,
+        "manual_followup_required": manual_followup_required,
+        "flagged_absorbers": ";".join(
+            f"{decoy}:{stats['count']}:{stats['fraction']:.3f}" for decoy, stats in
+            sorted(flagged.items(), key=lambda kv: -kv[1]["fraction"])),
+        "survivors": survivors,
+        "non_survivors": non_survivors,
+        "absorbers": absorbers,
+    }
+
+
+SUMMARY_FIELDS = [
+    "sample", "verdict", "n_supporting", "n_survive", "retention", "retention_ci_lower",
+    "retention_ci_upper", "bootstrap_iterations", "original_tier", "recomputed_tier",
+    "tier_drop", "recomputed_clb_genes_detected", "recomputed_island_breadth_1x",
+    "breadth_source", "non_megasynthase_genes_covered", "non_megasynthase_genes",
+    "non_megasynthase_min_genes", "manual_followup_required", "flagged_absorbers",
+]
+
+
+def write_summary(result, path):
+    with Path(path).open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, SUMMARY_FIELDS, delimiter="\t", extrasaction="ignore")
+        writer.writeheader()
+        row = dict(result)
+        row["retention"] = f"{result['retention']:.6f}"
+        row["retention_ci_lower"] = f"{result['retention_ci_lower']:.6f}"
+        row["retention_ci_upper"] = f"{result['retention_ci_upper']:.6f}"
+        row["recomputed_island_breadth_1x"] = f"{result['recomputed_island_breadth_1x']:.6f}"
+        writer.writerow(row)
+
+
+def write_per_read(result, arm_a_rows, arm_b_rows, path):
+    with Path(path).open("w", newline="") as handle:
+        fields = ["read_id", "survived", "arm_a_present", "arm_b_classification", "absorbing_decoy"]
+        writer = csv.DictWriter(handle, fields, delimiter="\t")
+        writer.writeheader()
+        for read_id in sorted(result["survivors"]) + sorted(result["non_survivors"]):
+            survived = read_id in result["survivors"]
+            arm_b_row = arm_b_rows.get(read_id, {})
+            decoy = ""
+            if not survived:
+                decoy = arm_b_row.get("b1_decoy_contig") or arm_b_row.get("b2_decoy_contig") or "unknown"
+            writer.writerow({
+                "read_id": read_id,
+                "survived": survived,
+                "arm_a_present": read_id in arm_a_rows,
+                "arm_b_classification": arm_b_row.get("classification", "missing"),
+                "absorbing_decoy": decoy,
+            })
+
+
+def build_parser():
+    p = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--sample", required=True)
+    p.add_argument("--read-evidence", required=True,
+                   help="the pipeline's existing per-sample read_evidence.tsv "
+                        "(classify_tumor_pks_evidence.py's output)")
+    p.add_argument("--read-gene-assignment", required=True,
+                   help="assign_reads_to_genes.py's read_id/Gene/overlap_bp TSV for "
+                        "the original supporting read set")
+    p.add_argument("--arm-a", required=True,
+                   help="KrakenUniq reclassification TSV: read_id, assigned_clade, "
+                        "confidence, unique_kmer_count")
+    p.add_argument("--arm-b", required=True,
+                   help="competitive_realign_score.py's output TSV")
+    p.add_argument("--arm-a-target-clade", required=True,
+                   help="the exact assigned_clade value that counts as a specific "
+                        "pks+ resolution (not collapsed to genus/family)")
+    p.add_argument("--arm-a-min-confidence", type=float, default=0.65)
+    p.add_argument("--arm-a-min-unique-kmers", type=int, default=3)
+    p.add_argument("--island-length", type=int, default=0,
+                   help="island length in bp, for breadth recomputation "
+                        "(matches classify_tumor_pks_evidence.py's --island-length)")
+    p.add_argument("--survivor-depth", default=None,
+                   help="optional: samtools-depth-shaped file (chrom, pos, depth) over "
+                        "the island computed from survivor reads only, for an exact "
+                        "breadth recomputation; approximated from read-gene overlap "
+                        "when omitted (see module docstring)")
+    p.add_argument("--multi-gene-reads", type=int, default=5)
+    p.add_argument("--multi-gene-genes", type=int, default=3)
+    p.add_argument("--multi-gene-breadth", type=float, default=.01)
+    p.add_argument("--broad-island-reads", type=int, default=30)
+    p.add_argument("--broad-island-genes", type=int, default=8)
+    p.add_argument("--broad-island-breadth", type=float, default=.075)
+    p.add_argument("--extensive-island-reads", type=int, default=100)
+    p.add_argument("--extensive-island-genes", type=int, default=10)
+    p.add_argument("--extensive-island-breadth", type=float, default=.15)
+    p.add_argument("--retention-threshold", type=float, default=0.8,
+                   help="placeholder pending Phase 3 calibration against real controls")
+    p.add_argument("--retention-ci-lower-threshold", type=float, default=0.6,
+                   help="placeholder pending Phase 3 calibration against real controls")
+    p.add_argument("--bootstrap-iterations", type=int, default=1000)
+    p.add_argument("--bootstrap-seed", type=int, default=0)
+    p.add_argument("--max-tier-drop", type=int, default=1)
+    p.add_argument("--non-megasynthase-min-genes", type=int, default=2)
+    p.add_argument("--absorber-fraction-threshold", type=float, default=0.2)
+    p.add_argument("--absorber-near-threshold-margin", type=float, default=5.0,
+                   help="|delta_AS| (AS units) at or below which a dropped read's "
+                        "call is treated as a close call rather than a landslide")
+    p.add_argument("--min-supporting-reads", type=int, default=10)
+    p.add_argument("--output-summary", required=True)
+    p.add_argument("--output-per-read", required=True)
+    return p
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+
+    read_evidence = read_single_row_tsv(args.read_evidence)
+    gene_assignment = read_gene_assignment(args.read_gene_assignment)
+    arm_a_rows = read_arm_a(args.arm_a)
+    arm_b_rows = read_arm_b(args.arm_b)
+
+    result = decide(args.sample, read_evidence, gene_assignment, arm_a_rows, arm_b_rows, args)
+    write_summary(result, args.output_summary)
+    write_per_read(result, arm_a_rows, arm_b_rows, args.output_per_read)
+
+    print(f"{args.sample}\t{result['verdict']}\tR={result['retention']:.3f}"
+          f" [{result['retention_ci_lower']:.3f},{result['retention_ci_upper']:.3f}]"
+          f"\ttier={result['recomputed_tier']} (was {result['original_tier']})")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
