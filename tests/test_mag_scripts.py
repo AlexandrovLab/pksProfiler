@@ -273,6 +273,46 @@ class TestBuildMagSummary(unittest.TestCase):
                 rows = list(csv.DictReader(fh, delimiter="\t"))
         self.assertEqual(rows[0]["locus_tier"], "NA")
 
+    def test_an_hmm_negative_bin_with_locus_evidence_is_kept(self):
+        """Ludmil, 2026-09-25 report P0-3: the summary was driven by the tblouts and
+        skipped any bin with no passing HMM hit, so a bin whose own assembly aligns
+        across the canonical locus (the call positivity is actually defined by)
+        disappeared whenever HMM found nothing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = list(self._write_bin_and_unbinned_fixture(tmp, None))
+            tblout_dir, locus_dir = fixture[2], fixture[4]
+            # bin_002: searched, no HMM hit at all; aligned, and locus-positive.
+            self._write(tblout_dir, "bin_002.tblout", "#\n")
+            self._write(locus_dir, "bin_002.locus_evidence.tsv",
+                        "sample\tbin_id\tlocus_tier\tlocus_genes_detected\tlocus_genes\tlocus_breadth\n"
+                        "SAMPLE1\tbin_002\tbroad_island\t9\tclbA,clbB\t0.100000\n")
+            # bin_003: aligned only (no tblout at all), locus-negative.
+            self._write(locus_dir, "bin_003.locus_evidence.tsv",
+                        "sample\tbin_id\tlocus_tier\tlocus_genes_detected\tlocus_genes\tlocus_breadth\n"
+                        "SAMPLE1\tbin_003\tnegative\t0\t\t0.000000\n")
+            rows = self._run_with(tmp, *fixture)
+        by_id = {r["bin_id"]: r for r in rows}
+        self.assertEqual(sorted(by_id), ["bin_001", "bin_002", "bin_003"])
+        b2 = by_id["bin_002"]
+        self.assertEqual(b2["locus_tier"], "broad_island")
+        self.assertEqual(b2["locus_genes_detected"], "9")
+        self.assertEqual(b2["clb_genes_detected"], "0")
+        self.assertEqual(b2["clb_genes"], "")
+        self.assertEqual(b2["best_evalue"], "NA")
+        self.assertEqual(by_id["bin_003"]["locus_tier"], "negative")
+
+    def test_a_bin_checkm2_never_scored_has_na_completeness_not_zero(self):
+        """P0-4 (producer side): 0.0 reads as a measured, empty genome."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = list(self._write_bin_and_unbinned_fixture(tmp, None))
+            self._write(fixture[4], "bin_999.locus_evidence.tsv",
+                        "sample\tbin_id\tlocus_tier\tlocus_genes_detected\tlocus_genes\tlocus_breadth\n"
+                        "SAMPLE1\tbin_999\tnegative\t0\t\t0.000000\n")
+            rows = self._run_with(tmp, *fixture)
+        b = next(r for r in rows if r["bin_id"] == "bin_999")
+        self.assertEqual(b["completeness"], "NA")
+        self.assertEqual(b["contamination"], "NA")
+
     # -----------------------------------------------------------------------
     # U1: unbinned-contig pks positivity (real bin binning left something out)
     # -----------------------------------------------------------------------

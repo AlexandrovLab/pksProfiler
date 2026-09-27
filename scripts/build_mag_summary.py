@@ -114,23 +114,31 @@ def main():
     gtdbtk = parse_gtdbtk(args.gtdbtk)
     locus_evidence = read_locus_evidence(args.locus_dir)
 
+    # Ludmil, 2026-09-25 report P0-3: this loop used to be driven by the hmmsearch
+    # tblouts and `continue`d past any bin with no passing HMM hit -- so a bin with
+    # alignment-confirmed canonical-locus evidence (magBinLocusEvidence) but no HMM
+    # domain hit vanished from the summary, and with it from every downstream table,
+    # even though positivity is defined by the locus tier, not by HMM. Every bin that
+    # was either searched or aligned is now reported; HMM fields are attached when
+    # present and are explicit zero/NA when not.
+    hmm_by_bin = {Path(p).stem: parse_hmmsearch_tblout(p, args.evalue)
+                  for p in sorted(glob.glob(os.path.join(args.tblout_dir, "*.tblout")))}
+    bin_ids = sorted((set(hmm_by_bin) | set(locus_evidence)) - {UNBINNED_UNIT_ID})
+
     rows = []
-    for tblout_path in sorted(glob.glob(os.path.join(args.tblout_dir, "*.tblout"))):
-        bin_id = Path(tblout_path).stem
-        hits = parse_hmmsearch_tblout(tblout_path, args.evalue)
-        if not hits:
-            continue
+    for bin_id in bin_ids:
+        hits = hmm_by_bin.get(bin_id) or []
 
         clb_genes_seen = {}
         for h in hits:
             gene = h["clb_gene"]
             clb_genes_seen[gene] = min(h["evalue"], clb_genes_seen.get(gene, float("inf")))
         clb_genes = sorted(clb_genes_seen.keys())
-        best_evalue = min(clb_genes_seen.values())
+        best_evalue = min(clb_genes_seen.values()) if clb_genes_seen else "NA"
 
         # A bin absent from the report is genuinely unmeasured; NA says so, where 0
         # would read as a measurement.
-        qc = checkm2.get(bin_id, {"completeness": 0.0, "contamination": 0.0,
+        qc = checkm2.get(bin_id, {"completeness": "NA", "contamination": "NA",
                                   "genome_size": "NA", "contig_n50": "NA"})
         taxonomy = gtdbtk.get(bin_id, "unclassified")
         unexpected = is_unexpected_taxon(taxonomy)
@@ -203,10 +211,10 @@ def main():
 
     bin_rows = sum(1 for r in rows if r["unit_type"] == UNIT_TYPE_BIN)
     if not rows:
-        print(f"No pks+ bins found for {args.sample}", file=sys.stderr)
+        print(f"No bins or unbinned pool found for {args.sample}", file=sys.stderr)
     else:
         note = " (plus an unbinned-pool row)" if unbinned is not None else ""
-        print(f"Wrote {bin_rows} pks+ bins{note} to {args.out}", file=sys.stderr)
+        print(f"Wrote {bin_rows} bins{note} to {args.out}", file=sys.stderr)
 
 
 if __name__ == "__main__":
