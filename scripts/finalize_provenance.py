@@ -185,15 +185,23 @@ def sample_identifiers(sheet_path):
 
 # Parameters grouped the way someone reads them, rather than the ~90 resolved ones in
 # alphabetical order. Anything not listed here stays in the JSON sidecar.
+#
+# Every name here must be a real params.* in main.nf (tests/test_provenance_record.py
+# checks this). Ludmil, 2026-09-25 report P0-1: the tier group asked for
+# tumor_*_min_genes while the parameters are tumor_*_min_clb_genes, and a name that
+# does not exist was skipped exactly like a parameter left unset -- so RUN_REPORT
+# silently dropped the gene thresholds from the tier definition.
+TIER_NAMES = ("extensive_island", "broad_island", "multi_gene")
+TIER_FIELDS = (("min_pks_reads", "pks reads"), ("min_clb_genes", "clb genes"),
+               ("min_breadth", "island breadth"))
+
 PARAMETER_GROUPS = (
     ("INPUT", ("sample", "input_data_type", "sample_type", "cram_reference", "outdir")),
     ("PROFILING", ("profiling_method", "hmm_evalue", "hmm_protein_evalue", "prefilter_mode",
-                   "pks_island_len", "pks_contig")),
-    ("EVIDENCE TIERS", ("tumor_extensive_island_min_pks_reads", "tumor_extensive_island_min_genes",
-                        "tumor_extensive_island_min_breadth", "tumor_broad_island_min_pks_reads",
-                        "tumor_broad_island_min_genes", "tumor_broad_island_min_breadth",
-                        "tumor_multi_gene_min_pks_reads", "tumor_multi_gene_min_genes",
-                        "tumor_multi_gene_min_breadth")),
+                   "pks_contig", "pks_start_1based", "pks_end_1based",
+                   "pks_island_len_1based")),
+    ("EVIDENCE TIERS", tuple(f"tumor_{tier}_{field}" for tier in TIER_NAMES
+                             for field, _label in TIER_FIELDS)),
     ("STAGES", ("enable_mags", "tumor_targeted_assembly",
                 "diamond_rescue", "pks_community_taxa",
                 "enable_strain_typing", "pks_taxa")),
@@ -203,15 +211,63 @@ PARAMETER_GROUPS = (
 )
 
 
+def is_set(value):
+    return value not in (None, "", "null")
+
+
 def grouped_parameters(params):
     """(group, [(name, value)]) for the parameters that were actually set."""
     grouped = []
     for title, names in PARAMETER_GROUPS:
-        rows = [(name, params[name]) for name in names
-                if params.get(name) not in (None, "", "null")]
+        rows = [(name, params[name]) for name in names if is_set(params.get(name))]
         if rows:
             grouped.append((title, rows))
     return grouped
+
+
+def unknown_parameter_names(params):
+    """
+    Report names this script asks for that the run's params map does not contain at all.
+
+    A set-to-null parameter is still a key in the map; only a name that is not a
+    pipeline parameter is absent. An empty map (a launch record written before params
+    were recorded) cannot tell the two apart, so it is not checked.
+    """
+    if not params:
+        return []
+    return [name for _title, names in PARAMETER_GROUPS for name in names
+            if name not in params]
+
+
+def island_interval(params):
+    """The canonical analytical interval, as 'contig:start-end (N bp)', or None."""
+    start, end = params.get("pks_start_1based"), params.get("pks_end_1based")
+    if not (is_set(start) and is_set(end)):
+        return None
+    try:
+        length = int(end) - int(start) + 1
+    except ValueError:
+        return None
+    contig = params.get("pks_contig") if is_set(params.get("pks_contig")) else "?"
+    return f"{contig}:{start}-{end}  (1-based, inclusive; {length:,} bp)"
+
+
+def tier_definition(params):
+    """One line per tier: every threshold it needs, or a note saying which are missing."""
+    lines = []
+    for tier in TIER_NAMES:
+        parts, missing = [], []
+        for field, label in TIER_FIELDS:
+            value = params.get(f"tumor_{tier}_{field}")
+            if is_set(value):
+                parts.append(f"{label} >= {value}")
+            else:
+                missing.append(field)
+        text = ", ".join(parts)
+        if missing:
+            text += f"  [MISSING: {', '.join(missing)}]"
+        lines.append(f"    {tier:<20}{text}")
+    return lines
 
 
 def command_line_parameters(command_line):
@@ -285,6 +341,23 @@ def render(record):
         lines.append(f"  {title}")
         for name, value in rows:
             lines.append(f"    {name:<38}{value}")
+
+    params = invocation.get("params") or {}
+    interval = island_interval(params)
+    if interval or params.get("sample_type") == "tumor_wgs":
+        lines += section("PKS ISLAND AND TIER DEFINITION")
+        lines.append(f"  analytical interval  {interval or 'NOT RECORDED'}")
+        if params.get("sample_type") == "tumor_wgs":
+            lines.append("  evidence tiers (tumor_wgs; all thresholds must be met)")
+            lines += tier_definition(params)
+
+    unknown = unknown_parameter_names(params)
+    if unknown:
+        lines += section("PROVENANCE WARNING")
+        lines.append("  This report asked for parameters the run does not define. The report")
+        lines.append("  is incomplete; fix PARAMETER_GROUPS in scripts/finalize_provenance.py:")
+        for name in unknown:
+            lines.append(f"    {name}")
 
     # ---- SAMPLES ----
     lines += section("SAMPLES")
@@ -419,6 +492,10 @@ def main():
         return 0
 
     report_text = render(record)
+    unknown = unknown_parameter_names((record.get("invocation") or {}).get("params") or {})
+    if unknown:
+        print("[provenance] WARNING: RUN_REPORT asked for undefined parameters: "
+              + ", ".join(unknown), file=sys.stderr)
 
     # The latest run, where someone handed a results directory will find it.
     if args.outdir:

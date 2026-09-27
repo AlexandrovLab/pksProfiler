@@ -327,3 +327,90 @@ class CondaCacheAgreement(unittest.TestCase):
         # <work-dir>/conda means a deleted work dir rebuilds every environment.
         cacheline = [l for l in CONFIG.splitlines() if "conda.cacheDir" in l][0]
         self.assertNotIn("workDir", cacheline)
+
+
+def declared_params():
+    """Every params.<name> main.nf or nextflow.config defines."""
+    import re
+    names = set(re.findall(r"params\.(\w+)\s*=", MAIN + CONFIG))
+    block = CONFIG.split("params", 1)[1] if "params" in CONFIG else ""
+    names |= set(re.findall(r"^\s*(\w+)\s*=", block, re.M))
+    return names
+
+
+class RunReportTierDefinition(ProvenanceFinalise):
+    """Ludmil, 2026-09-25 report P0-1.
+
+    RUN_REPORT asked for tumor_*_min_genes; the parameters are tumor_*_min_clb_genes.
+    A name that is not a parameter was skipped exactly like one left unset, so the
+    report silently printed the tier definition without its gene thresholds, and it
+    still printed the legacy 50,767-bp island length.
+    """
+
+    TUMOR_PARAMS = {
+        "sample": "sheet.csv", "sample_type": "tumor_wgs", "profiling_method": "bowtie2",
+        "pks_contig": "NC_017628.1", "pks_start_1based": "2193827",
+        "pks_end_1based": "2244594", "pks_island_len_1based": "50768",
+        "pks_island_len": "50767",
+        "tumor_extensive_island_min_pks_reads": "100",
+        "tumor_extensive_island_min_clb_genes": "10",
+        "tumor_extensive_island_min_breadth": "0.2",
+        "tumor_broad_island_min_pks_reads": "30",
+        "tumor_broad_island_min_clb_genes": "8",
+        "tumor_broad_island_min_breadth": "0.05",
+        "tumor_multi_gene_min_pks_reads": "5",
+        "tumor_multi_gene_min_clb_genes": "3",
+        "tumor_multi_gene_min_breadth": "0.01",
+    }
+
+    def report_for(self, params):
+        record = json.loads(json.dumps(LAUNCH_RECORD))
+        record["invocation"]["params"] = params
+        (self.runs / "provenance" / "SESSION-A.json").write_text(json.dumps(record) + "\n")
+        result = self.finalise()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return self.history(), result
+
+    def test_every_reported_parameter_is_a_real_pipeline_parameter(self):
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import finalize_provenance
+        declared = declared_params()
+        for _title, names in finalize_provenance.PARAMETER_GROUPS:
+            for name in names:
+                with self.subTest(name=name):
+                    self.assertIn(name, declared)
+
+    def test_the_tier_definition_includes_every_threshold(self):
+        report, _ = self.report_for(self.TUMOR_PARAMS)
+        self.assertIn("PKS ISLAND AND TIER DEFINITION", report)
+        for tier, reads, genes, breadth in (("extensive_island", 100, 10, 0.2),
+                                            ("broad_island", 30, 8, 0.05),
+                                            ("multi_gene", 5, 3, 0.01)):
+            with self.subTest(tier=tier):
+                line = next(l for l in report.splitlines() if l.strip().startswith(tier))
+                self.assertIn(f"pks reads >= {reads}", line)
+                self.assertIn(f"clb genes >= {genes}", line)
+                self.assertIn(f"island breadth >= {breadth}", line)
+                self.assertNotIn("MISSING", line)
+
+    def test_the_canonical_interval_is_reported_not_the_legacy_length(self):
+        report, _ = self.report_for(self.TUMOR_PARAMS)
+        self.assertIn("NC_017628.1:2193827-2244594", report)
+        self.assertIn("50,768 bp", report)
+        self.assertNotIn("50767", report)
+        self.assertNotIn("50,767", report)
+
+    def test_a_missing_tier_threshold_is_named_not_dropped(self):
+        params = dict(self.TUMOR_PARAMS)
+        params["tumor_broad_island_min_clb_genes"] = "null"
+        report, _ = self.report_for(params)
+        line = next(l for l in report.splitlines() if l.strip().startswith("broad_island"))
+        self.assertIn("MISSING: min_clb_genes", line)
+
+    def test_an_undefined_parameter_name_is_reported_loudly(self):
+        params = dict(self.TUMOR_PARAMS)
+        del params["tumor_multi_gene_min_clb_genes"]
+        report, result = self.report_for(params)
+        self.assertIn("PROVENANCE WARNING", report)
+        self.assertIn("tumor_multi_gene_min_clb_genes", report.split("PROVENANCE WARNING", 1)[1])
+        self.assertIn("undefined parameters", result.stderr)
