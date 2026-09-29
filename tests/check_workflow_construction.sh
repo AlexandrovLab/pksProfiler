@@ -98,29 +98,29 @@ need() {   # need <name> <path...> -- skip, loudly, if any is missing
 
 echo "Building the workflow graph for each flag combination (no tasks run)"
 
-construct "tumour, alignment only"        --sample_type tumor_wgs --profiling_method bowtie2
-# tumor_wgs + hmm is rejected by design ("requires bowtie2 or both"); that rejection
+construct "tumour, alignment only"        --sample_type wgs --profiling_method bowtie2
+# wgs + hmm is rejected by design ("requires bowtie2 or both"); that rejection
 # is asserted in run_checks.sh, so the HMM wiring is exercised on the metagenome side.
-construct "tumour, both methods"          --sample_type tumor_wgs --profiling_method both
-construct "tumour, targeted assembly"     --sample_type tumor_wgs --profiling_method bowtie2 \
+construct "tumour, both methods"          --sample_type wgs --profiling_method both
+construct "tumour, targeted assembly"     --sample_type wgs --profiling_method bowtie2 \
                                           --tumor_targeted_assembly true
-construct "tumour, widened tier gate"     --sample_type tumor_wgs --profiling_method bowtie2 \
+construct "tumour, widened tier gate"     --sample_type wgs --profiling_method bowtie2 \
                                           --tumor_targeted_assembly true \
                                           --tumor_contig_tiers multi_gene,broad_island,extensive_island
 
 # The one that broke on 21 September.
 if need "tumour, taxonomy" "$KRAKEN"; then
-    construct "tumour, taxonomy" --sample_type tumor_wgs --profiling_method bowtie2 \
+    construct "tumour, taxonomy" --sample_type wgs --profiling_method bowtie2 \
               --pks_taxa true --kraken_db "$KRAKEN" --bracken_read_length 150
 fi
 
 if need "tumour, contig context" "$GENOMAD"; then
-    construct "tumour, contig context" --sample_type tumor_wgs --profiling_method bowtie2 \
+    construct "tumour, contig context" --sample_type wgs --profiling_method bowtie2 \
               --genomad_db "$GENOMAD"
 fi
 
 if need "tumour, everything on" "$KRAKEN" "$GENOMAD"; then
-    construct "tumour, everything on" --sample_type tumor_wgs --profiling_method both \
+    construct "tumour, everything on" --sample_type wgs --profiling_method both \
               --tumor_targeted_assembly true \
               --tumor_contig_tiers multi_gene,broad_island,extensive_island \
               --pks_taxa true --kraken_db "$KRAKEN" --bracken_read_length 150 \

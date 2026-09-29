@@ -26,11 +26,14 @@ params.bracken_read_length = null // Must match a read length supported by the s
 // Ludmil, revised report finding 9: "auto" was accepted here and by the
 // --sample_type validation below, but nothing ever resolved it to a biological
 // lane -- every branch that reads params.sample_type tests for a concrete value
-// ("metagenome", "tumor_wgs"), so "auto" matched none of them and the read-tier
+// ("metagenome", "wgs"; then named "tumor_wgs"), so "auto" matched none of them and the read-tier
 // classification, contig analysis and MAG/taxonomy lanes silently never ran,
 // with no error and a gene-count table that looked like a normal, if evidence-
 // free, result. His own first preference: no default: required, and explicit.
-params.sample_type = null     // required: metagenome | tumor_wgs  (tumor_wes / tumor_rna: lanes not built yet)
+params.sample_type = null     // required: metagenome | wgs  (wes / rna: lanes not built yet)
+// Owner decision on Ludmil's 26 Sep mode memo: the tumor_ prefix is dropped -- a WGS,
+// WES or RNA library is not always a tumour (matched normals run the same lane). The
+// old names fail before any task runs, naming the new one; see renamed_sample_types.
 
 // ---------------- v0.0.2: optional taxonomic prefilter + clb homology rescue ----------------
 // off      -> host-depleted reads go straight to profiling (v0.0.1 behaviour, the default)
@@ -55,6 +58,9 @@ params.clb_protein_fasta = "${projectDir}/ref/clb_reference_proteins_exact_v1.fa
 params.pks_community_taxa = false
 
 // ---------------- v0.0.2: tumour pks evidence tiers ----------------
+// Applied to --sample_type wgs only (Ludmil, 26 Sep mode memo). The tumor_ prefix in
+// these names is historical: the sample types were renamed (tumor_wgs -> wgs) and the
+// threshold names deliberately were not, so existing command lines keep their meaning.
 // Frozen three-tier system from tier_threshold_development_20260909.
 // All three criteria must hold; classification proceeds from the highest tier down.
 // Breadth is the fraction of the canonical island covered at >=1x.
@@ -357,8 +363,9 @@ workflow {
 
         Common:
           --input_data_type   auto | bam | cram | fastq            (default: auto)
-          --sample_type       metagenome | tumor_wgs               (required, no default;
-                              tumor_wes / tumor_rna are refused until their lanes exist)
+          --sample_type       metagenome | wgs                     (required, no default;
+                              wes / rna are refused until their lanes exist;
+                              tumor_wgs/tumor_wes/tumor_rna were renamed wgs/wes/rna)
           --profiling_method  bowtie2 | hmm | both                 (default: bowtie2)
           --outdir            results directory                    (default: ./results)
           --save_intermediates  publish extracted/filtered/host-depleted FASTQs
@@ -524,7 +531,13 @@ workflow {
     // Ludmil, revised report finding 9: fail loudly before any task runs, rather
     // than accept "auto" and silently resolve it to nothing.
     if (!params.sample_type) {
-        exit 1, "Missing required parameter: --sample_type. Supported: metagenome, tumor_wgs"
+        exit 1, "Missing required parameter: --sample_type. Supported: metagenome, wgs"
+    }
+    // Owner decision on Ludmil's 26 Sep mode memo: renamed, not aliased. An alias would
+    // let an old command line run under a name the results no longer carry.
+    def renamed_sample_types = [tumor_wgs: "wgs", tumor_wes: "wes", tumor_rna: "rna"]
+    if (renamed_sample_types.containsKey(params.sample_type.toString())) {
+        exit 1, "--sample_type ${params.sample_type} was renamed to ${renamed_sample_types[params.sample_type.toString()]}. Pass --sample_type ${renamed_sample_types[params.sample_type.toString()]}."
     }
 
     if (pks_taxa_b && !params.kraken_db) {
@@ -795,24 +808,24 @@ workflow {
 
 	// ---------- v0.0.2: sample-type and contig-analysis validation ----------
     // Ludmil, 26 Sep mode memo: every accepted sample_type must map to a real execution
-    // branch. tumor_wes and tumor_rna used to pass this check and then match no branch,
+    // branch. wes and rna (then tumor_wes/tumor_rna) used to pass this check and match no branch,
     // so they ran generic profiling with no mode-specific handling. Refused, loudly,
     // until the WES (evidence-only) and RNA (splice-aware depletion) lanes exist.
-    def planned_sample_types = ["tumor_wes", "tumor_rna"]
+    def planned_sample_types = ["wes", "rna"]
     if (params.sample_type in planned_sample_types) {
-        exit 1, "--sample_type ${params.sample_type} is not supported in this release: its dedicated lane (WES evidence-only / RNA splice-aware depletion) is not built yet. Use metagenome or tumor_wgs."
+        exit 1, "--sample_type ${params.sample_type} is not supported in this release: its dedicated lane (WES evidence-only / RNA splice-aware depletion) is not built yet. Use metagenome or wgs."
     }
-    def valid_sample_types = ["metagenome", "tumor_wgs"]
+    def valid_sample_types = ["metagenome", "wgs"]
     if (!(params.sample_type in valid_sample_types)) {
         exit 1, "Unknown --sample_type: ${params.sample_type}. Supported: ${valid_sample_types.join(', ')}"
     }
     if (enable_mags_b && params.sample_type != "metagenome") {
-        exit 1, "--enable_mags requires --sample_type metagenome; tumour assembly is selected with --sample_type tumor_wgs"
+        exit 1, "--enable_mags requires --sample_type metagenome; tumour assembly is selected with --sample_type wgs"
     }
-    if (params.sample_type == "tumor_wgs" && params.profiling_method == "hmm") {
-        exit 1, "--sample_type tumor_wgs requires --profiling_method bowtie2 or both for read-level clb screening"
+    if (params.sample_type == "wgs" && params.profiling_method == "hmm") {
+        exit 1, "--sample_type wgs requires --profiling_method bowtie2 or both for read-level clb screening"
     }
-    if (params.sample_type == "tumor_wgs" && tumor_targeted_assembly_b) {
+    if (params.sample_type == "wgs" && tumor_targeted_assembly_b) {
         if (!file(params.pks_reference_fasta).exists()) {
             exit 1, "Canonical PKS reference not found: ${params.pks_reference_fasta}"
         }
@@ -987,7 +1000,7 @@ workflow {
         // still unpublished and report every sample as not_classified. Since P0-5b the
         // file itself is staged into the report, not read back from the published tree.
         // Empty when the lane that writes it did not run.
-        if (params.sample_type in ["tumor_wgs", "metagenome"]) {
+        if (params.sample_type in ["wgs", "metagenome"]) {
             read_evidence_input_ch = ALIGN_OUT.profile
                 .join(ALIGN_OUT.qc, by: 0)
                 .map { sampleID, rawCoverage, bedgraph, counts, bam, bai, qc ->
@@ -1001,7 +1014,7 @@ workflow {
         }
 
         // ---------- v0.0.2: tumour contig analysis on formally positive samples ----------
-        if (params.sample_type == "tumor_wgs") {
+        if (params.sample_type == "wgs") {
             tumor_eligible_profiles_ch = classifyPksReadEvidence.out.evidence
                 .filter { sampleID, rawCoverage, counts, evidenceFile ->
                     def lines = evidenceFile.text.readLines().findAll { it?.trim() }

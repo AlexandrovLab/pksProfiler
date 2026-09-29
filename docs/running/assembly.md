@@ -3,7 +3,7 @@
 Counting reads tells you how much *clb* sequence is present. Reassembling those reads tells you
 whether they form a real, connected island or scattered fragments that merely resemble one.
 
-This page covers `--sample_type tumor_wgs`: evidence tiering and targeted reassembly. Prophage
+This page covers `--sample_type wgs`: evidence tiering and targeted reassembly. Prophage
 and neighbouring-gene mobility context is a metagenome-only capability -- see
 [MAGs](mags.md) and [community context](community_context.md).
 
@@ -15,7 +15,7 @@ This runs automatically for tumour data. Set `--sample_type` and you also get a 
 nextflow run main.nf -profile local \
   --sample samples.csv \
   --input_data_type bam \
-  --sample_type tumor_wgs \
+  --sample_type wgs \
   --hg38_db      /refs/human-GRC-db.mmi \
   --t2t_phix_db  /refs/human-GCA-phix-db.mmi \
   --outdir       results
@@ -34,7 +34,7 @@ sample      read_evidence      pks_reads  clb_genes_detected  island_breadth_1x
 TUMOR_01    extensive_island   1497       15                  0.731800
 ```
 
-Because you set `--sample_type tumor_wgs`, samples that clear the gate also go straight into
+Because you set `--sample_type wgs`, samples that clear the gate also go straight into
 step 3 — targeted assembly is on by default.
 
 ## Targeted reassembly
@@ -53,7 +53,7 @@ This is already running if you did step 2. To be explicit:
 nextflow run main.nf -profile local \
   --sample samples.csv \
   --input_data_type bam \
-  --sample_type tumor_wgs \
+  --sample_type wgs \
   --tumor_targeted_assembly true \
   --hg38_db      /refs/human-GRC-db.mmi \
   --t2t_phix_db  /refs/human-GCA-phix-db.mmi \

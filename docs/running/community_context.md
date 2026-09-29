@@ -48,7 +48,7 @@ results/by_sample/<sample>/community/
 │   ├── <sample>.community_prophage_inventory.tsv   every prophage in every genome
 │   ├── <sample>.pks_community_interactions.tsv     producer x each neighbour
 │   └── <sample>.pks_island_mobility.tsv            is the island itself mobile
-└── tumor_wgs/<sample>/
+└── wgs/<sample>/
     ├── annotation/                                 genes called on the contigs
     ├── prophages/                                  prophage calls on the contigs
     ├── <sample>.contig_pks_context.tsv             what sits within the flanking window

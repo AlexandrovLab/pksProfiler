@@ -215,7 +215,7 @@ def render():
     # ------------------------------------------------ two lanes
     lane_top = branch_y + 74
     for cx, colour, cond in ((LEFT_X + COL / 2, METAGEN, "sample_type = metagenome"),
-                             (RIGHT_X + COL / 2, TUMOUR, "sample_type = tumor_wgs")):
+                             (RIGHT_X + COL / 2, TUMOUR, "sample_type = wgs")):
         emit(f'<path d="M{W / 2} {branch_y} V{branch_y + 20} H{cx} V{lane_top - 34}" '
              f'fill="none" stroke="{colour}" stroke-width="1.4" marker-end="url(#tip)"/>')
         pill_w = len(cond) * SZ_NOTE * W_REG + 26

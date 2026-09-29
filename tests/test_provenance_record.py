@@ -34,7 +34,7 @@ LAUNCH_RECORD = {
     "invocation": {
         "command_line": "nextflow run main.nf --sample sheet.csv",
         "sample_sheet": {"path": "sheet.csv", "digest": "e28d07fcd51e/meta"},
-        "stages_requested": ["profiling:bowtie2", "sample_type:tumor_wgs", "enable_strain_typing"],
+        "stages_requested": ["profiling:bowtie2", "sample_type:wgs", "enable_strain_typing"],
         "params": {"outdir": "results"},
     },
     "dependencies": {"hg38_db": "4bf068530323/meta", "scripts": "f4d1377c8e52/content"},
@@ -246,7 +246,7 @@ class ReportStructure(unittest.TestCase):
     def test_parameters_are_grouped_not_listed_flat(self):
         record = json.loads(json.dumps(LAUNCH_RECORD))
         record["invocation"]["params"] = {
-            "sample": "sheet.csv", "sample_type": "tumor_wgs",
+            "sample": "sheet.csv", "sample_type": "wgs",
             "profiling_method": "bowtie2", "enable_mags": "false",
             "hg38_db": "/dbs/hg38.mmi", "max_cpus": "64",
             "some_internal_thing": "42",
@@ -348,7 +348,7 @@ class RunReportTierDefinition(ProvenanceFinalise):
     """
 
     TUMOR_PARAMS = {
-        "sample": "sheet.csv", "sample_type": "tumor_wgs", "profiling_method": "bowtie2",
+        "sample": "sheet.csv", "sample_type": "wgs", "profiling_method": "bowtie2",
         "pks_contig": "NC_017628.1", "pks_start_1based": "2193827",
         "pks_end_1based": "2244594", "pks_island_len_1based": "50768",
         "pks_island_len": "50767",

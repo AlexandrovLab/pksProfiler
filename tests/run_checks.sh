@@ -99,10 +99,19 @@ check_validation \
     invalid-sample-type \
     'Unknown --sample_type: invalid' \
     --sample_type invalid
+# Owner decision on Ludmil's 26 Sep mode memo: the old names fail, naming the new one.
+check_validation \
+    renamed-tumor-wgs \
+    '--sample_type tumor_wgs was renamed to wgs' \
+    --sample_type tumor_wgs
+check_validation \
+    renamed-tumor-rna \
+    '--sample_type tumor_rna was renamed to rna' \
+    --sample_type tumor_rna
 check_validation \
     tumor-mag \
     '--enable_mags requires --sample_type metagenome' \
-    --sample_type tumor_wgs --enable_mags true \
+    --sample_type wgs --enable_mags true \
     --gtdbtk_db "$test_dir/placeholder-gtdbtk-db" \
     --checkm2_db "$test_dir/placeholder-checkm2-db" \
     --genomad_db "$test_dir/placeholder-genomad-db"
@@ -122,15 +131,15 @@ echo "Checking tumour contig tier validation"
 check_validation \
     unknown-tier \
     'Unknown tier in --tumor_contig_tiers: bogus' \
-    --sample_type tumor_wgs --tumor_contig_tiers bogus
+    --sample_type wgs --tumor_contig_tiers bogus
 check_validation \
     non-monotonic-tiers \
     'Tier thresholds must be non-decreasing' \
-    --sample_type tumor_wgs --tumor_broad_island_min_pks_reads 1
+    --sample_type wgs --tumor_broad_island_min_pks_reads 1
 check_validation \
     tumor-hmm-only \
-    '--sample_type tumor_wgs requires --profiling_method bowtie2 or both' \
-    --sample_type tumor_wgs --profiling_method hmm
+    '--sample_type wgs requires --profiling_method bowtie2 or both' \
+    --sample_type wgs --profiling_method hmm
 
 echo
 echo "Building the workflow graph for every flag combination"

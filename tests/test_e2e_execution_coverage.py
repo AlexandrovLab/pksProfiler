@@ -18,7 +18,7 @@ with every environment already cached, so it is not part of the fast tier
 .github/workflows/ci.yml for how it is (and, so far, is not) wired into CI.
 
 Scope note: the first pass (commit 73ed947) covered paired FASTQ and BAM input,
---sample_type tumor_wgs, --profiling_method bowtie2, positive and negative fixtures,
+--sample_type wgs, --profiling_method bowtie2, positive and negative fixtures,
 and the u-1 mate-suffix survival check through host depletion. The next pass closed
 CRAM input (extractReads' --cram_reference branch, validate_cram_reference.py's
 @SQ/MD5 check), --profiling_method hmm alone (pksProfilerHMM/hmm_best_hit.py, real
@@ -88,7 +88,7 @@ class RealExecutionNotAThirdPreview(unittest.TestCase):
         self.assertIn("minimap2", self.script)
 
     def test_it_requires_sample_type_and_a_real_profiling_method(self):
-        self.assertIn("--sample_type tumor_wgs", self.script)
+        self.assertIn("--sample_type wgs", self.script)
         self.assertIn("--profiling_method bowtie2", self.script)
 
     def test_it_publishes_intermediates_so_host_depletion_output_is_checkable(self):
@@ -165,9 +165,9 @@ class HmmProfilingExecutionCoverage(unittest.TestCase):
     def test_it_runs_profiling_method_hmm(self):
         self.assertIn("--profiling_method hmm", self.script)
 
-    def test_it_uses_sample_type_metagenome_not_tumor_wgs(self):
-        # main.nf: "--sample_type tumor_wgs requires --profiling_method bowtie2 or
-        # both" -- tumor_wgs rejects an hmm-alone run outright, so this must be a
+    def test_it_uses_sample_type_metagenome_not_wgs(self):
+        # main.nf: "--sample_type wgs requires --profiling_method bowtie2 or
+        # both" -- wgs rejects an hmm-alone run outright, so this must be a
         # different sample_type or the run never reaches pksProfilerHMM at all. The
         # code (not the prose above it, which also says "--profiling_method hmm")
         # is what has to pair it with metagenome.

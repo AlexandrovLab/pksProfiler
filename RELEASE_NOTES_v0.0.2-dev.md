@@ -7,7 +7,7 @@ control.
 
 ## What is new
 
-**Sample-type routing.** `--sample_type metagenome | tumor_wgs | tumor_wes | tumor_rna`, required,
+**Sample-type routing.** `--sample_type metagenome | wgs | wes | rna`, required,
 no default. `auto` was accepted through the v0.0.2dev cycle but never resolved to a lane -- every
 routing decision tests for a concrete value, so `auto` matched none of them and the read-tier,
 contig-analysis, and MAG/taxonomy lanes silently never ran. Removed rather than wired up: an
@@ -15,7 +15,7 @@ unresolved auto-detect is worse than an explicit requirement. Routing itself is 
 metagenome MAG path is branched off the **complete** host-depleted read stream before profiling,
 so genome-resolved analysis sees every host-depleted read.
 
-**Tumour contig analysis** (`--sample_type tumor_wgs`). `classifyTumorPksEvidence` assigns each
+**Tumour contig analysis** (`--sample_type wgs`). `classifyTumorPksEvidence` assigns each
 sample an evidence tier from read count, clb genes detected at >=1 assigned read, and canonical
 island breadth at >=1x. Samples in a qualifying tier are re-joined to the complete host-depleted
 stream and passed to targeted assembly: recruit -> MEGAHIT **and** metaSPAdes -> align contigs to
@@ -202,7 +202,7 @@ the same results directory and can legitimately disagree.
 
 `classifyTumorPksEvidence` is renamed **`classifyPksReadEvidence`** — it was never
 tumour-specific — and publishes to `pks_summary/read_evidence/<sample>/` rather than under
-`targeted_assembly/`. It runs for `tumor_wgs` and `metagenome`.
+`targeted_assembly/`. It runs for `wgs` and `metagenome`.
 
 For metagenomes the tier is an **annotation only**. `pksMAG` is not tier-conditioned, and a test
 asserts it. The thresholds were derived from TCGA tumour breadth distributions and are not

@@ -173,7 +173,7 @@ nf_work_dir="$work/work"
         -c "$work/e2e_local.config" \
         --sample "$work/sheet.csv" \
         --input_data_type bam \
-        --sample_type tumor_wgs \
+        --sample_type wgs \
         --profiling_method bowtie2 \
         --hg38_db "$fixtures/hg38.mmi" \
         --t2t_phix_db "$fixtures/t2t.mmi" \

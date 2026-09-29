@@ -28,7 +28,7 @@ decisions; dashed outlines are optional or conditional.</sub>
 |---|---|---|---|
 | **Is the island there, and how much of it?** | any | per-gene read counts, island coverage, a coverage plot | nothing — always runs |
 | **How strong is that evidence?** | tumour or metagenome | an [evidence tier](#how-strong-is-the-evidence) per sample | nothing — always runs |
-| **Does the island reassemble from its own reads?** | tumour | two independent assemblies, and whether they agree | `--sample_type tumor_wgs` |
+| **Does the island reassemble from its own reads?** | tumour | two independent assemblies, and whether they agree | `--sample_type wgs` |
 | **Which organism is carrying it?** | metagenome | draft genomes, completeness, species | `--enable_mags true` |
 | **Could the island move between bacteria?** | metagenome | whether an integrase or a tRNA site sits within 50 kb of the island — the features that let DNA transfer, which is a hint and not proof that it did | `--enable_mags true`; needs `--genomad_db` |
 | **What is around the carrier?** | metagenome | prophages, and the DNA-damage-response genes in every neighbouring organism | automatic with `--enable_mags` |
@@ -114,7 +114,7 @@ The minimum run — quantify the island and score the evidence:
 nextflow run main.nf -profile local \
   --sample       samples.csv \
   --input_data_type bam \
-  --sample_type  tumor_wgs \
+  --sample_type  wgs \
   --hg38_db      /refs/human-GRC-db.mmi \
   --t2t_phix_db  /refs/human-GCA-phix-db.mmi \
   --outdir       results
@@ -131,7 +131,7 @@ Each row adds flags to the command above. Nothing is replaced.
 
 | To also get | Add | Details |
 |---|---|---|
-| island reassembly, two assemblers | `--sample_type tumor_wgs` | [assembly](docs/running/assembly.md) |
+| island reassembly, two assemblers | `--sample_type wgs` | [assembly](docs/running/assembly.md) |
 | which organism carries it | `--sample_type metagenome --enable_mags true` plus `--gtdbtk_db --checkm2_db --genomad_db` | [MAGs](docs/running/mags.md) |
 | community and neighbour context | automatic with `--enable_mags` | [community context](docs/running/community_context.md) |
 | strain type and phylogroup | automatic; disable with `--enable_strain_typing false` | [strain typing](docs/running/strain_typing.md) |
@@ -166,7 +166,10 @@ the highest tier it satisfies.
 | `negative` | 0 | — | — | no |
 
 *Breadth* is the fraction of the island's 50,768 bp covered by at least one read. Every threshold
-is a parameter, e.g. `--tumor_broad_island_min_pks_reads 50`.
+is a parameter, e.g. `--tumor_broad_island_min_pks_reads 50`. The thresholds apply to
+`--sample_type wgs` only; the `tumor_` prefix in their names is historical and was kept when
+the sample types were renamed (`tumor_wgs` → `wgs`). Metagenome runs report the same evidence
+without a tier.
 
 > **These tiers rank how strong the evidence is. They are not a validated positive/negative test.**
 > They were fitted on cohorts where every sample already carried at least one *pks* read, so what

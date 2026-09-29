@@ -37,7 +37,7 @@
 <path class="rail"  d="M 590 382 V 412" marker-end="url(#a)"/>
 <path class="railT" d="M 948 382 V 412" marker-end="url(#a)"/>
 <text class="e" x="224" y="376" text-anchor="end" fill="var(--met)">metagenome</text>
-<text class="e" x="956" y="376" fill="var(--tum)">tumor_wgs</text>
+<text class="e" x="956" y="376" fill="var(--tum)">wgs</text>
 <text class="lane" x="114.0" y="408" fill="var(--met)">METAGENOME LANE</text>
 <text class="lane" x="472.0" y="408" fill="var(--mut)">PROFILING</text>
 <text class="lane" x="1066.0" y="408" text-anchor="end" fill="var(--tum)">TUMOUR LANE</text>

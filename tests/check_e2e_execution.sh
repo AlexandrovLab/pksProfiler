@@ -17,7 +17,7 @@
 #      sequence ("negative"), and two small synthetic host references;
 #   2. builds REAL minimap2 .mmi indices from those synthetic host references
 #      (minimap2 -d), so --hg38_db/--t2t_phix_db point at real indices, not stand-ins;
-#   3. runs main.nf for real (no -preview) on both samples, with --sample_type tumor_wgs
+#   3. runs main.nf for real (no -preview) on both samples, with --sample_type wgs
 #      --profiling_method bowtie2, through a real conda environment;
 #   4. asserts on the real output values (tests/fixtures/assert_e2e_outputs.py) --
 #      the read-evidence tier, the featureCounts gene matrix, the cohort QC counts, and
@@ -35,7 +35,7 @@
 #      validate_cram_reference.py's @SQ/MD5 check, the `samtools fastq --reference`
 #      decode) runs for real too -- not just BAM's referenceless decode path.
 #   7. runs the pipeline a fourth time on the original paired-FASTQ sheet with
-#      --sample_type metagenome --profiling_method hmm (tumor_wgs rejects hmm-alone;
+#      --sample_type metagenome --profiling_method hmm (wgs rejects hmm-alone;
 #      see main.nf), so pksProfilerHMM/hmm_best_hit.py -- shipped since v0.0.1 but never
 #      executed by any test in this repo -- run for real on both the positive fixture
 #      (real nhmmscan hits, not just the bowtie2 lane's) and the negative one (a real
@@ -197,7 +197,7 @@ process {
 }
 EOF
 
-echo "Running the real pipeline (a real execution, not a channel-graph-only preview): tumor_wgs, paired FASTQ, bowtie2"
+echo "Running the real pipeline (a real execution, not a channel-graph-only preview): wgs, paired FASTQ, bowtie2"
 nf_log="$work/nextflow.log"
 (
     cd "$work" && nextflow run "$repo_dir/main.nf" \
@@ -205,7 +205,7 @@ nf_log="$work/nextflow.log"
         -c "$work/e2e_local.config" \
         --sample "$work/sheet.csv" \
         --input_data_type fastq \
-        --sample_type tumor_wgs \
+        --sample_type wgs \
         --profiling_method bowtie2 \
         --hg38_db "$fixtures/hg38.mmi" \
         --t2t_phix_db "$fixtures/t2t.mmi" \
@@ -275,7 +275,7 @@ printf 'patient,alignment\n' > "$work/bam_sheet.csv"
 printf '%s,%s\n' "$POS_BAM_SAMPLE" "$fixtures/positive.bam" >> "$work/bam_sheet.csv"
 printf '%s,%s\n' "$NEG_BAM_SAMPLE" "$fixtures/negative.bam" >> "$work/bam_sheet.csv"
 
-echo "Running the real pipeline on BAM input: tumor_wgs, bowtie2"
+echo "Running the real pipeline on BAM input: wgs, bowtie2"
 nf_bam_log="$work/nextflow_bam.log"
 (
     cd "$work" && nextflow run "$repo_dir/main.nf" \
@@ -283,7 +283,7 @@ nf_bam_log="$work/nextflow_bam.log"
         -c "$work/e2e_local.config" \
         --sample "$work/bam_sheet.csv" \
         --input_data_type bam \
-        --sample_type tumor_wgs \
+        --sample_type wgs \
         --profiling_method bowtie2 \
         --hg38_db "$fixtures/hg38.mmi" \
         --t2t_phix_db "$fixtures/t2t.mmi" \
@@ -341,7 +341,7 @@ printf 'patient,alignment\n' > "$work/cram_sheet.csv"
 printf '%s,%s\n' "$POS_CRAM_SAMPLE" "$fixtures/positive.cram" >> "$work/cram_sheet.csv"
 printf '%s,%s\n' "$NEG_CRAM_SAMPLE" "$fixtures/negative.cram" >> "$work/cram_sheet.csv"
 
-echo "Running the real pipeline on CRAM input: tumor_wgs, bowtie2, --cram_reference"
+echo "Running the real pipeline on CRAM input: wgs, bowtie2, --cram_reference"
 nf_cram_log="$work/nextflow_cram.log"
 (
     cd "$work" && nextflow run "$repo_dir/main.nf" \
@@ -350,7 +350,7 @@ nf_cram_log="$work/nextflow_cram.log"
         --sample "$work/cram_sheet.csv" \
         --input_data_type cram \
         --cram_reference "$fixtures/synthetic_hg38.fa" \
-        --sample_type tumor_wgs \
+        --sample_type wgs \
         --profiling_method bowtie2 \
         --hg38_db "$fixtures/hg38.mmi" \
         --t2t_phix_db "$fixtures/t2t.mmi" \
@@ -381,7 +381,7 @@ fi
 
 # ---------------------------------------------------------------------------------
 # Fourth run: --profiling_method hmm alone, on the original paired-FASTQ sheet.
-# --sample_type tumor_wgs rejects --profiling_method hmm outright (main.nf: "requires
+# --sample_type wgs rejects --profiling_method hmm outright (main.nf: "requires
 # --profiling_method bowtie2 or both for read-level clb screening"), so this is
 # --sample_type metagenome instead -- the same sample sheet format, just a different
 # profiling lane. Reuses $work/sheet.csv's positive/negative FASTQ pairs so the exact
@@ -437,7 +437,7 @@ fi
 # only appears at N>2; this can.
 # ---------------------------------------------------------------------------------
 echo
-echo "Running the real pipeline on a 5-sample cohort: tumor_wgs, bowtie2"
+echo "Running the real pipeline on a 5-sample cohort: wgs, bowtie2"
 BROAD_SAMPLE=e2e_broad
 EXTENSIVE_SAMPLE=e2e_extensive
 BORDERLINE_SAMPLE=e2e_borderline
@@ -456,7 +456,7 @@ nf_cohort_log="$work/nextflow_cohort.log"
         -c "$work/e2e_local.config" \
         --sample "$work/cohort_sheet.csv" \
         --input_data_type fastq \
-        --sample_type tumor_wgs \
+        --sample_type wgs \
         --profiling_method bowtie2 \
         --hg38_db "$fixtures/hg38.mmi" \
         --t2t_phix_db "$fixtures/t2t.mmi" \
@@ -529,7 +529,7 @@ nf_se_log="$work/nextflow_single_end.log"
         -c "$work/e2e_local.config" \
         --sample "$work/single_end_sheet.csv" \
         --input_data_type fastq \
-        --sample_type tumor_wgs \
+        --sample_type wgs \
         --profiling_method bowtie2 \
         --hg38_db "$fixtures/hg38.mmi" \
         --t2t_phix_db "$fixtures/t2t.mmi" \

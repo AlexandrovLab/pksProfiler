@@ -349,11 +349,11 @@ def render(record):
 
     params = invocation.get("params") or {}
     interval = island_interval(params)
-    if interval or params.get("sample_type") == "tumor_wgs":
+    if interval or params.get("sample_type") == "wgs":
         lines += section("PKS ISLAND AND TIER DEFINITION")
         lines.append(f"  analytical interval  {interval or 'NOT RECORDED'}")
-        if params.get("sample_type") == "tumor_wgs":
-            lines.append("  evidence tiers (tumor_wgs; all thresholds must be met)")
+        if params.get("sample_type") == "wgs":
+            lines.append("  evidence tiers (wgs; all thresholds must be met)")
             lines += tier_definition(params)
 
     unknown = unknown_parameter_names(params)

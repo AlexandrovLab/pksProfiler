@@ -56,7 +56,7 @@ by_sample/<sample>/
 └── intermediates/          extracted / filtered / host-depleted FASTQ  --save_intermediates
 ```
 
-Both sample types write to the same paths. There is no `tumor_wgs/` or `metagenome/`
+Both sample types write to the same paths. There is no `wgs/` or `metagenome/`
 level: `--sample_type` decides which directories exist, not where they sit.
 
 ## cohort/
@@ -133,7 +133,7 @@ below; the pages under `docs/running/` describe the files each optional mode add
 | `cohort/gene_counts/pks.gene.counts.*.txt` | every run | *clb* gene |
 | `cohort/qc/pks.qc.summary.tsv` | every run | sample |
 | `cohort/pks.master_summary.tsv` | every run | sample — every stage joined |
-| `by_sample/*/read_evidence.tsv` | `--sample_type tumor_wgs` or `metagenome` | sample |
+| `by_sample/*/read_evidence.tsv` | `--sample_type wgs` or `metagenome` | sample |
 | `by_sample/*/contigs/final_evidence/final_pks_evidence.tsv` | targeted reassembly | sample |
 
 ### `cohort/qc/pks.qc.summary.tsv`

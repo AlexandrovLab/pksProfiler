@@ -62,14 +62,14 @@ class ReadStreamInvariantTests(unittest.TestCase):
 
 class ReadEvidenceScopeTests(unittest.TestCase):
     def test_evidence_is_computed_for_tumour_and_metagenome(self):
-        self.assertIn('if (params.sample_type in ["tumor_wgs", "metagenome"])', BODY)
+        self.assertIn('if (params.sample_type in ["wgs", "metagenome"])', BODY)
         self.assertIn("classifyPksReadEvidence(read_evidence_input_ch)", BODY)
 
     def test_only_the_tumour_lane_gates_on_the_tier(self):
         # For metagenomes the tier is an annotation; the contig-count gate is the real gate.
         gate = "tier in contig_tiers"
         self.assertIn(gate, BODY)
-        tumour_block = BODY[BODY.index('if (params.sample_type == "tumor_wgs") {'):]
+        tumour_block = BODY[BODY.index('if (params.sample_type == "wgs") {'):]
         self.assertIn(gate, tumour_block)
         # pksMAG on the metagenome branch is not tier-conditioned.
         mag_call = BODY[BODY.index("if (enable_mags_b) {"):]

@@ -6,7 +6,7 @@ Extends the immutable v0.0.1 release with island reassembly, genome-resolved ana
 strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 
 **Added**
-- Sample-type routing: `--sample_type auto | metagenome | tumor_wgs | tumor_wes | tumor_rna`.
+- Sample-type routing: `--sample_type metagenome | wgs | wes | rna` (required, no default).
 - Evidence tiers from read count, *clb* gene count and island breadth together, replacing a
   two-tier scheme whose lower boundary had been rejected during threshold analysis.
 - Targeted island reassembly for tumour data using MEGAHIT and metaSPAdes independently, with
@@ -24,6 +24,10 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 - Continuous integration, `CITATION.cff`, `CITATIONS.md`.
 
 **Changed**
+- `--sample_type` values renamed (owner decision on Ludmil's 26 Sep mode memo):
+  `tumor_wgs` → `wgs`, `tumor_wes` → `wes`, `tumor_rna` → `rna`; `metagenome` unchanged. The old
+  values are refused before any task runs with `--sample_type tumor_wgs was renamed to wgs`.
+  The tier threshold parameters keep their `tumor_*_min_*` names and apply to `wgs` only.
 - minimap2 pinned to **2.31** for every mode (`conda_envs/minimap2_env.yml`,
   `conda_envs/targeted_alignment_env.yml`; was 2.28), so WGS, WES, RNA and metagenome runs
   deplete with one aligner version and the RNA lane's `-ax splice:sr` preset is available.

@@ -3,7 +3,7 @@
 Ludmil, revised report finding 9: "auto" was accepted by both the default and
 the --sample_type validation, but nothing ever resolved it to a biological lane
 -- every routing decision in main.nf tests for a concrete value ("metagenome",
-"tumor_wgs"), so a run with --sample_type auto (or none at all, since it was the
+"tumor_wgs", since renamed wgs), so a run with --sample_type auto (or none at all, since it was the
 default) matched none of them. Read-tier classification, contig analysis, and
 MAG/taxonomy all silently never ran; alignment and the gene-count table still
 did, so the run looked complete rather than failed.
@@ -39,7 +39,7 @@ class SampleTypeHasNoDefault(unittest.TestCase):
         self.assertIsNotNone(m, "valid_sample_types list not found")
         values = eval(m.group(1))
         self.assertNotIn("auto", values)
-        self.assertEqual(set(values), {"metagenome", "tumor_wgs"})
+        self.assertEqual(set(values), {"metagenome", "wgs"})
 
     def test_modes_without_a_lane_are_refused_not_accepted(self):
         # 26 Sep mode memo: every accepted value maps to a real branch. The only
@@ -53,6 +53,35 @@ class SampleTypeHasNoDefault(unittest.TestCase):
             with self.subTest(sample_type=value):
                 self.assertIn(value, routed, f"{value} is accepted but no branch uses it")
         self.assertIn("is not supported in this release", MAIN)
+
+
+class RenamedSampleTypesFailNamingTheNewValue(unittest.TestCase):
+    """Owner decision on Ludmil's 26 Sep mode memo: tumor_wgs/tumor_wes/tumor_rna were
+    renamed wgs/wes/rna. Refused, not aliased, before any task is submitted."""
+
+    RENAMES = {"tumor_wgs": "wgs", "tumor_wes": "wes", "tumor_rna": "rna"}
+
+    def renamed_map(self):
+        m = re.search(r"def renamed_sample_types = \[([^\]]*)\]", code_only(MAIN))
+        self.assertIsNotNone(m, "renamed_sample_types map not found")
+        return dict(re.findall(r'(\w+)\s*:\s*"(\w+)"', m.group(1)))
+
+    def test_every_old_value_maps_to_its_new_name(self):
+        self.assertEqual(self.renamed_map(), self.RENAMES)
+
+    def test_the_message_names_the_new_value(self):
+        self.assertIn('was renamed to ${renamed_sample_types[params.sample_type.toString()]}', MAIN)
+
+    def test_old_values_are_not_accepted_anywhere_in_routing(self):
+        code = code_only(MAIN)
+        for old in self.RENAMES:
+            with self.subTest(old=old):
+                self.assertNotIn(f'"{old}"', code.replace(
+                    code[code.index("def renamed_sample_types"):].split("\n", 1)[0], ""))
+
+    def test_the_rename_check_runs_before_the_first_task(self):
+        body = MAIN.split("workflow {", 1)[1]
+        self.assertLess(body.index("renamed_sample_types.containsKey"), body.index("extractReads("))
 
 
 class MissingSampleTypeFailsBeforeAnyTaskRuns(unittest.TestCase):
@@ -74,7 +103,7 @@ class MissingSampleTypeFailsBeforeAnyTaskRuns(unittest.TestCase):
     def test_the_error_message_names_every_supported_value(self):
         self.assertIn(
             "Missing required parameter: --sample_type. Supported: "
-            "metagenome, tumor_wgs",
+            "metagenome, wgs",
             MAIN)
 
 
