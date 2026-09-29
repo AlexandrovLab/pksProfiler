@@ -30,6 +30,9 @@ process pairDepletedReads {
     if (reads_list.size() != 1) {
         error "Mate pairing for ${sampleID} expects the one host-depleted FASTQ; received ${reads_list.size()} files"
     }
+    // external sort buffer: half the task's memory, at least 1 GB (integer GB; Groovy `/`
+    // would give a BigDecimal)
+    def sort_gb = Math.max(1, (task.memory ? task.memory.toGiga().intValue() : 2).intdiv(2))
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # scripts ${params.dep_digest?.scripts}
@@ -39,7 +42,7 @@ process pairDepletedReads {
         --r1 "${sampleID}.pairs.R1.fastq.gz" --r2 "${sampleID}.pairs.R2.fastq.gz" \\
         --single "${sampleID}.pairs.single.fastq.gz" \\
         --stats "${sampleID}.mate_pairing.tsv" \\
-        --threads ${task.cpus} --sort-memory ${Math.max(1, (task.memory ? task.memory.toGiga().intValue() : 2) / 2)}G \\
+        --threads ${task.cpus} --sort-memory ${sort_gb}G \\
         --tmpdir .
     """
 }
