@@ -150,7 +150,7 @@ warning.
 | `filter_input_reads` | reads entering fastp. For alignment input this equals the extracted count; for FASTQ input it is the library |
 | `taxonomy_status` | why a sample is or is not in the species table: `no_pks_reads`, `below_rank_threshold`, `no_species_identified`, `species_identified`. `NA` when taxonomy did not run |
 | `clb_species_reported` | how many species that sample contributed to `pks.clb_species_support.tsv` |
-| `reads_mapped_ihe3034` | reads that mapped to the reference at all, at MAPQ ≥ 40 — the denominator the *clb* counts sit inside |
+| `reads_mapped_ihe3034_mapq40` | reads that mapped to the reference at all, at MAPQ ≥ 40 (named `reads_mapped_ihe3034` before rc1) — the denominator the *clb* counts sit inside |
 | `unmapped_reads` | unmapped primary records extracted (`-f 4 -F 2304`) |
 | `reads_after_fastp` | surviving adapter and quality filtering |
 | `reads_after_hg38` | surviving GRCh38 depletion |

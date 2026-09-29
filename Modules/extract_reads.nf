@@ -114,19 +114,25 @@ process extractReads {
 	# decode of a 66 GiB CRAM. It counts alignment *records*, secondary and supplementary
 	# included, and it needs an index; both are why the metric is named for what it is,
 	# and why it is simply absent when it cannot be had rather than being stood in for.
-	INPUT_RECORDS=""
+	# E2 (25 Sep): the per-contig counts are kept as a few reference categories
+	# (canonical / mito / alt / unplaced / decoy / viral / other, plus unplaced
+	# unmapped) instead of being collapsed straight to the total.
+	HAVE_IDXSTATS=false
 	if samtools idxstats "\${REFERENCE_ARGS[@]}" "${alignment}" > input.idxstats 2>/dev/null; then
-	    INPUT_RECORDS=\$(awk '{ total += \$3 + \$4 } END { print total + 0 }' input.idxstats)
+	    python "${params.scripts}/summarize_idxstats.py" --idxstats input.idxstats \
+	        --sample "${sampleID}" > input.idxstats.metrics
+	    HAVE_IDXSTATS=true
 	fi
 
 	TOTAL_PRIMARY=""
-	if [[ "${params.exact_input_counts}" == "true" ]]; then
+	# E5: Groovy boolean coercion, so "True", "1", "yes" etc. are not silently false.
+	if [[ "${params.exact_input_counts.toString().toBoolean()}" == "true" ]]; then
 	    TOTAL_PRIMARY=\$(samtools view -c -@ "${task.cpus}" -F 2304 "\${REFERENCE_ARGS[@]}" "${alignment}")
 	fi
 
 	printf "Sample\tMetric\tValue\n" > "\$QC"
-	if [[ -n "\$INPUT_RECORDS" ]]; then
-	    printf "%s\tinput_alignment_records\t%s\n" "${sampleID}" "\$INPUT_RECORDS" >> "\$QC"
+	if [[ "\$HAVE_IDXSTATS" == "true" ]]; then
+	    cat input.idxstats.metrics >> "\$QC"
 	fi
 	if [[ -n "\$TOTAL_PRIMARY" ]]; then
 	    printf "%s\ttotal_primary_reads\t%s\n" "${sampleID}" "\$TOTAL_PRIMARY" >> "\$QC"

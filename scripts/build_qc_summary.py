@@ -28,6 +28,17 @@ from pathlib import Path
 OUTPUT_COLUMNS = [
     "Sample",
     "input_alignment_records",   # from the index: records, secondary/supplementary included
+    # E2: the same index counts by input-reference category (summarize_idxstats.py).
+    # Mapped records per category, then unmapped records with and without a position.
+    "input_mapped_canonical",
+    "input_mapped_mito",
+    "input_mapped_alt",
+    "input_mapped_unplaced",
+    "input_mapped_decoy",
+    "input_mapped_viral",
+    "input_mapped_other",
+    "input_unmapped_placed",
+    "input_unmapped_unplaced",
     "total_primary_reads",       # exact primary count; only with --exact_input_counts
     "extracted_unmapped_reads",  # what extraction wrote
     "filter_input_reads",        # what entered fastp
@@ -35,7 +46,18 @@ OUTPUT_COLUMNS = [
     "reads_after_hg38",
     "reads_after_t2t_phix",
     "reads_after_pangenome",
-    # reads_mapped_ihe3034 is deliberately NOT a column here. It is reads mapping
+    # P1 (25 Sep): the metagenome prefilter lane. Kraken routing of the depleted reads,
+    # DIAMOND rescue of the non-target remainder, and the merged candidate set.
+    "prefilter_input_reads",
+    "prefilter_primary_reads",
+    "prefilter_non_target_reads",
+    "diamond_input_reads",
+    "diamond_rescue_fragments",
+    "diamond_rescued_reads",
+    "candidate_primary_reads",
+    "candidate_rescued_reads",
+    "candidate_total_reads",
+    # reads_mapped_ihe3034_mapq40 is deliberately NOT a column here. It is reads mapping
     # anywhere on the 5.1 Mb IHE3034 genome, of which the island is 1%, so beside the
     # clb columns it invites the reading "lots of reads, no island" as though the two
     # were the same measurement. It is still written per sample in
@@ -164,7 +186,8 @@ def output_row(sample, values):
         "total_primary_reads": values.get("total_primary_reads"),
         "extracted_unmapped_reads": values.get("extracted_unmapped_reads"),
         "filter_input_reads": values.get("filter_input_reads"),
-        "reads_mapped_ihe3034": values.get("reads_mapped_ihe3034"),
+        # A6: named for its MAPQ >= 40 filter (was reads_mapped_ihe3034).
+        "reads_mapped_ihe3034_mapq40": values.get("reads_mapped_ihe3034_mapq40"),
         "reads_after_fastp": values.get("reads_after_fastp"),
         "reads_after_hg38": values.get("reads_after_hg38"),
         "reads_after_t2t_phix": values.get("reads_after_t2t_phix"),
@@ -177,6 +200,10 @@ def output_row(sample, values):
         "num_clb_genes_hmm": values.get("num_clb_genes_hmm"),
         "reads_clb_genes_hmm": values.get("reads_clb_genes_hmm"),
     }
+    for column in OUTPUT_COLUMNS:
+        if column.startswith(("input_mapped_", "input_unmapped_", "prefilter_",
+                              "diamond_", "candidate_")):
+            mapped[column] = values.get(column)
 
     missing = [column for column in REQUIRED if mapped[column] is None]
     mapped["status"] = "incomplete" if missing else "complete"
@@ -192,7 +219,7 @@ def output_row(sample, values):
         "reads_after_hg38",
         "reads_after_t2t_phix",
         "reads_after_pangenome",
-        "reads_mapped_ihe3034",
+        "reads_mapped_ihe3034_mapq40",
         "reads_clb_genes_align",
     ]
     observed = [
@@ -229,6 +256,29 @@ def output_row(sample, values):
             f"({hmm_reads}) exceeds {depleted_metric} ({depleted_reads})"
         )
 
+    # E2 / P1: parts must add up to their totals. Each group is checked only when every
+    # member is present, so a partially-run sample is reported, not rejected.
+    for total_name, parts in (
+        ("input_alignment_records",
+         [c for c in OUTPUT_COLUMNS if c.startswith(("input_mapped_", "input_unmapped_"))]),
+        ("prefilter_input_reads", ["prefilter_primary_reads", "prefilter_non_target_reads"]),
+        ("candidate_total_reads", ["candidate_primary_reads", "candidate_rescued_reads"]),
+    ):
+        values_present = [mapped.get(p) for p in parts]
+        total = mapped.get(total_name)
+        if total is None or any(v is None for v in values_present):
+            continue
+        if sum(values_present) != total:
+            raise ValueError(
+                f"Impossible QC counts for {sample}: {' + '.join(parts)} "
+                f"({sum(values_present)}) != {total_name} ({total})")
+    for rescued, pool in (("diamond_rescued_reads", "diamond_input_reads"),
+                          ("diamond_input_reads", "prefilter_non_target_reads")):
+        if mapped.get(rescued) is not None and mapped.get(pool) is not None \
+                and mapped[rescued] > mapped[pool]:
+            raise ValueError(f"Impossible QC counts for {sample}: {rescued} "
+                             f"({mapped[rescued]}) exceeds {pool} ({mapped[pool]})")
+
     for field in ("num_clb_genes_align", "num_clb_genes_hmm"):
         genes_detected = mapped[field]
         if genes_detected is not None and not 0 <= genes_detected <= 19:
@@ -244,7 +294,7 @@ def write_summary(metrics, output_path, expected=()):
     samples = sorted(set(metrics) | set(expected))
     with output_path.open("w", newline="") as handle:
         # extrasaction: the row carries metrics the table does not show, such as
-        # reads_mapped_ihe3034, which is still used for the monotonic check above.
+        # reads_mapped_ihe3034_mapq40, which is still used for the monotonic check above.
         writer = csv.DictWriter(handle, fieldnames=OUTPUT_COLUMNS, delimiter="\t",
                                 extrasaction="ignore")
         writer.writeheader()

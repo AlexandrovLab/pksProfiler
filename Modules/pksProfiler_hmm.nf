@@ -65,7 +65,7 @@ process pksProfiler_hmm {
 
     echo "Running nhmmscan on sample: ${sampleID}"
 
-    if [[ "${params.hmm_chunking}" == "true" && "${task.cpus}" -gt 1 ]]; then
+    if [[ "${params.hmm_chunking.toString().toBoolean()}" == "true" && "${task.cpus}" -gt 1 ]]; then
         mkdir -p hmm_chunks hmm_chunk_results
         : > hmm_chunk_results/pids.txt
 

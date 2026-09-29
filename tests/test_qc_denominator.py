@@ -34,6 +34,13 @@ def emitted_metrics():
         # The value may be a %s or a literal -- the zero-hit branch of the HMM module
         # writes `printf "%s\treads_clb_genes_hmm\t0\n"`. Match on the metric name only.
         names.update(re.findall(r'printf\s+"%s\\*t(\w+)', text))
+    # E2: extraction's input-reference categories come from summarize_idxstats.py,
+    # which extract_reads.nf appends to its fragment verbatim.
+    spec = importlib.util.spec_from_file_location(
+        "summarize_idxstats", ROOT / "scripts/summarize_idxstats.py")
+    idx = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(idx)
+    names.update(idx.summarize([]))
     return names
 
 
@@ -49,7 +56,7 @@ class MetricsExist(unittest.TestCase):
 
     def test_extraction_reports_a_denominator_not_derived_from_itself(self):
         extract = MODULE_SOURCES["extract_reads.nf"]
-        self.assertIn("input_alignment_records", extract)
+        self.assertIn("summarize_idxstats.py", extract)
         self.assertIn("idxstats", extract)
 
     def test_the_exact_count_is_opt_in_because_it_costs_a_second_decode(self):
@@ -62,13 +69,13 @@ class MetricsExist(unittest.TestCase):
         # F09 asked for it to be exported; the align module writes it into the
         # per-sample QC fragment.
         align = MODULE_SOURCES["pksProfiler_align.nf"]
-        self.assertIn("reads_mapped_ihe3034", align)
+        self.assertIn("reads_mapped_ihe3034_mapq40", align)
 
     def test_it_is_not_a_column_in_the_cohort_table(self):
         # Reads mapping anywhere on the 5.1 Mb genome, of which the island is 1%.
         # Beside the clb columns it reads as though it were the same measurement.
-        self.assertNotIn('"reads_mapped_ihe3034",', QC_SUMMARY_SOURCE.split("OUTPUT_COLUMNS = [", 1)[1].split("]", 1)[0])
-        self.assertIn("reads_mapped_ihe3034", QC_SUMMARY_SOURCE)  # still bounds the clb count
+        self.assertNotIn('"reads_mapped_ihe3034_mapq40",', QC_SUMMARY_SOURCE.split("OUTPUT_COLUMNS = [", 1)[1].split("]", 1)[0])
+        self.assertIn("reads_mapped_ihe3034_mapq40", QC_SUMMARY_SOURCE)  # still bounds the clb count
 
 
 class NoSubstitution(unittest.TestCase):
@@ -119,7 +126,7 @@ class NoSubstitution(unittest.TestCase):
             self.summarise([
                 ("filter_input_reads", 400), ("reads_after_fastp", 360),
                 ("reads_after_hg38", 300), ("reads_after_t2t_phix", 250),
-                ("reads_mapped_ihe3034", 10), ("reads_clb_genes_align", 99),
+                ("reads_mapped_ihe3034_mapq40", 10), ("reads_clb_genes_align", 99),
             ])
 
 

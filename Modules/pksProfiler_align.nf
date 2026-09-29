@@ -98,7 +98,8 @@ process pksProfiler_align {
     printf "Sample\tMetric\tValue\n" > "${qc}"
     # F09: computed since v0.0.1 and used only for a zero check. It is the reads that
     # mapped to the reference at all -- the denominator the clb counts sit inside.
-    printf "%s\treads_mapped_ihe3034\t%s\n" "${sampleID}" "\$MAPPED_READS" >> "${qc}"
+    # A6 (25 Sep): named for the MAPQ >= 40 filter (samtools view -q 40 above) it carries.
+    printf "%s\treads_mapped_ihe3034_mapq40\t%s\n" "${sampleID}" "\$MAPPED_READS" >> "${qc}"
     printf "%s\treads_clb_genes_align\t%s\n" "${sampleID}" "\$CLB_READS" >> "${qc}"
     printf "%s\tnum_clb_genes_align\t%s\n" "${sampleID}" "\$CLB_GENES_DETECTED" >> "${qc}"
 
