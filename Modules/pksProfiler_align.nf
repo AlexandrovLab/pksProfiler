@@ -53,9 +53,13 @@ process pksProfiler_align {
     # as a process output, published beside the BAM that duplicates it, and read by
     # nothing -- main.nf destructured it and dropped it. At cohort scale that is one
     # redundant alignment file per sample.
+    # A4 (25 Sep): mode, preset, score-min and MAPQ are named params, recorded in
+    # RUN_REPORT; their defaults are the values this command always ran with.
     bowtie2 -x "${params.pks_genome}" -q -U "${reads}" \
-        --seed 42 --threads "${task.cpus}" --very-sensitive --no-unal \
-      | samtools view -@ "${task.cpus}" -bS -q 40 - \
+        --seed 42 --threads "${task.cpus}" \
+        --${params.pks_align_bowtie2_mode} --${params.pks_align_bowtie2_preset} \
+        --score-min ${params.pks_align_bowtie2_score_min} --no-unal \
+      | samtools view -@ "${task.cpus}" -bS -q ${params.pks_align_min_mapq} - \
       | samtools sort -@ "${task.cpus}" -o "${bam}" -
     samtools index -@ "${task.cpus}" "${bam}" "${bai}"
 

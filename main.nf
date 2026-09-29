@@ -167,6 +167,16 @@ params.pks_start_1based    = 2193827   // first base of the annotated island (1-
 params.pks_end_1based      = 2244594   // last base of the annotated island (1-based, inclusive)
 params.pks_island_len_1based = params.pks_end_1based - params.pks_start_1based + 1   // 50768, not 50767
 
+// A4 (Ludmil, 25 Sep): the primary profiling alignment's similarity rule, named rather
+// than left to Bowtie2 defaults. These are the values the lane has always used --
+// Bowtie2's end-to-end default score-min is L,-0.6,-0.6 -- so stating them changes no
+// result. The evidence tiers were calibrated against exactly this rule; main.nf refuses
+// a different MAPQ, and the others should not be changed without recalibration either.
+params.pks_align_bowtie2_mode      = "end-to-end"
+params.pks_align_bowtie2_preset    = "very-sensitive"
+params.pks_align_bowtie2_score_min = "L,-0.6,-0.6"
+params.pks_align_min_mapq          = 40
+
 // Output directories
 params.outdir = "${launchDir}/results"
 
@@ -708,6 +718,13 @@ workflow {
         params.diamond_min_query_coverage.toString().toDouble() <= 0 ||
         params.diamond_min_query_coverage.toString().toDouble() > 1) {
         exit 1, "--diamond_evalue and --diamond_min_aa must be positive, and --diamond_min_query_coverage must be in (0,1]"
+    }
+    if (params.pks_align_min_mapq.toString() != "40") {
+        exit 1, "--pks_align_min_mapq must stay 40: the evidence tiers and reads_mapped_ihe3034_mapq40 were calibrated at MAPQ >= 40 (A4). Recalibrate before changing it."
+    }
+    // Local mode needs its own preset (-local) and score-min (G,...); neither is calibrated.
+    if (params.pks_align_bowtie2_mode.toString() != "end-to-end") {
+        exit 1, "--pks_align_bowtie2_mode must be end-to-end: the tiers were calibrated on it and local mode needs a different preset and score-min (got ${params.pks_align_bowtie2_mode})"
     }
     if (pks_community_taxa_b && prefilter_mode != "balanced") {
         exit 1, "--pks_community_taxa requires --prefilter_mode balanced so Bracken receives the complete non-host krakenuniq report"

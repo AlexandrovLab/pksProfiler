@@ -199,7 +199,10 @@ PARAMETER_GROUPS = (
     ("INPUT", ("sample", "input_data_type", "sample_type", "cram_reference", "outdir")),
     ("PROFILING", ("profiling_method", "hmm_evalue", "hmm_protein_evalue", "prefilter_mode",
                    "pks_contig", "pks_start_1based", "pks_end_1based",
-                   "pks_island_len_1based")),
+                   "pks_island_len_1based",
+                   # A4: the primary alignment's similarity rule.
+                   "pks_align_bowtie2_mode", "pks_align_bowtie2_preset",
+                   "pks_align_bowtie2_score_min", "pks_align_min_mapq")),
     ("EVIDENCE TIERS", tuple(f"tumor_{tier}_{field}" for tier in TIER_NAMES
                              for field, _label in TIER_FIELDS)),
     ("STAGES", ("enable_mags", "tumor_targeted_assembly",

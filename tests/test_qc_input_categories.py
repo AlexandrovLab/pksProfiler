@@ -130,3 +130,35 @@ class CohortTable(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BowtieRuleIsExplicit(unittest.TestCase):
+    """A4 (25 Sep): the primary alignment's scoring rule is named and recorded."""
+
+    MAIN = (ROOT / "main.nf").read_text()
+    ALIGN = (ROOT / "Modules/pksProfiler_align.nf").read_text()
+
+    def test_defaults_are_the_values_the_lane_always_used(self):
+        for line in ('params.pks_align_bowtie2_mode      = "end-to-end"',
+                     'params.pks_align_bowtie2_preset    = "very-sensitive"',
+                     'params.pks_align_bowtie2_score_min = "L,-0.6,-0.6"',
+                     'params.pks_align_min_mapq          = 40'):
+            self.assertIn(line, self.MAIN)
+
+    def test_the_command_uses_them(self):
+        cmd = self.ALIGN.split("bowtie2 -x", 1)[1].split("samtools sort", 1)[0]
+        for name in ("pks_align_bowtie2_mode", "pks_align_bowtie2_preset",
+                     "pks_align_bowtie2_score_min", "pks_align_min_mapq"):
+            self.assertIn(f"params.{name}", cmd)
+        self.assertNotIn("--very-sensitive ", cmd)
+        self.assertNotIn("-q 40", cmd)
+
+    def test_run_report_records_them(self):
+        prov = load("finalize_provenance")
+        names = {n for _group, members in prov.PARAMETER_GROUPS for n in members}
+        for name in ("pks_align_bowtie2_mode", "pks_align_bowtie2_preset",
+                     "pks_align_bowtie2_score_min", "pks_align_min_mapq"):
+            self.assertIn(name, names)
+
+    def test_a_different_mapq_is_refused(self):
+        self.assertIn('params.pks_align_min_mapq.toString() != "40"', self.MAIN)
