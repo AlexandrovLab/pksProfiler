@@ -152,12 +152,13 @@ COHORT_INPUTS = {
     "species_support": "cohort/taxonomy/pks.clb_species_support.tsv",
 }
 # Figures are linked, never read: the staged copy only says the figure exists for this
-# run. Two taxa producers (--pks_taxa island taxa and --pks_community_taxa) publish to
-# the same figures/taxa_barplots.pdf, so the kind maps to one name, listed once.
+# run. The two taxa producers publish distinct names (they used to share
+# figures/taxa_barplots.pdf, and a run with both kept whichever finished last).
 FIGURE_INPUTS = {
     "figure_circos": "circos.pdf",
     "figure_contig_validation": "contig_validation.svg",
-    "figure_taxa": "taxa_barplots.pdf",
+    "figure_taxa_pks_island": "pks_island_taxa_barplots.pdf",
+    "figure_taxa_community": "community_taxa_barplots.pdf",
 }
 
 

@@ -72,6 +72,10 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 - nf-core template placeholders and the unused `input` parameter.
 
 **Fixed**
+- `plotPKSTaxa` (`--pks_taxa`) and `plotCommunityTaxa` (`--pks_community_taxa`) both published
+  `by_sample/<s>/figures/taxa_barplots.pdf`, so a run with both kept whichever finished last.
+  They now publish `pks_island_taxa_barplots.pdf` and `community_taxa_barplots.pdf`, with
+  report manifest kinds `figure_taxa_pks_island` / `figure_taxa_community`.
 - Boolean flags were truthy when set to `false`, because Nextflow passes `--flag false` as a
   string. `--enable_mags false` would have enabled MAGs.
 - `plotPKSTaxa` and `pksMAG` were each invoked twice, which Nextflow rejects at runtime. Both

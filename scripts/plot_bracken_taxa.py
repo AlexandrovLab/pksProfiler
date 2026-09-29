@@ -60,7 +60,13 @@ def read_bracken_report(path: Path) -> pd.DataFrame:
     return out[out["reads"] > 0]
 
 
-def barplot(ax, df: pd.DataFrame, title: str, top_n: int):
+YLABEL = {
+    "pks_island": "Estimated PKS-island reads",
+    "community": "Estimated reads (non-host community)",
+}
+
+
+def barplot(ax, df: pd.DataFrame, title: str, top_n: int, ylabel: str = YLABEL["pks_island"]):
     ax.set_title(title)
     if df.empty:
         ax.axis("off")
@@ -72,7 +78,7 @@ def barplot(ax, df: pd.DataFrame, title: str, top_n: int):
         df = df.iloc[:top_n].copy()
 
     ax.bar(df["taxon"], df["reads"])
-    ax.set_ylabel("Estimated PKS-island reads")
+    ax.set_ylabel(ylabel)
     ax.set_xlabel("Taxon")
     ax.tick_params(axis="x", labelrotation=60)
     ax.margins(x=0.01)
@@ -85,6 +91,8 @@ def main():
     ap.add_argument("--species", required=True, help="Bracken species report (*.bracken.S.report.txt)")
     ap.add_argument("--out", required=True, help="Output PDF")
     ap.add_argument("--top", type=int, default=20, help="Top N taxa to plot (0 = all)")
+    ap.add_argument("--scope", choices=sorted(YLABEL), default="pks_island",
+                    help="pks_island (--pks_taxa) or community (--pks_community_taxa)")
     args = ap.parse_args()
 
     sample = args.sample
@@ -100,14 +108,17 @@ def main():
     with PdfPages(out_pdf) as pdf:
         # Genus page
         fig, ax = plt.subplots(figsize=(12, 6))
-        barplot(ax, gdf, f"{sample} — Bracken Genus (top {args.top if args.top>0 else 'all'})", args.top)
+        label = "PKS island" if args.scope == "pks_island" else "community"
+        barplot(ax, gdf, f"{sample} — {label}, Bracken Genus (top {args.top if args.top>0 else 'all'})",
+                args.top, YLABEL[args.scope])
         fig.tight_layout()
         pdf.savefig(fig)
         plt.close(fig)
 
         # Species page
         fig, ax = plt.subplots(figsize=(12, 6))
-        barplot(ax, sdf, f"{sample} — Bracken Species (top {args.top if args.top>0 else 'all'})", args.top)
+        barplot(ax, sdf, f"{sample} — {label}, Bracken Species (top {args.top if args.top>0 else 'all'})",
+                args.top, YLABEL[args.scope])
         fig.tight_layout()
         pdf.savefig(fig)
         plt.close(fig)

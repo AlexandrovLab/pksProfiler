@@ -10,6 +10,7 @@ produced each file.
 These tests lock the shape so it cannot drift back.
 """
 import re
+import importlib.util
 import unittest
 from pathlib import Path
 
@@ -155,6 +156,39 @@ class FigureTests(unittest.TestCase):
                         "the contig validation SVG should publish alongside the other figures")
         self.assertTrue(any("final_evidence" in t for t in targets),
                         "the evidence table should still publish under contigs/final_evidence")
+
+
+class TaxaFigureNamesTests(unittest.TestCase):
+    """rc1 pass, item 2: plotPKSTaxa and plotCommunityTaxa are one process aliased twice,
+    and both published figures/taxa_barplots.pdf, so a run with --pks_taxa and
+    --pks_community_taxa kept whichever finished last."""
+
+    MODULE = (ROOT / "Modules/plot_bracken_taxa.nf").read_text()
+    MAIN = (ROOT / "main.nf").read_text()
+
+    def test_the_published_name_comes_from_the_scope_input(self):
+        self.assertIn('saveAs: { "${scope}_taxa_barplots.pdf" }', self.MODULE)
+        self.assertIn("val(scope)", self.MODULE)
+        self.assertNotIn('saveAs: { "taxa_barplots.pdf" }', self.MODULE)
+
+    def test_each_alias_passes_its_own_scope_and_manifest_kind(self):
+        self.assertIn("plotPKSTaxa(BRACKEN_GS_REPORTS, 'pks_island')", self.MAIN)
+        self.assertIn("plotCommunityTaxa(sampleBracken(KRAKEN_PREFILTER_OUT.taxonomy).reports, 'community')",
+                      self.MAIN)
+        self.assertIn("tuple(sampleID, 'figure_taxa_pks_island', f)", self.MAIN)
+        self.assertIn("tuple(sampleID, 'figure_taxa_community', f)", self.MAIN)
+
+    def test_the_report_links_both_names(self):
+        spec = importlib.util.spec_from_file_location(
+            "build_cohort_report", ROOT / "scripts/build_cohort_report.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(module.FIGURE_INPUTS["figure_taxa_pks_island"], "pks_island_taxa_barplots.pdf")
+        self.assertEqual(module.FIGURE_INPUTS["figure_taxa_community"], "community_taxa_barplots.pdf")
+        self.assertEqual(len(set(module.FIGURE_INPUTS.values())), len(module.FIGURE_INPUTS))
+        docs = (ROOT / "docs/output.md").read_text()
+        for name in module.FIGURE_INPUTS.values():
+            self.assertIn(name, docs)
 
 
 if __name__ == "__main__":

@@ -54,7 +54,9 @@ by_sample/<sample>/
 ├── strain/                 ST, clonal complex, phylogroup            (step 7)
 ├── taxonomy/               bracken reports, island reads             --pks_taxa
 ├── prefilter/              kept and rescued reads                    --prefilter_mode
-├── figures/                circos.pdf, taxa_barplots.pdf, contig_validation.svg
+├── figures/                circos.pdf, contig_validation.svg,
+│                           pks_island_taxa_barplots.pdf  (--pks_taxa: Bracken on island reads)
+│                           community_taxa_barplots.pdf   (--pks_community_taxa: whole community)
 └── intermediates/          extracted / filtered / host-depleted FASTQ  --save_intermediates
 ```
 

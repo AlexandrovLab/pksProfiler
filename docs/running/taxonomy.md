@@ -40,9 +40,11 @@ Taxonomy cannot be used with `--profiling_method hmm` alone because it depends o
 results_taxonomy/cohort/taxonomy/
 ├── pks.clb_species_support.tsv
 ├── bracken.genus.mpa.report.txt
-├── bracken.species.mpa.report.txt
-└── plots/
-    └── <sample>.pks_island_taxa_barplots.pdf
+└── bracken.species.mpa.report.txt
+
+results_taxonomy/by_sample/<sample>/figures/
+├── pks_island_taxa_barplots.pdf    --pks_taxa (Bracken on island-aligned reads)
+└── community_taxa_barplots.pdf     --pks_community_taxa (Bracken on the whole non-host report)
 ```
 
 `pks.clb_species_support.tsv` contains species as rows and *clb* genes as columns. Bracken reports contain re-estimated genus and species abundances.

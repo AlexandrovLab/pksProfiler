@@ -1078,9 +1078,10 @@ workflow {
         QC_FRAGMENTS = QC_FRAGMENTS.mix(CANDIDATE_OUT.qc.map { _sampleID, qc_file -> qc_file })
 
         if (pks_community_taxa_b) {
-            plotCommunityTaxa(sampleBracken(KRAKEN_PREFILTER_OUT.taxonomy).reports)
+            // Distinct published name from plotPKSTaxa's (figures/community_taxa_barplots.pdf).
+            plotCommunityTaxa(sampleBracken(KRAKEN_PREFILTER_OUT.taxonomy).reports, 'community')
             report_display_gate = report_display_gate.mix(
-                plotCommunityTaxa.out.map { sampleID, f -> tuple(sampleID, 'figure_taxa', f) })
+                plotCommunityTaxa.out.map { sampleID, f -> tuple(sampleID, 'figure_taxa_community', f) })
         }
         // Profiling now runs on a narrowed stream while assembly still uses the complete
         // one, so read-level and assembly-level clb evidence for the same sample are
@@ -1250,11 +1251,12 @@ workflow {
 		}
 	    .set { BRACKEN_GS_REPORTS }
 
-		plotPKSTaxa(BRACKEN_GS_REPORTS)
+		// figures/pks_island_taxa_barplots.pdf; plotCommunityTaxa publishes its own name.
+		plotPKSTaxa(BRACKEN_GS_REPORTS, 'pks_island')
 		// P0-5b: plotPKSTaxa emits tuple(sampleID, pdf). Mixed in bare, the collected
 		// gate handed the sample identifier to cohortReport's path input.
 		report_display_gate = report_display_gate.mix(
-		    plotPKSTaxa.out.map { sampleID, f -> tuple(sampleID, 'figure_taxa', f) },
+		    plotPKSTaxa.out.map { sampleID, f -> tuple(sampleID, 'figure_taxa_pks_island', f) },
 		    combineClbTaxonomySupport.out.map { f -> tuple('', 'species_support', f) })
 
 	
