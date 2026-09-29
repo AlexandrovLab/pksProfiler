@@ -99,11 +99,27 @@ class PreflightTests(unittest.TestCase):
             (self.d / name).write_text("x")
         result = self.run_preflight(sample_type="wgs", read_type="ont", hg38_db=None, t2t_phix_db=None,
                                     hg38_db_long=str(self.d / "hg38_long.mmi"),
-                                    t2t_phix_db_long=str(self.d / "t2t_long.mmi"))
+                                    t2t_phix_db_long=str(self.d / "t2t_long.mmi"), pks_taxa=False)
         self.assertEqual(result.returncode, 0, result.stdout)
         result = self.run_preflight(sample_type="rna", read_type="hifi")
         self.assertIn("--rna_splice_db_long is not set", result.stdout)
         self.assertIn("--t2t_phix_db_long is not set", result.stdout)
+
+    # rc1 pass, item 1: Bracken's read-length model is short-read.
+    def test_long_reads_refuse_bracken_taxonomy(self):
+        (self.d / "hg38_long.mmi").write_text("x")
+        (self.d / "t2t_long.mmi").write_text("x")
+        long_indexes = dict(sample_type="wgs", read_type="hifi",
+                            hg38_db_long=str(self.d / "hg38_long.mmi"),
+                            t2t_phix_db_long=str(self.d / "t2t_long.mmi"))
+        for flag in ("pks_taxa", "pks_community_taxa"):
+            with self.subTest(flag=flag):
+                result = self.run_preflight(**long_indexes, **{"pks_taxa": False, flag: True})
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("are not supported with --read_type hifi: Bracken's read-length model",
+                              result.stdout)
+        # short reads keep taxonomy
+        self.assertEqual(self.run_preflight(read_type="short").returncode, 0)
 
     def test_long_reads_refuse_a_mate_file(self):
         (self.d / "r1.fastq.gz").write_text("x")

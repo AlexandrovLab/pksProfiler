@@ -163,15 +163,22 @@ check_validation \
     unknown-read-type \
     '--read_type must be one of short, ont, hifi' \
     --sample_type wgs --read_type nanopore
+# rc1 pass, item 1: targeted assembly defaults on and is switched off for long reads;
+# only an explicit request on the command line is refused.
 check_validation \
     long-read-wgs-assembly \
-    '--tumor_targeted_assembly is not supported with --read_type hifi' \
-    --sample_type wgs --read_type hifi \
+    '--tumor_targeted_assembly true is not supported with --read_type hifi' \
+    --sample_type wgs --read_type hifi --tumor_targeted_assembly true \
     --hg38_db_long "$test_dir/placeholder-hg38.mmi" --t2t_phix_db_long "$test_dir/placeholder-t2t.mmi"
 check_validation \
     long-read-missing-index \
     '--hg38_db_long is not set' \
-    --sample_type wgs --read_type ont --tumor_targeted_assembly false
+    --sample_type wgs --read_type ont
+check_validation \
+    long-read-pks-taxa \
+    "--pks_taxa / --pks_community_taxa are not supported with --read_type ont: Bracken's read-length model" \
+    --sample_type wgs --read_type ont --pks_taxa true \
+    --hg38_db_long "$test_dir/placeholder-hg38.mmi" --t2t_phix_db_long "$test_dir/placeholder-t2t.mmi"
 
 echo
 echo "Running the host-depletion plan (lib/HostDepletion.groovy)"

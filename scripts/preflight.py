@@ -262,6 +262,12 @@ def check_taxonomy(config, report):
     section = "taxonomy"
     wants_taxonomy = any(config.get(flag) for flag in ("pks_taxa", "pks_community_taxa"))
     wants_prefilter = str(config.get("prefilter_mode", "off")) == "balanced"
+    # rc1 pass, item 1: Bracken re-estimates abundance from a k-mer distribution built
+    # for one short read length; there is no model for a long-read length distribution.
+    if wants_taxonomy and is_long(config):
+        report.problem(section, f"--pks_taxa / --pks_community_taxa are not supported with "
+                                f"--read_type {config.get('read_type')}: Bracken's read-length "
+                                "model (--bracken_read_length) is a short-read concept")
     if not (wants_taxonomy or wants_prefilter):
         return
 

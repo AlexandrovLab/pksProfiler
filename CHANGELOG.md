@@ -10,7 +10,9 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
   fastplong read QC (`--long_read_min_length`, QC metric names kept), map-ont/map-hifi depletion
   (splice/splice:hq for the RNA human pass) against `--hg38_db_long` / `--rna_splice_db_long` /
   `--t2t_phix_db_long`, minimap2 profiling against the IHE3034 FASTA with featureCounts `-L`.
-  Long-read WGS is untiered; targeted assembly is refused. `pks_align_env` gains minimap2 2.31;
+  Long-read WGS is untiered; targeted assembly (on by default) is switched off with a log
+  line and refused only when `--tumor_targeted_assembly true` is on the command line;
+  `--pks_taxa` / `--pks_community_taxa` are refused (Bracken's read-length model is short-read). `pks_align_env` gains minimap2 2.31;
   new `conda_envs/fastplong_env.yml` (fastplong 0.7.1). See `docs/running/long_reads.md`.
 - RNA-seq lane, `--sample_type rna` (Ludmil, 26 Sep mode memo section 4): the human depletion
   pass is splice-aware (`minimap2 -ax splice:sr` against `--rna_splice_db`, `-j --rna_junctions_bed`

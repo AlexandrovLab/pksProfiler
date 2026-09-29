@@ -156,11 +156,14 @@ construct "rna, frag=no, assembly flag inert" --sample_type rna --profiling_meth
                                           --rna_splice_db "$work/splice_sr.mmi" \
                                           --minimap2_frag_mode no --tumor_targeted_assembly true
 
-# Long reads, wgs and rna only. Long-read WGS is untiered and refuses targeted assembly
-# (on by default), so it is switched off explicitly.
+# Long reads, wgs and rna only. Long-read WGS is untiered; targeted assembly (on by
+# default) is switched off for it (rc1 pass, item 1), so ont leaves the flag at its
+# default and hifi passes it false -- both must build.
 for rt in ont hifi; do
+    assembly_flag=()
+    [[ "$rt" == hifi ]] && assembly_flag=(--tumor_targeted_assembly false)
     NO_HG38=1 construct "wgs, $rt" --sample_type wgs --read_type "$rt" --profiling_method bowtie2 \
-                                   --tumor_targeted_assembly false \
+                                   "${assembly_flag[@]}" \
                                    --hg38_db_long "$work/hg38_long.mmi" \
                                    --t2t_phix_db_long "$work/t2t_long.mmi"
     NO_HG38=1 construct "rna, $rt" --sample_type rna --read_type "$rt" --profiling_method both \

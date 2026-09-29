@@ -56,4 +56,30 @@ class Preflight {
             spec.delete()
         }
     }
+
+    /**
+     * Whether the launch command line itself set `--<name>` to true (`--name`,
+     * `--name true`, `--name=true`, or the kebab-case spelling Nextflow also accepts).
+     *
+     * Long-read wgs (item 1, rc1 pass): --tumor_targeted_assembly defaults on, so the
+     * resolved value cannot tell "left at the default" from "asked for". The command
+     * line can. A value set in a -params-file or config is not visible here; those are
+     * treated as the default (switched off with a log line), which is the safe side.
+     */
+    static boolean explicitlyTrue(Object commandLine, String name) {
+        List<String> tokens = (commandLine?.toString() ?: '').trim().split(/\s+/) as List
+        String kebab = name.replace('_', '-')
+        Boolean result = null
+        tokens.eachWithIndex { String token, int i ->
+            def matcher = token =~ /^--(?:${name}|${kebab})(?:=(.*))?$/
+            if (matcher.matches()) {
+                String value = matcher.group(1)
+                if (value == null) {
+                    value = (i + 1 < tokens.size() && !tokens[i + 1].startsWith('-')) ? tokens[i + 1] : 'true'
+                }
+                result = value.replaceAll(/^['"]|['"]$/, '').toBoolean()
+            }
+        }
+        return result == true
+    }
 }

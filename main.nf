@@ -416,7 +416,8 @@ workflow {
           --rna_splice_db_long human index for rna (FASTA, or .mmi built with splice/splice:hq)
           --t2t_phix_db_long  T2T + PhiX index for long reads
           --long_read_min_length  fastplong length floor              (default: 200)
-          Long-read WGS is evidence-only (untiered) and needs --tumor_targeted_assembly false.
+          Long-read WGS is evidence-only (untiered); targeted assembly is switched off,
+          and --pks_taxa / --pks_community_taxa are refused (Bracken is short-read).
 
         Optional stages (each off unless stated):
           --enable_mags            recover draft genomes from metagenomes
@@ -444,6 +445,25 @@ workflow {
     // local; this one was still tested as params.pks_taxa directly at five call sites,
     // so a CLI --pks_taxa false built the same workflow as --pks_taxa true.
     def pks_taxa_b                  = params.pks_taxa.toString().toBoolean()
+
+    // Long reads and targeted assembly (rc1 pass, item 1). Recruitment and assembly are
+    // Bowtie2 + MEGAHIT/metaSPAdes, short-read tools, and long-read WGS is untiered, so
+    // nothing would be eligible anyway. --tumor_targeted_assembly defaults on; with
+    // --read_type ont|hifi it is switched off here, as it is inert for wes and rna,
+    // and refused only when the launch command line itself asked for it. Resolved before
+    // the preflight config and the provenance record are built, so both see the value
+    // the run actually uses. Both class calls are `def` initializers: Nextflow 24.10.0
+    // (the declared floor) refuses a later `def x = Class...` once the same class was
+    // referenced in a plain expression (see test_nextflow_2410_compat).
+    def long_read_input = HostDepletion.isLong(params.read_type)
+    def assembly_explicitly_requested = Preflight.explicitlyTrue(workflow.commandLine, 'tumor_targeted_assembly')
+    if (long_read_input && tumor_targeted_assembly_b) {
+        if (assembly_explicitly_requested) {
+            exit 1, "--tumor_targeted_assembly true is not supported with --read_type ${params.read_type}: recruitment and assembly are short-read tools (Bowtie2 + MEGAHIT/metaSPAdes), and long-read WGS is untiered. Drop the flag; it is switched off for long reads."
+        }
+        log.info "--read_type ${params.read_type}: targeted recruitment and assembly switched off (short-read tools; long-read evidence is untiered)"
+        tumor_targeted_assembly_b = false
+    }
 
     // ---------- Equivalence record (F16) ----------
     // Written now, before any task runs, so a run that dies still leaves a record of
@@ -608,10 +628,13 @@ workflow {
     if (long_reads && !(params.sample_type.toString() in HostDepletion.LONG_READ_SAMPLE_TYPES)) {
         exit 1, "--read_type ${read_type} with --sample_type ${params.sample_type}: long-read input is supported for wgs and rna only"
     }
-    // Targeted recruitment and assembly are Bowtie2 + MEGAHIT/metaSPAdes, short-read tools.
-    // Refused where it would otherwise run (wgs); rna never assembles, so it stays inert there.
-    if (long_reads && params.sample_type.toString() == "wgs" && tumor_targeted_assembly_b) {
-        exit 1, "--tumor_targeted_assembly is not supported with --read_type ${read_type}: recruitment and assembly are short-read tools (Bowtie2 + MEGAHIT/metaSPAdes), and long-read WGS is untiered. Pass --tumor_targeted_assembly false."
+    // Targeted assembly was resolved for long reads above (switched off, or refused when
+    // explicitly requested). Taxonomy of island reads (--pks_taxa) and of the community
+    // (--pks_community_taxa) runs Bracken, whose abundance re-estimation is a k-mer
+    // distribution built for one short read length (--bracken_read_length); it has no
+    // model for a long-read length distribution.
+    if (long_reads && (pks_taxa_b || pks_community_taxa_b)) {
+        exit 1, "--pks_taxa / --pks_community_taxa are not supported with --read_type ${read_type}: Bracken's read-length model (--bracken_read_length) is a short-read concept"
     }
 
     if (pks_taxa_b && !params.kraken_db) {

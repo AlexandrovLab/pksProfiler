@@ -219,9 +219,26 @@ class LongReadLane(unittest.TestCase):
         body = MAIN.split("workflow {", 1)[1]
         self.assertLess(body.index("long-read input is supported"), body.index("extractReads("))
 
-    def test_long_read_wgs_refuses_targeted_assembly(self):
-        self.assertIn('if (long_reads && params.sample_type.toString() == "wgs" && tumor_targeted_assembly_b)', CODE)
-        self.assertIn("Pass --tumor_targeted_assembly false", MAIN)
+    # rc1 pass, item 1: switched off (the flag defaults on), refused only when the
+    # command line asked for it; resolved before preflight and provenance see it.
+    def test_long_reads_switch_targeted_assembly_off_unless_explicitly_requested(self):
+        body = MAIN.split("workflow {", 1)[1]
+        block = body[body.index("def long_read_input = HostDepletion.isLong(params.read_type)"):]
+        block = block[:block.index("tumor_targeted_assembly_b = false") + 40]
+        self.assertIn("Preflight.explicitlyTrue(workflow.commandLine, 'tumor_targeted_assembly')", block)
+        self.assertIn("if (long_read_input && tumor_targeted_assembly_b)", block)
+        self.assertIn("exit 1", block)
+        self.assertIn("log.info", block)
+        self.assertIn("tumor_targeted_assembly_b = false", block)
+        self.assertLess(body.index("tumor_targeted_assembly_b = false"),
+                        body.index("tumor_targeted_assembly  : tumor_targeted_assembly_b"))
+        self.assertNotIn("Pass --tumor_targeted_assembly false", MAIN)
+        helper = (ROOT / "lib/Preflight.groovy").read_text()
+        self.assertIn("static boolean explicitlyTrue(Object commandLine, String name)", helper)
+
+    def test_long_reads_refuse_bracken_taxonomy(self):
+        self.assertIn("if (long_reads && (pks_taxa_b || pks_community_taxa_b))", CODE)
+        self.assertIn("Bracken's read-length model (--bracken_read_length) is a short-read concept", MAIN)
 
     def test_long_read_wgs_is_untiered(self):
         self.assertIn("params.sample_type.toString() == 'wgs' && HostDepletion.isLong(params.read_type) ? ' --no-tiers' : ''",
