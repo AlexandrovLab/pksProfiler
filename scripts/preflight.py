@@ -85,6 +85,16 @@ def check_sample_sheet(config, report):
 
     columns = set(rows[0].keys())
     input_type = str(config.get("input_data_type", "auto"))
+    # Ludmil 23 Sep #9b: resolved from the sheet's columns exactly as main.nf does.
+    if input_type == "auto":
+        has_alignment = bool({"alignment", "bam"} & columns)
+        has_fastq = "fastq1" in columns
+        if has_alignment == has_fastq:
+            report.problem(section, "input_data_type=auto needs exactly one of an alignment/bam "
+                                    "column or a fastq1 column; pass --input_data_type explicitly")
+            return
+        input_type = "alignment" if has_alignment else "fastq"
+        report.note(section, f"input_data_type=auto resolved to {input_type} from the sheet's columns")
     if "patient" not in columns:
         report.problem(section, "missing the required `patient` column")
     # Ludmil, revised report finding 10: main.nf resolves the alignment path with
@@ -92,7 +102,7 @@ def check_sample_sheet(config, report):
     # a cram-only sheet passed this check and then failed main.nf's own,
     # independent column check moments later. Not accepted here either now, so
     # both checks agree and the failure surfaces at the same point either way.
-    if input_type in ("bam", "cram", "auto") and not ({"alignment", "bam"} & columns):
+    if input_type in ("bam", "cram", "alignment") and not ({"alignment", "bam"} & columns):
         report.problem(section, f"input_data_type={input_type} needs an alignment or bam column")
     if input_type == "fastq" and "fastq1" not in columns:
         report.problem(section, "input_data_type=fastq needs a fastq1 column")

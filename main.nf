@@ -526,7 +526,25 @@ workflow {
         exit 1, "Unknown --input_data_type: ${params.input_data_type}. Supported: auto, bam, cram, fastq"
     }
 
-    def alignment_input = params.input_data_type in ["auto", "bam", "cram"]
+    // Ludmil 23 Sep #9b: `auto` used to mean "assume an alignment sheet", so a FASTQ
+    // sheet under auto failed on a missing alignment column rather than resolving.
+    // It is now resolved once, here, before any task is submitted, from the sample
+    // sheet's own columns -- never from file suffixes -- and the resolution is logged.
+    // BAM vs CRAM is still decided per file by htsfile in extractReads.
+    def input_data_type = params.input_data_type.toString()
+    if (input_data_type == "auto") {
+        def header = file(params.sample, checkIfExists: true).withReader { reader -> reader.readLine() } ?: ""
+        def header_columns = header.split(",").collect { column -> column.trim().replaceAll(/^"|"$/, "") } as Set
+        def has_alignment_column = ("alignment" in header_columns) || ("bam" in header_columns)
+        def has_fastq_column = "fastq1" in header_columns
+        if (has_alignment_column == has_fastq_column) {
+            exit 1, "--input_data_type auto cannot resolve ${params.sample}: it needs exactly one of an alignment (or bam) column or a fastq1 column. Pass --input_data_type bam, cram or fastq explicitly."
+        }
+        input_data_type = has_alignment_column ? "alignment" : "fastq"
+        log.info "--input_data_type auto resolved to '${input_data_type}' from the sample sheet's columns" +
+            (has_alignment_column ? " (BAM vs CRAM is detected per file by htsfile)" : "")
+    }
+    def alignment_input = input_data_type in ["alignment", "bam", "cram"]
     def required_sample_columns = alignment_input ? ["patient"] : ["patient", "fastq1"]
 
     def sample_sheet = channel
@@ -547,7 +565,7 @@ workflow {
             }
 
             if (missing_columns) {
-                error "Sample sheet is missing required column(s) for ${params.input_data_type} input: ${missing_columns.join(', ')}"
+                error "Sample sheet is missing required column(s) for ${input_data_type} input: ${missing_columns.join(', ')}"
             }
 
             def observed_ids = new HashSet()
@@ -622,7 +640,7 @@ workflow {
             EXTRACT_OUT.qc.map { _sampleID, qc_file -> qc_file }
         )
 
-    } else if (params.input_data_type == "fastq") {
+    } else if (input_data_type == "fastq") {
 
         def sample_sheet_fastq = sample_sheet
             .map { row ->

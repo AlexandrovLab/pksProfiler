@@ -181,6 +181,34 @@ class PreflightTests(unittest.TestCase):
         result = self.run_preflight(input_data_type="fastq")
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    # Ludmil 23 Sep #9b: auto resolves from the sheet's columns, before anything runs,
+    # and says what it resolved to -- or fails.
+    def test_auto_resolves_an_alignment_sheet_and_says_so(self):
+        result = self.run_preflight(input_data_type="auto")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("resolved to alignment", result.stdout)
+
+    def test_auto_resolves_a_fastq_sheet_instead_of_demanding_an_alignment_column(self):
+        (self.d / "reads.fastq.gz").write_text("x")
+        (self.d / "sheet.csv").write_text(f"patient,fastq1\nCASE_01,{self.d}/reads.fastq.gz\n")
+        result = self.run_preflight(input_data_type="auto")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("resolved to fastq", result.stdout)
+
+    def test_auto_refuses_a_sheet_with_both_kinds_of_column(self):
+        (self.d / "reads.fastq.gz").write_text("x")
+        (self.d / "sheet.csv").write_text(
+            f"patient,bam,fastq1\nCASE_01,{self.d}/a.bam,{self.d}/reads.fastq.gz\n")
+        result = self.run_preflight(input_data_type="auto")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("needs exactly one of", result.stdout)
+
+    def test_main_nf_resolves_auto_the_same_way_before_submission(self):
+        main = (ROOT / "main.nf").read_text()
+        self.assertIn('if (input_data_type == "auto")', main)
+        self.assertIn("auto resolved to", main)
+        self.assertNotIn('params.input_data_type in ["auto", "bam", "cram"]', main)
+
     def test_pangenome_db_as_a_directory_of_mmi_files_is_accepted(self):
         # map_reads.nf supports either a single .mmi file or a directory of
         # them (`find ... -name '*.mmi'`); kind="file" used to reject every
