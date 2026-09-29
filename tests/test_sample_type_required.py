@@ -39,11 +39,11 @@ class SampleTypeHasNoDefault(unittest.TestCase):
         self.assertIsNotNone(m, "valid_sample_types list not found")
         values = eval(m.group(1))
         self.assertNotIn("auto", values)
-        self.assertEqual(set(values), {"metagenome", "wgs", "wes"})
+        self.assertEqual(set(values), {"metagenome", "wgs", "wes", "rna"})
 
-    def test_modes_without_a_lane_are_refused_not_accepted(self):
-        # 26 Sep mode memo: every accepted value maps to a real branch. The only
-        # branches main.nf routes on are these two.
+    def test_every_accepted_mode_has_a_lane(self):
+        # 26 Sep mode memo: every accepted value maps to a real branch. wes and rna were
+        # refused until their lanes existed; with all four built, none is refused.
         code = code_only(MAIN)
         routed = set(re.findall(r'params\.sample_type\s*==\s*"(\w+)"', code)) | \
             set(v for group in re.findall(r'params\.sample_type in \[([^\]]*)\]', code)
@@ -52,7 +52,7 @@ class SampleTypeHasNoDefault(unittest.TestCase):
         for value in eval(m.group(1)):
             with self.subTest(sample_type=value):
                 self.assertIn(value, routed, f"{value} is accepted but no branch uses it")
-        self.assertIn("is not supported in this release", MAIN)
+        self.assertNotIn("planned_sample_types", code)
 
 
 class RenamedSampleTypesFailNamingTheNewValue(unittest.TestCase):
@@ -103,7 +103,7 @@ class MissingSampleTypeFailsBeforeAnyTaskRuns(unittest.TestCase):
     def test_the_error_message_names_every_supported_value(self):
         self.assertIn(
             "Missing required parameter: --sample_type. Supported: "
-            "metagenome, wgs, wes",
+            "metagenome, wgs, wes, rna",
             MAIN)
 
 

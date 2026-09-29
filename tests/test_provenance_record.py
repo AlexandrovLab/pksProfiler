@@ -260,6 +260,20 @@ class ReportStructure(unittest.TestCase):
         # ungrouped parameters stay in the JSON rather than padding the report
         self.assertNotIn("some_internal_thing", report)
 
+    def test_the_sample_mode_is_shown_up_front(self):
+        # Ludmil, 26 Sep mode memo section 6: RUN_REPORT shows sample_type.
+        record = json.loads(json.dumps(LAUNCH_RECORD))
+        record["invocation"]["params"] = {"sample": "sheet.csv", "sample_type": "rna",
+                                          "rna_library_type": "polyA",
+                                          "rna_splice_db": "/refs/splice.mmi"}
+        (self.runs / "provenance" / "SESSION-A.json").write_text(json.dumps(record) + "\n")
+        self.finalise()
+        report = self.history()
+        status = report[report.index("JOB STATUS"):report.index("EXECUTION PARAMETERS")]
+        self.assertIn("mode       sample_type=rna", status)
+        self.assertRegex(report, r"rna_library_type\s+polyA")
+        self.assertRegex(report, r"rna_splice_db\s+/refs/splice.mmi")
+
     def test_a_failed_task_says_where_its_stderr_is(self):
         record = json.loads(json.dumps(LAUNCH_RECORD))
         record["invocation"]["work_dir"] = "/scratch/pks/work"

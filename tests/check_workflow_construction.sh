@@ -56,6 +56,10 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/pks-construction.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 printf 'x' > "$work/input.bam"
 printf 'patient,bam\nCONSTRUCTION_CHECK,%s/input.bam\n' "$work" > "$work/sheet.csv"
+# RNA lane references: preflight checks existence only and -preview reads nothing, so
+# one-byte stand-ins are enough (the real ones: docs/running/wes_rna.md).
+printf 'x' > "$work/splice_sr.mmi"
+printf 'x' > "$work/junctions.bed"
 
 pass=0; fail=0; skip=0
 failed_names=(); skipped_names=()
@@ -64,11 +68,14 @@ construct() {
     local name=$1; shift
     local n=$((pass + fail + skip + 1))
     local out status
+    # NO_HG38=1 construct ... omits --hg38_db: the rna lane must not need it.
+    local hg38_args=(--hg38_db "$HG38")
+    [[ ${NO_HG38:-0} == 1 ]] && hg38_args=()
     out=$(cd "$work" && nextflow run "$repo_dir/main.nf" -preview \
             -work-dir "$work/w$n" \
             --sample "$work/sheet.csv" \
             --input_data_type bam \
-            --hg38_db "$HG38" \
+            "${hg38_args[@]}" \
             --t2t_phix_db "$T2T" \
             --outdir "$work/r$n" \
             "$@" 2>&1)
@@ -133,6 +140,17 @@ construct "wes, alignment only"           --sample_type wes --profiling_method b
 construct "wes, both methods"             --sample_type wes --profiling_method both
 construct "wes, assembly flag inert"      --sample_type wes --profiling_method bowtie2 \
                                           --tumor_targeted_assembly true
+
+# Section 4: RNA lane, splice-aware human pass. --hg38_db is not required for rna.
+NO_HG38=1 construct "rna, splice index only" --sample_type rna --profiling_method bowtie2 \
+                                          --rna_splice_db "$work/splice_sr.mmi"
+NO_HG38=1 construct "rna, junctions + library type" --sample_type rna --profiling_method both \
+                                          --rna_splice_db "$work/splice_sr.mmi" \
+                                          --rna_junctions_bed "$work/junctions.bed" \
+                                          --rna_library_type polyA
+construct "rna, frag=no, assembly flag inert" --sample_type rna --profiling_method bowtie2 \
+                                          --rna_splice_db "$work/splice_sr.mmi" \
+                                          --minimap2_frag_mode no --tumor_targeted_assembly true
 
 construct "metagenome, profiling only"    --sample_type metagenome --profiling_method bowtie2
 construct "metagenome, HMM only"          --sample_type metagenome --profiling_method hmm

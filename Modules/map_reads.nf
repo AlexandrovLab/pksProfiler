@@ -21,10 +21,23 @@ process mapReads {
     // E0 (Ludmil, 25 Sep): with one FASTQ, -ax sr treats consecutive same-named reads
     // as a pair (fragment mode), so what is depleted depends on read order and
     // therefore on the input route. --frag=no makes every read independent.
-    def frag_arg = params.minimap2_frag_mode.toString() == "no" ? "--frag=no" : ""
+    // Every pass's preset, index and flags come from lib/HostDepletion.groovy, which
+    // carries frag_arg into each short-read call.
+    //
+    // Ludmil, 26 Sep mode memo section 4: for --sample_type rna the human pass is
+    // splice-aware (-ax splice:sr against --rna_splice_db, plus -j --rna_junctions_bed when
+    // given), because -ax sr leaves exon-junction human reads undepleted. The T2T+phiX and
+    // pangenome passes stay -ax sr: there is no junction annotation for those references.
+    // The QC metric names (reads_after_hg38, ...) are unchanged in every mode.
+    def human = HostDepletion.humanPass(params.sample_type, params.minimap2_frag_mode,
+                                        params.hg38_db, params.rna_splice_db,
+                                        params.rna_junctions_bed)
+    def t2t = HostDepletion.t2tPass(params.minimap2_frag_mode, params.t2t_phix_db)
+    def pangenome = HostDepletion.pangenomePass(params.minimap2_frag_mode)
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # hg38_db ${params.dep_digest?.hg38_db}  pangenome_db ${params.dep_digest?.pangenome_db}  t2t_phix_db ${params.dep_digest?.t2t_phix_db}
+    # rna_splice_db ${params.dep_digest?.rna_splice_db}  rna_junctions_bed ${params.dep_digest?.rna_junctions_bed}
     set -euo pipefail
 
     if ! gzip -t "${reads_fastq}" >/dev/null 2>&1; then
@@ -44,8 +57,9 @@ process mapReads {
     awk 'END { print int(NR / 4) }' < hg38.count.fifo > hg38.count &
     HG38_COUNTER=\$!
 
-    minimap2 -2 -ax sr ${frag_arg} --secondary=no -t "${task.cpus}" \
-        "${params.hg38_db}" \
+    echo "Human pass: minimap2 -ax ${human.preset} against ${human.index}"
+    minimap2 -2 -ax ${human.preset} ${human.args} --secondary=no -t "${task.cpus}" \
+        "${human.index}" \
         "${reads_fastq}" |
     samtools fastq -@ "${task.cpus}" -f 4 -F 2304 |
     tee hg38.count.fifo |
@@ -59,8 +73,8 @@ process mapReads {
     awk 'END { print int(NR / 4) }' < t2t.count.fifo > t2t.count &
     T2T_COUNTER=\$!
 
-    minimap2 -2 -ax sr ${frag_arg} --secondary=no -t "${task.cpus}" \
-        "${params.t2t_phix_db}" \
+    minimap2 -2 -ax ${t2t.preset} ${t2t.args} --secondary=no -t "${task.cpus}" \
+        "${t2t.index}" \
         "${sampleID}.UNMAPPED.FASTP.FILTERED.hg38.fastq.gz" |
     samtools fastq -@ "${task.cpus}" -f 4 -F 2304 |
     tee t2t.count.fifo |
@@ -95,7 +109,7 @@ process mapReads {
         for mmi in "\${PANGENOME_INDEXES[@]}"; do
             echo "Running minimap2 on \$mmi"
 
-            minimap2 -2 -ax sr ${frag_arg} --secondary=no -t "${task.cpus}" \
+            minimap2 -2 -ax ${pangenome.preset} ${pangenome.args} --secondary=no -t "${task.cpus}" \
                 "\$mmi" \
                 "${sampleID}.pangenome.current.fastq.gz" |
             samtools fastq -@ "${task.cpus}" -f 4 -F 2304 |

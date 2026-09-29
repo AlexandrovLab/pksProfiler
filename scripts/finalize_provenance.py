@@ -196,7 +196,9 @@ TIER_FIELDS = (("min_pks_reads", "pks reads"), ("min_clb_genes", "clb genes"),
                ("min_breadth", "island breadth"))
 
 PARAMETER_GROUPS = (
-    ("INPUT", ("sample", "input_data_type", "sample_type", "cram_reference", "outdir")),
+    ("INPUT", ("sample", "input_data_type", "sample_type", "cram_reference", "outdir",
+               # Ludmil, 26 Sep mode memo section 4: RNA library type is recorded.
+               "rna_library_type")),
     ("PROFILING", ("profiling_method", "hmm_evalue", "hmm_protein_evalue", "prefilter_mode",
                    "pks_contig", "pks_start_1based", "pks_end_1based",
                    "pks_island_len_1based",
@@ -210,7 +212,8 @@ PARAMETER_GROUPS = (
     ("STAGES", ("enable_mags", "tumor_targeted_assembly",
                 "diamond_rescue", "pks_community_taxa",
                 "enable_strain_typing", "pks_taxa")),
-    ("DATABASES", ("hg38_db", "t2t_phix_db", "pangenome_db", "kraken_db", "genomad_db",
+    ("DATABASES", ("hg38_db", "rna_splice_db", "rna_junctions_bed",
+                   "t2t_phix_db", "pangenome_db", "kraken_db", "genomad_db",
                    "gtdbtk_db", "checkm2_db", "bracken_read_length")),
     ("RESOURCES", ("max_cpus", "max_memory", "max_time", "conda_cache_dir")),
 )
@@ -334,6 +337,10 @@ def render(record):
     if environment.get("hostname"):
         lines.append(f"  host       {environment['hostname']}")
     lines.append(f"  results    {invocation.get('outdir') or 'unknown'}")
+    # Ludmil, 26 Sep mode memo section 6: the sample mode, where nobody can miss it.
+    run_params = invocation.get("params") or {}
+    if is_set(run_params.get("sample_type")):
+        lines.append(f"  mode       sample_type={run_params['sample_type']}")
 
     # ---- EXECUTION PARAMETERS ----
     lines += section("EXECUTION PARAMETERS")

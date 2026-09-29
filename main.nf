@@ -30,10 +30,18 @@ params.bracken_read_length = null // Must match a read length supported by the s
 // classification, contig analysis and MAG/taxonomy lanes silently never ran,
 // with no error and a gene-count table that looked like a normal, if evidence-
 // free, result. His own first preference: no default: required, and explicit.
-params.sample_type = null     // required: metagenome | wgs | wes  (rna: lane not built yet)
+params.sample_type = null     // required: metagenome | wgs | wes | rna
 // Owner decision on Ludmil's 26 Sep mode memo: the tumor_ prefix is dropped -- a WGS,
 // WES or RNA library is not always a tumour (matched normals run the same lane). The
 // old names fail before any task runs, naming the new one; see renamed_sample_types.
+
+// ---------------- RNA-seq lane (Ludmil, 26 Sep mode memo section 4) ----------------
+// The human depletion pass is splice-aware for --sample_type rna: minimap2 -ax splice:sr
+// against rna_splice_db, which then replaces --hg38_db (not required for rna). See
+// lib/HostDepletion.groovy for why the T2T+phiX and pangenome passes stay -ax sr.
+params.rna_splice_db     = null        // required for rna: minimap2 index built with `-x splice:sr` from GRCh38, or a FASTA
+params.rna_junctions_bed = null        // optional: BED12 of annotated junctions, passed to minimap2 -j
+params.rna_library_type  = "unknown"   // polyA | total | unknown; recorded in rna_evidence.tsv and RUN_REPORT
 
 // ---------------- v0.0.2: optional taxonomic prefilter + clb homology rescue ----------------
 // off      -> host-depleted reads go straight to profiling (v0.0.1 behaviour, the default)
@@ -284,6 +292,8 @@ params.dep_digest = [
     pks_cytoband        : Provenance.code(params.pks_cytoband),
     adapters            : Provenance.code(params.adapters),
     hg38_db             : Provenance.data(params.hg38_db),
+    rna_splice_db       : Provenance.data(params.rna_splice_db),
+    rna_junctions_bed   : Provenance.code(params.rna_junctions_bed),
     t2t_phix_db         : Provenance.data(params.t2t_phix_db),
     pangenome_db        : Provenance.data(params.pangenome_db),
     pks_genome          : Provenance.data(params.pks_genome),
@@ -366,16 +376,22 @@ workflow {
           --sample            sample sheet; needs a unique `patient` column plus your
                               files (bam | cram + cram_reference | fastq1/fastq2)
           --hg38_db           minimap2 index or FASTA for human depletion
+                              (not for --sample_type rna, which takes --rna_splice_db)
           --t2t_phix_db       minimap2 index or FASTA for T2T + PhiX depletion
 
         Common:
           --input_data_type   auto | bam | cram | fastq            (default: auto)
-          --sample_type       metagenome | wgs | wes               (required, no default;
-                              wes is evidence-only; rna is refused until its lane exists;
+          --sample_type       metagenome | wgs | wes | rna         (required, no default;
+                              only wgs is tiered; wes and rna are evidence-only;
                               tumor_wgs/tumor_wes/tumor_rna were renamed wgs/wes/rna)
           --profiling_method  bowtie2 | hmm | both                 (default: bowtie2)
           --outdir            results directory                    (default: ./results)
           --save_intermediates  publish extracted/filtered/host-depleted FASTQs
+
+        RNA-seq (--sample_type rna):
+          --rna_splice_db     minimap2 index built with -x splice:sr (or FASTA); required
+          --rna_junctions_bed BED12 of annotated junctions for minimap2 -j (optional)
+          --rna_library_type  polyA | total | unknown                (default: unknown)
 
         Optional stages (each off unless stated):
           --enable_mags            recover draft genomes from metagenomes
@@ -483,6 +499,8 @@ workflow {
         profiling_method         : params.profiling_method,
         prefilter_mode           : prefilter_mode,
         hg38_db                  : params.hg38_db,
+        rna_splice_db            : params.rna_splice_db,
+        rna_junctions_bed        : params.rna_junctions_bed,
         t2t_phix_db              : params.t2t_phix_db,
         pangenome_db             : params.pangenome_db,
         pks_genome               : params.pks_genome,
@@ -527,8 +545,12 @@ workflow {
         exit 1, "Missing required parameter: --sample"
     }
 
-    if (!params.hg38_db) {
-        exit 1, "Missing required parameter: --hg38_db"
+    // Ludmil, 26 Sep mode memo section 4: rna's human pass uses the splice index instead;
+    // preflight.py applies the same rule (HostDepletion.humanIndexParam).
+    def human_index_param = HostDepletion.humanIndexParam(params.sample_type)
+    if (!params[human_index_param]) {
+        exit 1, "Missing required parameter: --${human_index_param}" +
+            (human_index_param == 'rna_splice_db' ? " (--sample_type rna depletes human reads with minimap2 -ax splice:sr against it)" : "")
     }
 
     if (!params.t2t_phix_db) {
@@ -538,7 +560,7 @@ workflow {
     // Ludmil, revised report finding 9: fail loudly before any task runs, rather
     // than accept "auto" and silently resolve it to nothing.
     if (!params.sample_type) {
-        exit 1, "Missing required parameter: --sample_type. Supported: metagenome, wgs, wes"
+        exit 1, "Missing required parameter: --sample_type. Supported: metagenome, wgs, wes, rna"
     }
     // Owner decision on Ludmil's 26 Sep mode memo: renamed, not aliased. An alias would
     // let an old command line run under a name the results no longer carry.
@@ -818,11 +840,7 @@ workflow {
     // branch. wes and rna (then tumor_wes/tumor_rna) used to pass this check and match no branch,
     // so they ran generic profiling with no mode-specific handling. Refused, loudly,
     // until the WES (evidence-only) and RNA (splice-aware depletion) lanes exist.
-    def planned_sample_types = ["rna"]
-    if (params.sample_type in planned_sample_types) {
-        exit 1, "--sample_type ${params.sample_type} is not supported in this release: its dedicated lane (RNA splice-aware depletion) is not built yet. Use metagenome, wgs or wes."
-    }
-    def valid_sample_types = ["metagenome", "wgs", "wes"]
+    def valid_sample_types = ["metagenome", "wgs", "wes", "rna"]
     if (!(params.sample_type in valid_sample_types)) {
         exit 1, "Unknown --sample_type: ${params.sample_type}. Supported: ${valid_sample_types.join(', ')}"
     }
@@ -832,13 +850,19 @@ workflow {
     if (params.sample_type == "wgs" && params.profiling_method == "hmm") {
         exit 1, "--sample_type wgs requires --profiling_method bowtie2 or both for read-level clb screening"
     }
-    // Ludmil, 26 Sep mode memo section 3: WES is evidence-only, and its evidence file is
-    // written from the alignment lane, so an HMM-only WES run would produce none.
-    if (params.sample_type == "wes" && params.profiling_method == "hmm") {
-        exit 1, "--sample_type wes requires --profiling_method bowtie2 or both: wes_evidence.tsv comes from the alignment lane"
+    // Ludmil, 26 Sep mode memo sections 3 and 4: WES and RNA are evidence-only, and their
+    // evidence file is written from the alignment lane, so an HMM-only run would produce none.
+    if (params.sample_type in ["wes", "rna"] && params.profiling_method == "hmm") {
+        exit 1, "--sample_type ${params.sample_type} requires --profiling_method bowtie2 or both: ${params.sample_type}_evidence.tsv comes from the alignment lane"
+    }
+    if (!(params.rna_library_type.toString() in ["polyA", "total", "unknown"])) {
+        exit 1, "--rna_library_type must be polyA, total or unknown (got ${params.rna_library_type})"
+    }
+    if (params.sample_type != "rna" && (params.rna_splice_db || params.rna_junctions_bed)) {
+        log.warn "--rna_splice_db / --rna_junctions_bed apply to --sample_type rna only; ignored for ${params.sample_type}"
     }
     // No WGS tiers and no targeted assembly outside wgs; the default-on flag is inert there.
-    if (params.sample_type == "wes" && tumor_targeted_assembly_b) {
+    if (params.sample_type in ["wes", "rna"] && tumor_targeted_assembly_b) {
         log.info "--tumor_targeted_assembly does not apply to --sample_type ${params.sample_type} (evidence-only lane); no assembly will run"
     }
     if (params.sample_type == "wgs" && tumor_targeted_assembly_b) {
@@ -1010,6 +1034,8 @@ workflow {
         // depletion and profiling, then wes_evidence.tsv (--mode wes) -- no tier, no
         // targeted assembly, no MAGs. Its duplicate-rate and capture/off-target QC is a
         // documented TODO (docs/running/wes_rna.md), not silently the WGS QC.
+        // RNA (section 4) likewise: splice-aware depletion upstream, then rna_evidence.tsv
+        // (--mode rna, with --rna_library_type) -- expression evidence, never a tier.
         // The evidence -- pks reads, clb genes, island breadth -- is computed for tumour
         // and metagenome alike. The tier is tumour WGS only (Ludmil, 26 Sep mode memo): the
         // thresholds were derived from TCGA tumour breadth distributions and are not a
@@ -1020,7 +1046,7 @@ workflow {
         // still unpublished and report every sample as not_classified. Since P0-5b the
         // file itself is staged into the report, not read back from the published tree.
         // Empty when the lane that writes it did not run.
-        if (params.sample_type in ["wgs", "metagenome", "wes"]) {
+        if (params.sample_type in ["wgs", "metagenome", "wes", "rna"]) {
             read_evidence_input_ch = ALIGN_OUT.profile
                 .join(ALIGN_OUT.qc, by: 0)
                 .map { sampleID, rawCoverage, bedgraph, counts, bam, bai, qc ->

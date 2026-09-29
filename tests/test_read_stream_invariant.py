@@ -62,7 +62,7 @@ class ReadStreamInvariantTests(unittest.TestCase):
 
 class ReadEvidenceScopeTests(unittest.TestCase):
     def test_evidence_is_computed_for_tumour_and_metagenome(self):
-        self.assertIn('if (params.sample_type in ["wgs", "metagenome", "wes"])', BODY)
+        self.assertIn('if (params.sample_type in ["wgs", "metagenome", "wes", "rna"])', BODY)
         self.assertIn("classifyPksReadEvidence(read_evidence_input_ch)", BODY)
 
     def test_only_the_tumour_lane_gates_on_the_tier(self):

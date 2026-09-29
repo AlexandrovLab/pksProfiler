@@ -6,6 +6,12 @@ Extends the immutable v0.0.1 release with island reassembly, genome-resolved ana
 strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 
 **Added**
+- RNA-seq lane, `--sample_type rna` (Ludmil, 26 Sep mode memo section 4): the human depletion
+  pass is splice-aware (`minimap2 -ax splice:sr` against `--rna_splice_db`, `-j --rna_junctions_bed`
+  when given; `--hg38_db` not required); T2T+phiX and pangenome passes stay `-ax sr`.
+  `--rna_library_type polyA|total|unknown`. Profiling unchanged; `rna_evidence.tsv`, no tier, no
+  assembly, no MAGs. Presets per mode live in `lib/HostDepletion.groovy`, executed by
+  `tests/check_depletion_plan.sh`.
 - WES lane, `--sample_type wes` (Ludmil, 26 Sep mode memo section 3): standard depletion and
   profiling, `wes_evidence.tsv`, no tier, no targeted assembly, bowtie2/both only. Duplicate-rate
   and capture/off-target QC are a documented TODO (`docs/running/wes_rna.md`).

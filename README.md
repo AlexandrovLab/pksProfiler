@@ -120,7 +120,7 @@ nextflow run main.nf -profile local \
   --outdir       results
 ```
 
-Only `--hg38_db` and `--t2t_phix_db` are ever required; each optional stage needs its own
+Only `--hg38_db` (or, for RNA-seq, `--rna_splice_db`) and `--t2t_phix_db` are ever required; each optional stage needs its own
 database, listed in its guide. On a cluster, swap `-profile local` for your scheduler (`conf/`
 has TSCC, Biowulf, Slurm, PBS Pro, LSF and SGE) and add `-resume`. Start reading at
 `results/cohort/qc/pks.qc.summary.tsv`, which shows where each sample lost its reads.
@@ -133,6 +133,7 @@ Each row adds flags to the command above. Nothing is replaced.
 |---|---|---|
 | island reassembly, two assemblers | `--sample_type wgs` | [assembly](docs/running/assembly.md) |
 | exome evidence (off-target DNA, not tiered) | `--sample_type wes` | [WES and RNA](docs/running/wes_rna.md) |
+| expressed *clb* sequence from RNA-seq (not tiered) | `--sample_type rna --rna_splice_db <splice:sr index>` (replaces `--hg38_db`) | [WES and RNA](docs/running/wes_rna.md) |
 | which organism carries it | `--sample_type metagenome --enable_mags true` plus `--gtdbtk_db --checkm2_db --genomad_db` | [MAGs](docs/running/mags.md) |
 | community and neighbour context | automatic with `--enable_mags` | [community context](docs/running/community_context.md) |
 | strain type and phylogroup | automatic; disable with `--enable_strain_typing false` | [strain typing](docs/running/strain_typing.md) |
@@ -147,7 +148,8 @@ task, and reports everything wrong with them in one pass rather than failing on 
 
 | Flag | Needed for |
 |---|---|
-| `--hg38_db`, `--t2t_phix_db` | removing human reads — every run |
+| `--hg38_db`, `--t2t_phix_db` | removing human reads — every run (`rna` takes `--rna_splice_db` in place of `--hg38_db`) |
+| `--rna_splice_db`, `--rna_junctions_bed` | splice-aware human depletion for `--sample_type rna` |
 | `--pangenome_db` | optional extra human-read removal pass |
 | `--kraken_db` | species abundances, and the optional prefilter |
 | `--genomad_db` | prophage detection |

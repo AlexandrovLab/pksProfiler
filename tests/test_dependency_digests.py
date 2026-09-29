@@ -27,6 +27,8 @@ TRACKED = {
     "pks_recruit_index": "pks_recruit_index", "pks_reference_fasta": "pks_reference_fasta",
     "cram_reference": "cram_reference", "kraken_db": "kraken_db",
     "genomad_db": "genomad_db", "gtdbtk_db": "gtdbtk_db", "checkm2_db": "checkm2_db",
+    # Ludmil, 26 Sep mode memo section 4: the RNA lane's human-depletion references.
+    "rna_splice_db": "rna_splice_db", "rna_junctions_bed": "rna_junctions_bed",
 }
 
 

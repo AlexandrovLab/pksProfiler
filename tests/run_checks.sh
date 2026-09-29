@@ -144,6 +144,19 @@ check_validation \
     wes-hmm-only \
     '--sample_type wes requires --profiling_method bowtie2 or both' \
     --sample_type wes --profiling_method hmm
+# Ludmil, 26 Sep mode memo section 4: rna needs its splice index, not --hg38_db.
+check_validation \
+    rna-missing-splice-db \
+    '--rna_splice_db is not set' \
+    --sample_type rna
+check_validation \
+    rna-bad-library-type \
+    '--rna_library_type must be polyA, total or unknown' \
+    --sample_type rna --rna_splice_db "$test_dir/placeholder-hg38.mmi" --rna_library_type ribo
+
+echo
+echo "Running the host-depletion plan (lib/HostDepletion.groovy)"
+bash "$repo_dir/tests/check_depletion_plan.sh"
 
 echo
 echo "Building the workflow graph for every flag combination"

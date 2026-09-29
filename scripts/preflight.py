@@ -159,12 +159,23 @@ def check_sample_sheet(config, report):
     report.note(section, f"{len(rows)} samples")
 
 
+def human_index_param(config):
+    """The parameter naming the human-depletion index this sample type needs."""
+    return "rna_splice_db" if str(config.get("sample_type")) == "rna" else "hg38_db"
+
+
 def check_references(config, report):
     section = "references"
     # Required for every run, and never checked before: a typo here used to surface in
     # the first mapReads task, after extraction had run for the whole cohort.
-    report.require_path(section, "--hg38_db", config.get("hg38_db"))
+    # Ludmil, 26 Sep mode memo section 4: --sample_type rna depletes human reads with
+    # minimap2 -ax splice:sr against --rna_splice_db, which replaces --hg38_db there. The
+    # same rule as main.nf's required-parameter check (lib/HostDepletion.humanIndexParam).
+    human_param = human_index_param(config)
+    report.require_path(section, f"--{human_param}", config.get(human_param))
     report.require_path(section, "--t2t_phix_db", config.get("t2t_phix_db"))
+    if str(config.get("sample_type")) == "rna" and config.get("rna_junctions_bed"):
+        report.require_path(section, "--rna_junctions_bed", config.get("rna_junctions_bed"))
     if config.get("pangenome_db"):
         # map_reads.nf accepts either one .mmi file or a directory of them
         # (find ... -name '*.mmi'); kind="file" here used to reject every

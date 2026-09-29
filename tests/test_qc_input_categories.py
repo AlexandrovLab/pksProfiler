@@ -165,20 +165,31 @@ class BowtieRuleIsExplicit(unittest.TestCase):
 
 
 class FragModeIsASwitch(unittest.TestCase):
-    """E0 (25 Sep): --frag=no is available for the benchmark; the default is unchanged."""
+    """E0 (25 Sep): --frag=no is available for the benchmark; the default is unchanged.
+
+    Since the 26 Sep mode memo each pass's preset and flags come from
+    lib/HostDepletion.groovy; the switch must still reach every call.
+    """
 
     MAP = (ROOT / "Modules/map_reads.nf").read_text()
     MAIN = (ROOT / "main.nf").read_text()
+    PLAN = (ROOT / "lib/HostDepletion.groovy").read_text()
 
     def test_every_depletion_call_takes_the_switch(self):
-        calls = re.findall(r"minimap2 -2 -ax sr[^\n]*", self.MAP)
+        calls = re.findall(r"minimap2 -2 -ax \$\{(\w+)\.preset\} \$\{\1\.args\}[^\n]*", self.MAP)
         self.assertEqual(len(calls), 3)
-        for call in calls:
-            self.assertIn("${frag_arg}", call)
+        self.assertEqual(set(calls), {"human", "t2t", "pangenome"})
+        for plan in ("humanPass", "t2tPass", "pangenomePass"):
+            with self.subTest(plan=plan):
+                self.assertRegex(self.MAP, rf"HostDepletion\.{plan}\(params\.(sample_type, )?params\.minimap2_frag_mode"
+                                 if plan == "humanPass" else rf"HostDepletion\.{plan}\(params\.minimap2_frag_mode")
+                body = self.PLAN[self.PLAN.index(f"static Map {plan}("):]
+                body = body[:body.index("\n    }\n")]
+                self.assertIn("fragArg(fragMode)", body)
 
     def test_the_default_is_the_behaviour_runs_have_used(self):
         self.assertIn('params.minimap2_frag_mode = "default"', self.MAIN)
-        self.assertIn('"no" ? "--frag=no" : ""', self.MAP)
+        self.assertIn("fragMode?.toString() == 'no' ? '--frag=no' : ''", self.PLAN)
 
     def test_run_report_records_it(self):
         prov = load("finalize_provenance")

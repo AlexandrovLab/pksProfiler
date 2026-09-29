@@ -76,6 +76,29 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("preflight passed", result.stdout)
 
+    # Ludmil, 26 Sep mode memo section 4: --sample_type rna depletes against a splice
+    # index, which replaces --hg38_db; main.nf applies the same rule.
+    def test_rna_needs_the_splice_index_not_hg38(self):
+        (self.d / "splice.mmi").write_text("x")
+        result = self.run_preflight(sample_type="rna", hg38_db=None,
+                                    rna_splice_db=str(self.d / "splice.mmi"))
+        self.assertEqual(result.returncode, 0, result.stdout)
+        result = self.run_preflight(sample_type="rna", hg38_db=str(self.d / "hg38.mmi"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--rna_splice_db is not set", result.stdout)
+
+    def test_other_modes_still_need_hg38(self):
+        for mode in ("wgs", "wes", "metagenome"):
+            with self.subTest(mode=mode):
+                result = self.run_preflight(sample_type=mode, hg38_db=None)
+                self.assertIn("--hg38_db is not set", result.stdout)
+
+    def test_a_missing_junctions_bed_is_caught_for_rna(self):
+        (self.d / "splice.mmi").write_text("x")
+        result = self.run_preflight(sample_type="rna", rna_splice_db=str(self.d / "splice.mmi"),
+                                    rna_junctions_bed=str(self.d / "typo.bed"))
+        self.assertIn("--rna_junctions_bed does not exist", result.stdout)
+
     def test_a_reference_that_is_set_but_absent_is_caught(self):
         # The case that motivated F20: set, so every old check passed.
         result = self.run_preflight(hg38_db=str(self.d / "typo.mmi"))
