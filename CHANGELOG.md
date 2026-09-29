@@ -77,6 +77,9 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 - nf-core template placeholders and the unused `input` parameter.
 
 **Fixed**
+- An unaligned BAM/CRAM (no `@SQ` header lines) failed extraction with `samtools quickcheck`'s
+  bare "had no targets in header". `extractReads` now says it is unaligned and to run it as
+  FASTQ; documented in the README input section and `docs/running/bam.md`.
 - `plotPKSTaxa` (`--pks_taxa`) and `plotCommunityTaxa` (`--pks_community_taxa`) both published
   `by_sample/<s>/figures/taxa_barplots.pdf`, so a run with both kept whichever finished last.
   They now publish `pks_island_taxa_barplots.pdf` and `community_taxa_barplots.pdf`, with

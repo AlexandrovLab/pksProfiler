@@ -19,7 +19,10 @@
 #   - bad_magic.bam -- a real BAM with its first 4 bytes overwritten, so `htsfile`
 #     reports "unknown data" and extractReads.nf's own explicit branch fires: "input is
 #     neither BAM nor CRAM according to htsfile: ...".
-#     (see tests/fixtures/generate_malformed_input_fixtures.py for both.)
+#   - unaligned.bam -- a well-formed BAM with no @SQ header lines (samtools import /
+#     basecaller uBAM); extractReads refuses it with "has no @SQ lines in its header"
+#     before samtools quickcheck's bare "had no targets in header" (rc1 pass, item 3).
+#     (see tests/fixtures/generate_malformed_input_fixtures.py for all three.)
 #
 # `params.sample_failure_strategy` defaults to 'ignore' (main.nf) for exactly this
 # lane (extractReads/filterReads/mapReads/pksProfiler_align/pksProfiler_hmm, conf/
@@ -105,7 +108,7 @@ if ! python3 "$repo_dir/tests/fixtures/generate_e2e_fixtures.py" --out-dir "$fix
 fi
 cat "$work/fixtures.log"
 
-echo "Building the malformed fixtures (truncated.bam, bad_magic.bam)"
+echo "Building the malformed fixtures (truncated.bam, bad_magic.bam, unaligned.bam)"
 if ! python3 "$repo_dir/tests/fixtures/generate_malformed_input_fixtures.py" \
         --out-dir "$fixtures" --samtools-bin "$MINIMAP2_ENV_SAMTOOLS" > "$work/malformed.log" 2>&1; then
     cat "$work/malformed.log" >&2
@@ -139,11 +142,13 @@ fi
 HEALTHY_SAMPLE=malformed_check_healthy
 TRUNCATED_SAMPLE=malformed_check_truncated
 BAD_MAGIC_SAMPLE=malformed_check_bad_magic
+UNALIGNED_SAMPLE=malformed_check_unaligned
 
 printf 'patient,alignment\n' > "$work/sheet.csv"
 printf '%s,%s\n' "$HEALTHY_SAMPLE" "$fixtures/healthy.bam" >> "$work/sheet.csv"
 printf '%s,%s\n' "$TRUNCATED_SAMPLE" "$fixtures/truncated.bam" >> "$work/sheet.csv"
 printf '%s,%s\n' "$BAD_MAGIC_SAMPLE" "$fixtures/bad_magic.bam" >> "$work/sheet.csv"
+printf '%s,%s\n' "$UNALIGNED_SAMPLE" "$fixtures/unaligned.bam" >> "$work/sheet.csv"
 
 cat > "$work/e2e_local.config" <<'EOF'
 executor {
@@ -163,7 +168,7 @@ process {
 }
 EOF
 
-echo "Running the real pipeline (one healthy BAM, two malformed BAMs; default"
+echo "Running the real pipeline (one healthy BAM, three malformed BAMs; default"
 echo "params.sample_failure_strategy=ignore), bounded by a ${NEXTFLOW_TIMEOUT}s timeout"
 nf_log="$work/nextflow.log"
 nf_work_dir="$work/work"
@@ -211,7 +216,8 @@ if ! python3 "$repo_dir/tests/fixtures/assert_malformed_input_outputs.py" \
         --work-dir "$nf_work_dir" \
         --healthy-sample "$HEALTHY_SAMPLE" \
         --truncated-sample "$TRUNCATED_SAMPLE" \
-        --bad-magic-sample "$BAD_MAGIC_SAMPLE"; then
+        --bad-magic-sample "$BAD_MAGIC_SAMPLE" \
+        --unaligned-sample "$UNALIGNED_SAMPLE"; then
     echo "ERROR: malformed-input assertions failed. Results kept at: $work/results" >&2
     echo "       Nextflow work dir kept at: $nf_work_dir" >&2
     KEEP_WORK=1
@@ -219,5 +225,5 @@ if ! python3 "$repo_dir/tests/fixtures/assert_malformed_input_outputs.py" \
 fi
 
 echo
-echo "malformed-input execution check passed (healthy BAM unaffected; truncated BAM and" \
-     "bad-magic BAM both fail with their real, specific diagnostics recorded)"
+echo "malformed-input execution check passed (healthy BAM unaffected; truncated, bad-magic" \
+     "and unaligned (no @SQ) BAMs all fail with their real, specific diagnostics recorded)"

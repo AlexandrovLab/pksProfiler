@@ -45,11 +45,14 @@ def main():
     parser.add_argument("--healthy-sample", required=True)
     parser.add_argument("--truncated-sample", required=True)
     parser.add_argument("--bad-magic-sample", required=True)
+    parser.add_argument("--unaligned-sample", default=None,
+                        help="rc1 pass, item 3: a BAM with no @SQ header lines")
     args = parser.parse_args()
 
     results = args.results
     healthy = args.healthy_sample
-    malformed = (args.truncated_sample, args.bad_magic_sample)
+    malformed = (args.truncated_sample, args.bad_magic_sample) + \
+        ((args.unaligned_sample,) if args.unaligned_sample else ())
 
     # ---------- the healthy sample: unaffected by its malformed cohort-mates ----------
     qc_path = results / "cohort" / "qc" / "pks.qc.summary.tsv"
@@ -102,22 +105,24 @@ def main():
               "extractReads" in failed_section, "no extractReads failure listed")
         # Two independent malformed samples -> two independent failed tasks, not one
         # error suppressing or masking the other.
-        check("WHAT FAILED lists two separate failed tasks (one per malformed sample)",
-              failed_section.count("extractReads") >= 2,
+        check(f"WHAT FAILED lists {len(malformed)} separate failed tasks (one per malformed sample)",
+              failed_section.count("extractReads") >= len(malformed),
               f"found {failed_section.count('extractReads')} extractReads mentions")
         for line in failed_section.splitlines():
             line = line.strip()
             if line.startswith("stderr:"):
                 stderr_globs.append(line.split("stderr:", 1)[1].strip())
 
-    check("RUN_REPORT.txt points to at least 2 .command.err logs for the failed tasks",
-          len(stderr_globs) >= 2, f"found {len(stderr_globs)}: {stderr_globs}")
+    check(f"RUN_REPORT.txt points to at least {len(malformed)} .command.err logs for the failed tasks",
+          len(stderr_globs) >= len(malformed), f"found {len(stderr_globs)}: {stderr_globs}")
 
     # ---------- the diagnostics themselves are the real, specific tool messages ----------
     expected_substrings = {
         "truncated": "EOF block",
         "bad_magic": "neither BAM nor CRAM",
     }
+    if args.unaligned_sample:
+        expected_substrings["unaligned"] = "has no @SQ lines in its header: it is an unaligned bam"
     found_text = ""
     for pattern in stderr_globs:
         for match in glob.glob(pattern):

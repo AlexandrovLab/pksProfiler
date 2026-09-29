@@ -23,6 +23,10 @@ Modules/extract_reads.nf actually has, not a single generic "broken file":
     stream at all. `htsfile` reports "unknown data", which matches neither the `*BAM*`
     nor `*CRAM*` case in extractReads.nf's own detection branch, so the pipeline's own
     explicit message fires: "input is neither BAM nor CRAM according to htsfile: ...".
+  * `unaligned.bam` (rc1 pass, item 3) -- a well-formed BAM whose header has no @SQ
+    lines, as `samtools import` or a basecaller writes. samtools quickcheck rejects it
+    ("had no targets in header"); extractReads now says why first: "has no @SQ lines in
+    its header: it is an unaligned bam".
 
 Every read is independent pseudorandom sequence (not the shipped GCF_000025745.1
 reference or anything derived from real sequencing data) -- correctness of the *content*
@@ -42,12 +46,11 @@ def random_seq(rng, length):
     return "".join(rng.choices("ACGT", k=length))
 
 
-def write_sam(path, seed):
+def write_sam(path, seed, with_sq=True):
     rng = random.Random(seed)
-    lines = [
-        "@HD\tVN:1.6\tSO:unsorted",
-        "@SQ\tSN:malformed_fixture_chr1\tLN:4000",
-    ]
+    lines = ["@HD\tVN:1.6\tSO:unsorted"]
+    if with_sq:
+        lines.append("@SQ\tSN:malformed_fixture_chr1\tLN:4000")
     for i in range(N_READS):
         seq = random_seq(rng, READ_LEN)
         # flag 4 = unmapped, the exact category extractReads.nf's `samtools fastq -f 4`
@@ -92,9 +95,18 @@ def main():
     corrupted[0:4] = b"XXXX"
     bad_magic_bam.write_bytes(bytes(corrupted))
 
+    unaligned_sam = args.out_dir / "unaligned.sam"
+    unaligned_bam = args.out_dir / "unaligned.bam"
+    write_sam(unaligned_sam, args.seed + 1, with_sq=False)
+    subprocess.run(
+        [args.samtools_bin, "view", "-b", "-o", str(unaligned_bam), str(unaligned_sam)],
+        check=True,
+    )
+
     print(f"valid.bam: {len(valid_bytes)} bytes, {N_READS} unmapped reads")
     print(f"truncated.bam: {keep} bytes ({args.truncate_fraction:.0%} of valid.bam)")
     print(f"bad_magic.bam: {len(corrupted)} bytes, leading magic overwritten")
+    print(f"unaligned.bam: {unaligned_bam.stat().st_size} bytes, {N_READS} reads, no @SQ header lines")
     print(f"wrote fixtures to {args.out_dir}")
 
 

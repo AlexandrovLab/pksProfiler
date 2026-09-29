@@ -133,7 +133,11 @@ class AssertionsCheckPerSampleFailureIsolationAndInformativeRecording(unittest.T
         self.assertIn("WHAT FAILED", self.assertions)
 
     def test_it_checks_both_malformed_samples_are_recorded_as_separate_failures(self):
-        self.assertIn(">= 2", self.assertions)
+        # rc1 pass, item 3 added a third (unaligned, no @SQ) sample.
+        self.assertIn(">= len(malformed)", self.assertions)
+        self.assertIn("--unaligned-sample", self.assertions)
+        self.assertIn("has no @SQ lines in its header: it is an unaligned bam", self.assertions)
+        self.assertIn('with_sq=False', GENERATOR.read_text())
 
     def test_it_checks_the_real_specific_diagnostic_text_not_just_a_nonzero_exit(self):
         # A failure could be nonzero for the wrong reason; this must confirm the actual

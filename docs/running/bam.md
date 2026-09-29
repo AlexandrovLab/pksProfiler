@@ -14,6 +14,19 @@ sample2,/absolute/path/to/sample2.cram
 
 Sample identifiers must be unique and may contain letters, numbers, periods, underscores, and hyphens; the first character must be alphanumeric. Paths should be absolute on a cluster. An editable template is available at [`examples/sample_sheets/bam.csv`](../../examples/sample_sheets/bam.csv).
 
+**The input must be an alignment against a reference.** Extraction keeps the records an
+aligner flagged unmapped, and checks each file with `samtools quickcheck`, which rejects a
+BAM/CRAM whose header has no `@SQ` lines. An *unaligned* BAM (from `samtools import`, or a
+basecaller's uBAM, common for ONT/PacBio) therefore fails in `extractReads` with
+`has no @SQ lines in its header: it is an unaligned bam`. Convert it to FASTQ and use FASTQ
+mode instead:
+
+```bash
+samtools fastq -@ 4 sample.unaligned.bam | gzip > sample.fastq.gz   # then --input_data_type fastq
+```
+
+(For paired uBAMs, `samtools fastq -1 R1.fastq.gz -2 R2.fastq.gz -0 /dev/null -s /dev/null`.)
+
 ## Run alignment profiling
 
 ```bash
@@ -28,7 +41,7 @@ nextflow run main.nf \
 
 `bowtie2` is the default profiling method. You may add `--profiling_method bowtie2` explicitly, but it is not required.
 
-CRAM references may be embedded or resolved by HTSlib. If that lookup is unavailable, add `--cram_reference /absolute/path/to/reference.fa`. When supplied, the pipeline validates the CRAM sequence names, lengths, and MD5 values against the FASTA before extraction. Use `--input_data_type cram` to reject any accidental BAM input. Existing `patient,bam` sample sheets remain supported.
+CRAM input requires `--cram_reference /absolute/path/to/reference.fa`; the pipeline validates the CRAM sequence names, lengths, and MD5 values against the FASTA before extraction. Use `--input_data_type cram` to reject any accidental BAM input. Existing `patient,bam` sample sheets remain supported.
 
 ## Outputs to check
 

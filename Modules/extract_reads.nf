@@ -45,6 +45,20 @@ process extractReads {
 		    exit 1
 		fi
 
+		# An unaligned BAM/CRAM (samtools import, a basecaller's uBAM) has no @SQ lines,
+		# and the quickcheck below refuses it with "had no targets in header", which
+		# does not say what is wrong. Extraction keeps reads an aligner flagged unmapped
+		# against a reference; with no reference there is nothing to extract from. Say so,
+		# before CRAM validation or quickcheck. The header is read once and kept.
+		if ! samtools view -H "${alignment}" > input.header.sam 2> input.header.err; then
+		    echo "ERROR: ${sampleID}: could not read the header of ${alignment}: \$(head -c 500 input.header.err)" >&2
+		    exit 1
+		fi
+		if ! grep -q '^@SQ' input.header.sam; then
+		    echo "ERROR: ${sampleID}: ${alignment} has no @SQ lines in its header: it is an unaligned \$DETECTED (e.g. from samtools import or a basecaller), which the input quickcheck rejects. pksProfiler extracts the reads an aligner flagged unmapped against a reference. Convert it to FASTQ and run it with --input_data_type fastq (docs/running/bam.md)." >&2
+		    exit 1
+		fi
+
 		REFERENCE_ARGS=()
 		if [[ "\$DETECTED" == "cram" ]]; then
 		    # Ludmil, revised report finding 10: this used to fall through to a

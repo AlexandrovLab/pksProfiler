@@ -108,6 +108,11 @@ patient,bam
 TUMOR_01,/data/TUMOR_01.bam
 ```
 
+A BAM/CRAM must be an alignment against a reference (its header has `@SQ` lines): the
+reads kept are the ones the aligner flagged unmapped. An unaligned BAM (`samtools import`,
+a basecaller's uBAM) is rejected by extraction's `samtools quickcheck`; convert it with
+`samtools fastq` and run it as FASTQ. See [BAM and CRAM mode](docs/running/bam.md).
+
 The minimum run — quantify the island and score the evidence:
 
 ```bash
