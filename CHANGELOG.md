@@ -66,6 +66,13 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
   host-depleted reads) and `host_depleted_reads` join metagenome `read_evidence.tsv`, the
   cohort report and the master summary; raw `pks_reads` kept.
 
+- `tests/check_mode_execution.sh` (26 Sep mode memo section 6): one real execution per mode --
+  wgs, wes, rna (splice:sr + junction BED on a GRCh38 slice), metagenome, wgs+ont, rna+ont --
+  asserting the branch, outputs, disabled features, depletion preset and terminal state.
+- `process.beforeScript` puts the conda base first on PATH so each task's activated env wins
+  over tools earlier on the launching shell's PATH (a user minimap2 2.24 had been shadowing
+  the pinned 2.31 in every host-depletion pass on TSCC).
+
 **Changed**
 - Mode-specific evidence schemas (Ludmil, 26 Sep mode memo sections 3, 4, 6):
   `classify_tumor_pks_evidence.py --mode {wgs,metagenome,wes,rna}` writes `read_evidence.tsv`
