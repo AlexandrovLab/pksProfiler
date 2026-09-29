@@ -8,6 +8,14 @@ process extractReads {
         mode: 'copy',
         enabled: params.save_intermediates.toString().toBoolean()
     )
+    // E3 (Ludmil, 25 Sep): the input's reference and upstream-aligner provenance, always
+    // published: by_sample/<sample>/provenance/input_header.tsv.
+    publishDir(
+        { "${params.sample_dir}/${sampleID}/provenance" },
+        mode: 'copy',
+        pattern: "*.header_provenance.tsv",
+        saveAs: { "input_header.tsv" }
+    )
     conda "${params.samtools_env}"
 
     input:
@@ -16,6 +24,7 @@ process extractReads {
     output:
 	tuple val(sampleID), path("${sampleID}.UNMAPPED.fastq.gz"), emit: reads
 	tuple val(sampleID), path("${sampleID}.extract.qc.tsv"), emit: qc
+	tuple val(sampleID), path("${sampleID}.header_provenance.tsv"), emit: provenance
     
 	script:
 	"""
@@ -58,6 +67,11 @@ process extractReads {
 		    echo "ERROR: ${sampleID}: ${alignment} has no @SQ lines in its header: it is an unaligned \$DETECTED (e.g. from samtools import or a basecaller), which the input quickcheck rejects. pksProfiler extracts the reads an aligner flagged unmapped against a reference. Convert it to FASTQ and run it with --input_data_type fastq (docs/running/bam.md)." >&2
 		    exit 1
 		fi
+		# E3: @SQ fingerprint (md5 of ordered SN:LN), M5-set fingerprint, contig count,
+		# build guess from chr1's length, and the @PG chain (ID/PN/VN along PP, never CL).
+		python "${params.scripts}/header_provenance.py" sample \
+		    --header input.header.sam --sample "${sampleID}" \
+		    --output "${sampleID}.header_provenance.tsv"
 
 		REFERENCE_ARGS=()
 		if [[ "\$DETECTED" == "cram" ]]; then
@@ -153,4 +167,33 @@ process extractReads {
 	fi
 	printf "%s\textracted_unmapped_reads\t%s\n" "${sampleID}" "\$UNMAPPED_READS" >> "\$QC"
 	"""
+}
+
+
+// E3 (Ludmil, 25 Sep): one cohort table of every input's header provenance, plus a
+// counts-only summary (distinct reference fingerprints, distinct aligner chains) that
+// RUN_REPORT.txt renders as INPUT ALIGNMENTS. Both under cohort/provenance/.
+process inputHeaderSummary {
+    label 'process_low'
+    publishDir "${params.cohort_dir}/provenance", mode: 'copy'
+    conda "${params.samtools_env}"
+
+    input:
+    path(provenance_files)
+    path(file_list)
+
+    output:
+    path "input_headers.tsv", emit: table
+    path "input_header_summary.tsv", emit: summary
+
+    script:
+    """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # scripts ${params.dep_digest?.scripts}
+    set -euo pipefail
+    python "${params.scripts}/header_provenance.py" summarize \
+        --inputs-file "${file_list}" \
+        --table input_headers.tsv \
+        --summary input_header_summary.tsv
+    """
 }

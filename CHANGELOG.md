@@ -50,6 +50,13 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
   `completed_untiered`, `failed_at_<stage>` (first missing stage in pipeline order) or
   `excluded_<reason>`. `classifyPksReadEvidence` emits an `evidence_outcome` QC fragment.
 
+- E3 input-alignment provenance (Ludmil, 25 Sep): for BAM/CRAM input, `extractReads` records
+  each header's `@SQ` fingerprint (md5 over ordered SN:LN), M5-set fingerprint, contig count,
+  build guess and `@PG` chain (ID/PN/VN along PP, never CL) in
+  `by_sample/<s>/provenance/input_header.tsv`; `cohort/provenance/` joins them and a
+  counts-only summary that `RUN_REPORT.txt` prints as INPUT ALIGNMENTS
+  (`scripts/header_provenance.py`, adapted from the E3 validation script).
+
 **Changed**
 - Mode-specific evidence schemas (Ludmil, 26 Sep mode memo sections 3, 4, 6):
   `classify_tumor_pks_evidence.py --mode {wgs,metagenome,wes,rna}` writes `read_evidence.tsv`

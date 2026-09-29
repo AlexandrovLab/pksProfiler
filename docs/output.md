@@ -54,6 +54,8 @@ by_sample/<sample>/
 ├── strain/                 ST, clonal complex, phylogroup            (step 7)
 ├── taxonomy/               bracken reports, island reads             --pks_taxa
 ├── prefilter/              kept and rescued reads                    --prefilter_mode
+├── provenance/             input_header.tsv: the input BAM/CRAM's reference and aligner
+│                           (E3; alignment input only, see below)
 ├── figures/                circos.pdf, contig_validation.svg,
 │                           pks_island_taxa_barplots.pdf  (--pks_taxa: Bracken on island reads)
 │                           community_taxa_barplots.pdf   (--pks_community_taxa: whole community)
@@ -69,6 +71,8 @@ level: `--sample_type` decides which directories exist, not where they sit.
 cohort/
 ├── gene_counts/            pks.gene.counts.align.txt, pks.gene.counts.hmm.txt
 ├── qc/                     pks.qc.summary.tsv — read attrition through every stage
+├── provenance/             input_headers.tsv (every input's header provenance, one row per
+│                           sample) and input_header_summary.tsv (counts only)   BAM/CRAM input
 ├── taxonomy/               combined bracken tables, clb taxonomy support
 └── pks.master_summary.tsv  written by build_master_summary.py (see below)
 ```
@@ -76,6 +80,24 @@ cohort/
 Start with `cohort/qc/pks.qc.summary.tsv` when a result looks wrong — it shows how many
 reads survived extraction, fastp and each host-depletion pass, so you can see where a
 sample lost its reads.
+
+### Input alignment provenance (E3)
+
+For BAM/CRAM input, `extractReads` reads the header (`@SQ` and `@PG` lines only, no read
+record) and writes `by_sample/<sample>/provenance/input_header.tsv`:
+
+| Column | Meaning |
+|---|---|
+| `sq_fingerprint` | md5 over the ordered `SN:LN` lines. Same reference in the same order, same value; any other build differs |
+| `m5_set_fingerprint` | md5 over the sorted `M5` values; `NA` unless every `@SQ` has one. Insensitive to contig renaming (`chr1` vs `1`) and order |
+| `n_contigs`, `n_contigs_with_m5` | `@SQ` count, and how many carry `M5` |
+| `chr1_name`, `chr1_length`, `build_guess` | `GRCh38` (248,956,422), `GRCh37` (249,250,621), `T2T-CHM13` (248,387,328), `unknown`, or `no_chr1` |
+| `n_pg`, `pg_chain` | `@PG` records along their `PP` links as `ID\|PN\|VN`; `CL` is never read |
+| `pg_programs` | the same chain as `PN:VN` |
+
+`cohort/provenance/input_header_summary.tsv` counts distinct fingerprints (with build and
+contig count) and distinct `PN:VN` chains, and `RUN_REPORT.txt` prints it as
+**INPUT ALIGNMENTS**. It carries no sample identifier, `@PG` ID or path.
 
 ## runs/
 

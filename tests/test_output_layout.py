@@ -63,7 +63,9 @@ TARGETS = publish_targets()
 # it was never invoked and its publishDir target no longer exists.
 COHORT_PROCESSES = ("masterTableAlign", "masterTableHMM", "masterQCSummary",
                     "cohortReport", "masterSummary",
-                    "process_bracken", "combineClbTaxonomySupport")
+                    "process_bracken", "combineClbTaxonomySupport",
+                    # E3: every input's header provenance, joined
+                    "inputHeaderSummary")
 
 
 class LayoutParamsTests(unittest.TestCase):

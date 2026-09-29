@@ -377,6 +377,27 @@ def main():
                       "(F01: samtools fastq routed every category to the one output stream)",
                       row.get("extracted_unmapped_reads") == str(args.expect_extracted_unmapped_reads),
                       f"got {row.get('extracted_unmapped_reads')!r}")
+            # E3: header provenance for every alignment input, and its cohort summary.
+            # The fixtures are minimap2 alignments to the synthetic hg38, so one reference
+            # fingerprint and a minimap2 @PG record.
+            for sample in (pos, neg):
+                prov = results / "by_sample" / sample / "provenance" / "input_header.tsv"
+                check(f"{sample} provenance/input_header.tsv exists (E3)", prov.exists())
+                if prov.exists():
+                    prov_rows = read_tsv(prov)
+                    check(f"{sample} input_header.tsv has one row with a fingerprint and a minimap2 @PG",
+                          len(prov_rows) == 1 and len(prov_rows[0].get("sq_fingerprint", "")) == 32
+                          and "minimap2" in prov_rows[0].get("pg_programs", ""),
+                          f"got {prov_rows}")
+            summary = results / "cohort" / "provenance" / "input_header_summary.tsv"
+            check("cohort/provenance/input_header_summary.tsv exists (E3)", summary.exists())
+            if summary.exists():
+                refs = [r for r in read_tsv(summary) if r["section"] == "reference"]
+                check("both inputs share one reference fingerprint",
+                      len(refs) == 1 and refs[0]["n_files"] == "2", f"got {refs}")
+            report = results / "RUN_REPORT.txt"
+            check("RUN_REPORT.txt has the INPUT ALIGNMENTS section (E3)",
+                  report.exists() and "INPUT ALIGNMENTS" in report.read_text())
 
     if args.single_end:
         # ---------- single-end: every read survives host depletion, none duplicated ----------

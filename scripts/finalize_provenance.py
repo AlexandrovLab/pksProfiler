@@ -418,6 +418,22 @@ def render(record):
     elif not sheet.get("path"):
         lines.append("  no sample sheet recorded")
 
+    # ---- INPUT ALIGNMENTS (E3) ----
+    headers = record.get("input_headers")
+    if headers:
+        lines += section("INPUT ALIGNMENTS")
+        files = next((r for r in headers if r.get("section") == "files"), {})
+        lines.append(f"  BAM/CRAM headers read   {files.get('n_files', '?')}"
+                     "   (per sample: by_sample/<sample>/provenance/input_header.tsv)")
+        refs = [r for r in headers if r.get("section") == "reference"]
+        lines.append(f"  distinct @SQ fingerprints  {len(refs)}")
+        for r in refs:
+            lines.append(f"    {r.get('key', '')[:16]}  {r.get('detail', '')}  files={r.get('n_files')}")
+        chains = [r for r in headers if r.get("section") == "aligner_chain"]
+        lines.append(f"  distinct @PG chains     {len(chains)}   (PN:VN in PP order)")
+        for r in chains:
+            lines.append(f"    files={r.get('n_files'):<6} {r.get('key', '')}")
+
     # ---- SOFTWARE ----
     software = record.get("software") or {}
     lines += section("SOFTWARE")
@@ -497,6 +513,26 @@ def render(record):
     return "\n".join(lines) + "\n"
 
 
+def input_header_summary(cohort_dir, started=None):
+    """E3: the counts-only input-header summary (header_provenance.py summarize).
+
+    Read only if this session wrote it: a FASTQ run into an --outdir that once held a
+    BAM run would otherwise report the old run's references as its own.
+    """
+    path = Path(cohort_dir) / "provenance" / "input_header_summary.tsv"
+    if not path.is_file():
+        return None
+    if started:
+        try:
+            start = datetime.datetime.fromisoformat(started).timestamp()
+            if path.stat().st_mtime < start:
+                return None
+        except (TypeError, ValueError):
+            pass
+    with path.open(newline="") as handle:
+        return [row for row in csv.DictReader(handle, delimiter="\t")]
+
+
 # ---------------------------------------------------------------- driver
 
 def main():
@@ -527,6 +563,8 @@ def main():
         ("failed", args.failed), ("ignored", args.ignored)) if value not in (None, "")}
     record["software"] = conda_inventory(args.conda_cache_dir)
     record["outputs"] = {"cohort_files": cohort_checksums(args.cohort_dir)}
+    record["input_headers"] = input_header_summary(args.cohort_dir,
+                                                   (record.get("run") or {}).get("started"))
     record["finalized"] = True
 
     target.write_text(json.dumps(record, indent=2) + "\n")

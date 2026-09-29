@@ -324,7 +324,7 @@ params.dep_digest = [
 ]
 
 // ---------------- Modules ----------------
-include { extractReads } from './Modules/extract_reads.nf'
+include { extractReads; inputHeaderSummary } from './Modules/extract_reads.nf'
 include { filterReads } from './Modules/filter_reads.nf'
 include { mapReads } from './Modules/map_reads.nf'
 include { pksProfiler_align as pksProfilerAlign } from './Modules/pksProfiler_align.nf'
@@ -785,6 +785,20 @@ workflow {
 
         QC_FRAGMENTS = QC_FRAGMENTS.mix(
             EXTRACT_OUT.qc.map { _sampleID, qc_file -> qc_file }
+        )
+
+        // E3 (Ludmil, 25 Sep): per-input header provenance, joined into one cohort
+        // table and a counts-only summary that RUN_REPORT.txt reads.
+        EXTRACT_OUT.provenance
+            .map { _sampleID, provenance_file -> provenance_file }
+            .multiMap { f ->
+                files: f
+                rows:  f.name
+            }
+            .set { HEADER_PROVENANCE }
+        inputHeaderSummary(
+            HEADER_PROVENANCE.files.collect(),
+            HEADER_PROVENANCE.rows.collectFile(name: 'input_header_provenance.list', newLine: true, sort: true)
         )
 
     } else if (input_data_type == "fastq") {
