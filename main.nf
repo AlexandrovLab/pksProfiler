@@ -309,6 +309,32 @@ include { krakenPrefilter; buildClbDiamondDb; diamondRescue; diamondRescueTaxono
 // allows no statements at the top level.
 def classifyPksReadEvidence_gate() { return channel.empty() }
 
+// Ludmil, 2026-09-25 report P0-5b: cohortReport and masterSummary read their declared
+// inputs, not the published tree. The three gate channels below carry
+// tuple(sampleID, kind, file) -- sampleID empty for cohort-level files -- where `kind`
+// is one of the names build_cohort_report.py / build_master_summary.py read by. Sorted
+// so the staged order, and with it the task hash, is the same on every -resume; the
+// file list and the manifest are both taken from this one sorted list, so inputs/<n>/
+// in the manifest is exactly where Nextflow stages the n-th file.
+def sortReportInputs(inputs) {
+    return inputs.toSortedList { a, b ->
+        (a[1] <=> b[1]) ?: (a[0] <=> b[0]) ?: (a[2].name <=> b[2].name) ?:
+            (a[2].toString() <=> b[2].toString())
+    }
+}
+
+// The manifest for a sorted list: one row per file, naming the inputs/<n>/ directory
+// `stageAs: 'inputs/*/*'` puts it in. Each file gets its own directory because
+// basenames repeat once the sample prefix is dropped on publishing, and nothing
+// guarantees `<sample>.<suffix>` is unique across arbitrary sample identifiers.
+def reportManifestText(rows) {
+    def lines = ["sample\tkind\tpath"]
+    rows.eachWithIndex { row, i ->
+        lines << "${row[0]}\t${row[1]}\tinputs/${i + 1}/${row[2].name}".toString()
+    }
+    return lines.join('\n') + '\n'
+}
+
 // ---------------- Workflow ----------------
 workflow {
 
@@ -689,8 +715,9 @@ workflow {
     )
 
     // Gate for the MAG, community/prophage and strain-typing lanes. Both
-    // masterSummary and cohortReport wait on it: build_master_summary.py reads all
-    // three, and build_cohort_report.py renders the MAG bins and prophage context. Declared before the earliest branch that can mix into
+    // masterSummary and cohortReport stage it as declared inputs (P0-5b; see
+    // sortReportInputs): build_master_summary.py reads all three, and
+    // build_cohort_report.py renders the MAG bins and prophage context. Declared before the earliest branch that can mix into
     // it (this MAG-assembly one, ahead of even cohort_report_gate's own
     // reassignment further down) -- masterSummary reads it unconditionally,
     // and a run with none of these optional lanes enabled genuinely has
@@ -702,7 +729,8 @@ workflow {
     // context, DIAMOND-rescue taxonomy, the clb species-support table and every
     // per-sample figure -- so on a run where those lanes finish after read evidence,
     // the report could be built, and published, without them. Every producer of a file
-    // build_cohort_report.py reads mixes into this gate as well. Declared here, ahead of
+    // build_cohort_report.py reads mixes into this gate as well -- since P0-5b as
+    // tuple(sampleID, kind, file), staged into the task (see sortReportInputs). Declared here, ahead of
     // the first producer, and never reassigned (cohort_report_gate is reassigned in the
     // alignment branch, which would drop anything mixed into it before that point).
     def report_display_gate = channel.empty()
@@ -715,9 +743,14 @@ workflow {
 
     if (enable_mags_b) {
         pksMAG(MAG_ASSEMBLY_READS)
+        // P0-5b: tagged with the kind the scripts read each by. The unbinned pool's own
+        // locus call is not staged -- pks_mag_summary.tsv already carries it as a row.
         optional_lane_gate = optional_lane_gate.mix(
-            pksMAG.out.mag_summary, pksMAG.out.community_summary, pksMAG.out.strain_summary,
-            pksMAG.out.unbinned_locus_evidence)
+            pksMAG.out.mag_summary.map { sampleID, f -> tuple(sampleID, 'mag_summary', f) },
+            pksMAG.out.community_summary.map { sampleID, f -> tuple(sampleID, 'prophage_inventory', f) },
+            pksMAG.out.community_interactions.map { sampleID, f -> tuple(sampleID, 'community_interactions', f) },
+            pksMAG.out.island_mobility.map { sampleID, f -> tuple(sampleID, 'island_mobility', f) },
+            pksMAG.out.strain_summary.map { sampleID, f -> tuple(sampleID, 'strain_types', f) })
     }
 
 	// ---------- v0.0.2: prefilter validation ----------
@@ -907,7 +940,8 @@ workflow {
             DIAMOND_RESCUE_OUT.matches
                 .join(KRAKEN_PREFILTER_OUT.taxonomy.map { sampleID, _report, output -> tuple(sampleID, output) })
         )
-        report_display_gate = report_display_gate.mix(diamondRescueTaxonomy.out)
+        report_display_gate = report_display_gate.mix(
+            diamondRescueTaxonomy.out.map { sampleID, f -> tuple(sampleID, 'diamond_rescue', f) })
 
         CANDIDATE_OUT = mergePksCandidates(
             KRAKEN_PREFILTER_OUT.primary
@@ -919,7 +953,8 @@ workflow {
 
         if (pks_community_taxa_b) {
             plotCommunityTaxa(sampleBracken(KRAKEN_PREFILTER_OUT.taxonomy).reports)
-            report_display_gate = report_display_gate.mix(plotCommunityTaxa.out)
+            report_display_gate = report_display_gate.mix(
+                plotCommunityTaxa.out.map { sampleID, f -> tuple(sampleID, 'figure_taxa', f) })
         }
         // Profiling now runs on a narrowed stream while assembly still uses the complete
         // one, so read-level and assembly-level clb evidence for the same sample are
@@ -947,10 +982,11 @@ workflow {
         // thresholds were derived from TCGA tumour breadth distributions and are not a
         // metagenome call, so metagenomes get read_evidence=untiered (--no-tiers in
         // classifyPksReadEvidence). The contig-count gate remains the metagenome gate.
-        // The cohort report reads the published tree, so it must not start before the
-        // per-sample evidence is there. Depending only on the QC summary, it could run
-        // while read_evidence.tsv was still unpublished and report every sample as
-        // not_classified. Empty when the lane that writes it did not run.
+        // The cohort report must not start before the per-sample evidence exists.
+        // Depending only on the QC summary, it could run while read_evidence.tsv was
+        // still unpublished and report every sample as not_classified. Since P0-5b the
+        // file itself is staged into the report, not read back from the published tree.
+        // Empty when the lane that writes it did not run.
         if (params.sample_type in ["tumor_wgs", "metagenome"]) {
             read_evidence_input_ch = ALIGN_OUT.profile
                 .join(ALIGN_OUT.qc, by: 0)
@@ -959,7 +995,9 @@ workflow {
                 }
             classifyPksReadEvidence(read_evidence_input_ch)
             cohort_report_gate = classifyPksReadEvidence.out.evidence
-                .map { _sampleID, _rawCoverage, _counts, evidenceFile -> evidenceFile }
+                .map { sampleID, _rawCoverage, _counts, evidenceFile ->
+                    tuple(sampleID, 'read_evidence', evidenceFile)
+                }
         }
 
         // ---------- v0.0.2: tumour contig analysis on formally positive samples ----------
@@ -989,14 +1027,18 @@ workflow {
                 targeted_profiles_ch = tumor_eligible_profiles_ch
                     .map { sampleID, rawCoverage, counts, evidenceFile -> tuple(sampleID, rawCoverage, evidenceFile) }
                 targetedPksAssembly(tumor_assembly_reads_ch, targeted_profiles_ch)
-                // Ludmil, revised report finding 5: the cohort report reads
-                // contigs/final_evidence/final_pks_evidence.tsv directly from the
-                // published tree. Assembly is the slowest lane in the pipeline, so
-                // without this the report could start, and publish, before it lands.
+                // Ludmil, revised report finding 5: assembly is the slowest lane in
+                // the pipeline, so without this the report could start, and publish,
+                // before final_pks_evidence.tsv lands. P0-5b: staged, not read back.
                 cohort_report_gate = cohort_report_gate.mix(
                     targetedPksAssembly.out.evidence
-                        .map { _sampleID, evidenceFile -> evidenceFile }
+                        .map { sampleID, evidenceFile -> tuple(sampleID, 'final_evidence', evidenceFile) }
                 )
+                // P0-5b: the contig validation plot is one of the report's Figures
+                // links, and nothing waited for it before.
+                report_display_gate = report_display_gate.mix(
+                    targetedPksAssembly.out.plots
+                        .map { sampleID, plot -> tuple(sampleID, 'figure_contig_validation', plot) })
             }
         }
     }
@@ -1014,11 +1056,12 @@ workflow {
     // ---------- STEP 3: Plotting (align only) ----------
     if (do_align) {
         PKS_ALIGN_OUT
-            .map { output -> output[2]  }   // bedgraph
+            .map { output -> tuple(output[0], output[2]) }   // sampleID, bedgraph
             .set { COVERAGE_BEDGRAPH }
 
         plotPKS(COVERAGE_BEDGRAPH)
-        report_display_gate = report_display_gate.mix(plotPKS.out)
+        report_display_gate = report_display_gate.mix(
+            plotPKS.out.map { sampleID, plot -> tuple(sampleID, 'figure_circos', plot) })
     }
 
 	// ---------- STEP 3b: Optional PKS-island taxa profiling (align only) ----------
@@ -1072,7 +1115,11 @@ workflow {
 	    .set { BRACKEN_GS_REPORTS }
 
 		plotPKSTaxa(BRACKEN_GS_REPORTS)
-		report_display_gate = report_display_gate.mix(plotPKSTaxa.out, combineClbTaxonomySupport.out)
+		// P0-5b: plotPKSTaxa emits tuple(sampleID, pdf). Mixed in bare, the collected
+		// gate handed the sample identifier to cohortReport's path input.
+		report_display_gate = report_display_gate.mix(
+		    plotPKSTaxa.out.map { sampleID, f -> tuple(sampleID, 'figure_taxa', f) },
+		    combineClbTaxonomySupport.out.map { f -> tuple('', 'species_support', f) })
 
 	
 		BRACKEN_PER_SAMPLE
@@ -1111,7 +1158,8 @@ workflow {
         // thing build_cohort_report.py reads. Nothing previously made cohortReport
         // wait for it -- only for the per-sample read-evidence tier -- so the cohort
         // report could start, and publish an empty gene matrix, before this landed.
-        cohort_report_gate = cohort_report_gate.mix(masterTableAlign.out)
+        cohort_report_gate = cohort_report_gate.mix(
+            masterTableAlign.out.map { f -> tuple('', 'gene_counts', f) })
     }
 
     if (do_hmm) {
@@ -1158,12 +1206,22 @@ workflow {
     // v0.0.1 thresholds and could disagree with the run it described.
     def cohort_report_script = file("${params.scripts}/build_cohort_report.py",
                                     checkIfExists: true)
-    // Waits for every lane whose output the report displays: read evidence, gene
-    // counts and targeted assembly (cohort_report_gate); MAG, community and strain
-    // summaries (optional_lane_gate); rescue taxonomy, species support and figures
-    // (report_display_gate).
-    cohortReport(masterQCSummary.out.mix(cohort_report_gate, optional_lane_gate,
-                                          report_display_gate).collect(),
+    // Ludmil, 2026-09-25 report P0-5b: every file the report displays is a declared
+    // input -- read evidence, gene counts and targeted assembly (cohort_report_gate);
+    // MAG and community summaries (optional_lane_gate); rescue taxonomy, species support
+    // and figures (report_display_gate) -- staged into the task with a manifest naming
+    // each, instead of being read back from a published tree that may still be filling
+    // in or hold an earlier run's files. The QC summary rides along so the list is
+    // never empty (an HMM-only run has no other input) and the task still runs last.
+    // No `def`: on Nextflow 24.10.0 (the declared floor) a `def` whose initializer names
+    // cohort_report_gate -- itself an undeclared binding -- fails to compile with
+    // "Variable already defined in the process scope" (see test_nextflow_2410_compat).
+    COHORT_REPORT_INPUTS = sortReportInputs(
+        masterQCSummary.out.map { f -> tuple('', 'qc_summary', f) }
+            .mix(cohort_report_gate, optional_lane_gate, report_display_gate))
+    cohortReport(COHORT_REPORT_INPUTS.map { rows -> rows.collect { row -> row[2] } },
+                 COHORT_REPORT_INPUTS.map { rows -> reportManifestText(rows) }
+                     .collectFile(name: 'pks.cohort_report.inputs.tsv'),
                  cohort_report_script,
                  EXPECTED_SAMPLE_IDS)
 
@@ -1172,11 +1230,16 @@ workflow {
     // post-run script. Automated on the same pattern as cohortReport above --
     // cohort_report_gate covers the align + targeted-assembly lanes it shares
     // with the HTML report; optional_lane_gate covers the MAG/community/
-    // strain-typing lanes (the HTML report reads the MAG and community ones too,
-    // and waits on this gate as well since P0-5).
+    // strain-typing lanes; masterQCSummary.out is its read-profiling columns.
+    // P0-5b, mirrored: all of it staged as declared inputs with its own manifest.
     def master_summary_script = file("${params.scripts}/build_master_summary.py",
                                      checkIfExists: true)
-    masterSummary(masterQCSummary.out.mix(cohort_report_gate).mix(optional_lane_gate).collect(),
+    MASTER_SUMMARY_INPUTS = sortReportInputs(
+        masterQCSummary.out.map { f -> tuple('', 'qc_summary', f) }
+            .mix(cohort_report_gate, optional_lane_gate))
+    masterSummary(MASTER_SUMMARY_INPUTS.map { rows -> rows.collect { row -> row[2] } },
+                  MASTER_SUMMARY_INPUTS.map { rows -> reportManifestText(rows) }
+                      .collectFile(name: 'pks.master_summary.inputs.tsv'),
                   master_summary_script,
                   EXPECTED_SAMPLE_IDS)
 }

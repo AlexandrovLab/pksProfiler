@@ -87,11 +87,12 @@ figures should come from.
 
 `cohort/pks.master_summary.tsv`, written automatically at the end of every run by the
 `masterSummary` process, which wraps `scripts/build_master_summary.py` and joins every
-stage into one row per sample. It waits on every optional lane it reads from (MAG,
-community/prophage context, strain typing) in addition to the align and targeted-
-assembly lanes `pks_cohort_report.html` already waits on, so it never starts before a
-slower stage has finished publishing, and it never carries a sample left over from an
-older run at the same `--outdir`.
+stage into one row per sample. Every file it reads (MAG, community/prophage context,
+strain typing, and the align and targeted-assembly outputs `pks_cohort_report.html`
+also reads) is handed to the task as a declared input, with a manifest naming each by
+sample and kind; neither it nor the cohort report reads the published tree. So a slower
+stage that has not finished publishing, or a file left over from an older run at the
+same `--outdir`, cannot change either table.
 
 It is still safe to run by hand against a finished (or partly finished) results
 directory, exactly as before -- it only reads published output and does not require

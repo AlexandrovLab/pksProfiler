@@ -4,16 +4,18 @@ process plotPKS {
     label 'sample_stage'
     label 'process_low'
     scratch true
-    publishDir "${params.sample_dir}", mode: 'copy',
-        // no sampleID in scope here: the circos plot is named <sample>.pks.circos.pdf
-        saveAs: { fn -> (fn - '.pks.circos.pdf') + '/figures/circos.pdf' }
+    // Ludmil, 2026-09-25 report P0-5b: the sample identifier travels with the plot so
+    // cohortReport can be handed the figure as a declared input. It used to arrive as a
+    // bare path and the sample was recovered from the filename, here and in saveAs.
+    publishDir { "${params.sample_dir}/${sampleID}/figures" }, mode: 'copy',
+        saveAs: { "circos.pdf" }
     conda "${params.pks_align_env}"
 
     input:
-    path coverage_file
+    tuple val(sampleID), path(coverage_file)
 
     output:
-    path "*.pks.circos.pdf", optional: true
+    tuple val(sampleID), path("*.pks.circos.pdf"), optional: true
 
     script:
     """
@@ -121,7 +123,8 @@ process cohortReport {
     conda "${params.pks_hmm_env}"
 
     input:
-    path(results_marker)
+    path(report_inputs, stageAs: 'inputs/*/*')
+    path(inputs_manifest)
     path(report_script)
     path(expected_samples)
 
@@ -130,21 +133,27 @@ process cohortReport {
     path "pks_cohort_report.tsv",  emit: table
 
     script:
-    // Runs against the published tree rather than staged channels: the report is a
-    // view of what the run produced, and reading it back is what makes every value
-    // traceable to a file beside it. It derives nothing.
+    // Ludmil, 2026-09-25 report P0-5b: the report reads its declared inputs, not the
+    // published tree. It used to run `--results ${params.outdir}` and scan by_sample/;
+    // the gate made the task wait for every producer, but Nextflow publishes
+    // asynchronously, so a published copy could still be missing when it ran, and a
+    // file an earlier run left at the same --outdir could be read in its place.
+    // `report_inputs` is every file the page displays, each staged into its own
+    // inputs/<n>/ directory -- per-sample files share basenames across samples once
+    // published, and cohort-level ones could collide with a sample's -- and
+    // `inputs_manifest` names each by sample and kind (main.nf's reportManifestText).
+    // Figures are staged only so their existence comes from this run; the page links
+    // their published copies and never opens them.
     // The task writes to its own working directory and publishDir moves the files to
     // params.cohort_dir. An earlier version also wrote them into a `cohort/` subdirectory,
     // which put them one level below where the output declarations look: the script
     // exited 0, the report existed, and Nextflow failed the task for a missing output.
-    // Ludmil, revised report finding 5: `results_marker` makes the task wait for the
-    // channels mixed into it (see main.nf's cohort_report_gate); `expected_samples` is
-    // that same wait turned into a filter, so a directory left over from an earlier
-    // run at this --outdir can be waited past but never reported on.
+    // Ludmil, revised report finding 5: `expected_samples` is the run's sample list; the
+    // report has exactly those rows.
     """
     set -euo pipefail
     python3 "${report_script}" \
-        --results "${params.outdir}" \
+        --inputs-manifest "${inputs_manifest}" \
         --output pks_cohort_report.html \
         --table  pks_cohort_report.tsv \
         --expected-samples "${expected_samples}"
@@ -160,7 +169,8 @@ process masterSummary {
     conda "${params.pks_hmm_env}"
 
     input:
-    path(results_marker)
+    path(summary_inputs, stageAs: 'inputs/*/*')
+    path(inputs_manifest)
     path(report_script)
     path(expected_samples)
 
@@ -170,16 +180,16 @@ process masterSummary {
     script:
     // Dead-or-unwired-code item d-2: build_master_summary.py was a correct, working
     // script but only ever documented as something you run yourself after a pipeline
-    // run. Automated here on the same pattern as cohortReport, one process up:
-    // results_marker gates on every optional lane the script actually reads from
-    // (see main.nf's master_summary_gate), and expected_samples filters out anything
-    // left over from an older run at this --outdir. The script itself is unchanged
-    // in what it reads or how -- still safe to re-run by hand against a finished
-    // results tree, which is why --expected-samples stayed optional there.
+    // run. Automated here on the same pattern as cohortReport, one process up.
+    // Ludmil, 2026-09-25 report P0-5b, mirrored from cohortReport: every file the
+    // script reads is staged (`summary_inputs`, one inputs/<n>/ directory each) and
+    // named in `inputs_manifest`, so it never reads the published tree. --results is
+    // still there for hand runs against a finished results tree; the pipeline never
+    // passes it. expected_samples filters to the run's own samples.
     """
     set -euo pipefail
     python3 "${report_script}" \
-        --results "${params.outdir}" \
+        --inputs-manifest "${inputs_manifest}" \
         --output pks.master_summary.tsv \
         --expected-samples "${expected_samples}"
     """

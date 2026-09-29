@@ -107,7 +107,8 @@ process diamondRescueTaxonomy {
     tuple val(sampleID), path(diamond_matches), path(kraken_output)
 
     output:
-    path "${sampleID}.diamond_rescue_taxonomy.tsv"
+    // P0-5b: with its sampleID, so cohortReport can stage it as a declared input.
+    tuple val(sampleID), path("${sampleID}.diamond_rescue_taxonomy.tsv")
 
     script:
     """

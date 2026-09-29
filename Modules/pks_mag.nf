@@ -436,9 +436,11 @@ process communityProphageSummary {
     tuple val(sampleID), path(gtdbtk_summary), path(gffs), path(tblouts), path(virus_summaries), path(locus_evidence)
 
     output:
-    path "${sampleID}.community_prophage_inventory.tsv", emit: inventory
-    path "${sampleID}.pks_community_interactions.tsv", emit: interactions
-    path "${sampleID}.pks_island_mobility.tsv", emit: mobility
+    // P0-5b: with their sampleID, so the cohort report and master summary can stage
+    // them as declared inputs rather than find them in the published tree.
+    tuple val(sampleID), path("${sampleID}.community_prophage_inventory.tsv"), emit: inventory
+    tuple val(sampleID), path("${sampleID}.pks_community_interactions.tsv"), emit: interactions
+    tuple val(sampleID), path("${sampleID}.pks_island_mobility.tsv"), emit: mobility
 
     script:
     """
@@ -536,7 +538,8 @@ process magSummaryTable {
           path(tblouts), path(contexts), path(locus_evidence)
 
     output:
-    path "${sampleID}.pks_mag_summary.tsv", emit: summary
+    // P0-5b: with its sampleID -- see communityProphageSummary.
+    tuple val(sampleID), path("${sampleID}.pks_mag_summary.tsv"), emit: summary
 
     script:
     """
@@ -841,24 +844,23 @@ workflow pksMAG {
     communityProphageSummary(community_input_ch)
 
     emit:
-    // Consumed by main.nf's masterSummary gate (build_master_summary.py's
-    // MAG/community/strain-typing columns) -- not by cohortReport, which never
-    // reads this lane's output.
+    // Consumed by main.nf's optional_lane_gate, which stages them into masterSummary and
+    // cohortReport as declared inputs (Ludmil, 2026-09-25 report P0-5b). Each is
+    // tuple(sampleID, file): the scripts no longer find these by globbing the published
+    // tree, so the sample identifier has to travel with the file. These used to be
+    // bare paths, the shape a pure ordering gate needed; a tuple mixed into that gate
+    // failed masterSummary's path-typed input with "Not a valid path value:
+    // '<sampleID>'" (caught live on the 2026-09-24 validate1 run). main.nf now tags
+    // every one with its kind before the mix, so there is no bare-path gate left to break.
     mag_summary       = magSummaryTable.out.summary
     community_summary = communityProphageSummary.out.inventory
-                            .mix(communityProphageSummary.out.interactions)
-                            .mix(communityProphageSummary.out.mobility)
-    // strainTypeSummary emits tuple(val(sampleID), path(...)) -- strip the sampleID so
-    // this matches mag_summary/community_summary's bare-path shape. Left as the tuple,
-    // main.nf's optional_lane_gate.mix(...) silently accepts it, and masterSummary's
-    // path-typed collected input later fails with "Not a valid path value: '<sampleID>'"
-    // the moment strain typing is enabled -- caught live on the 2026-09-24 validate1 run.
-    strain_summary    = strain_typing_summary_ch.map { sampleID, table -> table }
+    community_interactions = communityProphageSummary.out.interactions
+    island_mobility   = communityProphageSummary.out.mobility
+    strain_summary    = strain_typing_summary_ch
     // U1: the unbinned pool's own canonical-locus call, one file per sample that had
-    // anything left unbinned. Bare-path, matching mag_summary/community_summary/
-    // strain_summary's shape (see the strain_summary comment above for why that shape
-    // matters to main.nf's optional_lane_gate). Already folded into mag_summary itself
+    // anything left unbinned. Already folded into mag_summary itself
     // (pks_mag_summary.tsv carries it as a distinct row -- see build_mag_summary.py);
     // emitted again here, named, so it is not only discoverable by reading a table.
-    unbinned_locus_evidence = unbinned_locus_evidence_ch.map { sampleID, evidence -> evidence }
+    // Neither cohort-level script reads it, so main.nf does not stage it.
+    unbinned_locus_evidence = unbinned_locus_evidence_ch
 }

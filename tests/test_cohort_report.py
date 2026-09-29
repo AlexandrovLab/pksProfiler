@@ -62,6 +62,39 @@ def build_results(directory, samples):
     return root
 
 
+# Ludmil, 2026-09-25 report P0-5b: the script reads a manifest of staged inputs, not a
+# results tree. Most tests here still build a published-layout fixture -- the layout is
+# the contract with the publishDir directives -- and hand the script a manifest naming
+# its files, which is what main.nf's gates stage into the task. The P0-5b classes at the
+# end of this file are where staged and published copies are made to disagree.
+PUBLISHED_FIGURES = {name: kind for kind, name in report.FIGURE_INPUTS.items()}
+
+
+def manifest_from_tree(results, manifest=None):
+    """Write a manifest naming every report input present in a published-layout tree."""
+    results = Path(results)
+    rows = []
+    for kind, rel in report.COHORT_INPUTS.items():
+        if (results / rel).is_file():
+            rows.append(("", kind, results / rel))
+    by_sample = results / "by_sample"
+    for sample_dir in sorted(by_sample.iterdir()) if by_sample.is_dir() else ():
+        for kind, rel in report.SAMPLE_INPUTS.items():
+            if (sample_dir / rel).is_file():
+                rows.append((sample_dir.name, kind, sample_dir / rel))
+        for figure in sorted((sample_dir / "figures").glob("*")):
+            if figure.name in PUBLISHED_FIGURES:
+                rows.append((sample_dir.name, PUBLISHED_FIGURES[figure.name], figure))
+    manifest = Path(manifest) if manifest else results.parent / f"{results.name}.inputs.tsv"
+    manifest.write_text("sample\tkind\tpath\n" + "".join(
+        f"{sample}\t{kind}\t{path}\n" for sample, kind, path in rows))
+    return manifest
+
+
+def collect_tree(results, expected=None):
+    return report.collect(report.read_manifest(manifest_from_tree(results)), expected)
+
+
 COHORT = [
     ("S_ext", "extensive_island", 1400, 19, 0.61, True),
     ("S_broad", "broad_island", 180, 11, 0.12, False),
@@ -77,7 +110,7 @@ class ItReadsRatherThanDerives(unittest.TestCase):
         self.results = build_results(self.tmp.name, COHORT)
 
     def records(self):
-        return report.collect(self.results)
+        return collect_tree(self.results)
 
     def test_the_tier_is_the_pipelines_not_recomputed(self):
         # Contradictory input on purpose: a tier that the numbers would not support.
@@ -113,7 +146,7 @@ class TheOutputs(unittest.TestCase):
         self.html = Path(self.tmp.name) / "report.html"
         self.tsv = Path(self.tmp.name) / "report.tsv"
         self.run = subprocess.run(
-            [sys.executable, str(SCRIPT), "--results", str(self.results),
+            [sys.executable, str(SCRIPT), "--inputs-manifest", str(manifest_from_tree(self.results)),
              "--output", str(self.html), "--table", str(self.tsv)],
             capture_output=True, text=True)
 
@@ -144,7 +177,7 @@ class TheOutputs(unittest.TestCase):
                         "contigs/final_evidence/final_pks_evidence.tsv")
             if evidence.is_file():
                 evidence.unlink()
-        subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.results),
+        subprocess.run([sys.executable, str(SCRIPT), "--inputs-manifest", str(manifest_from_tree(self.results)),
                         "--output", str(self.html)], capture_output=True, text=True)
         self.assertIn("did not run for any", self.html.read_text())
 
@@ -152,7 +185,7 @@ class TheOutputs(unittest.TestCase):
         empty = Path(self.tmp.name) / "empty"
         empty.mkdir()
         result = subprocess.run(
-            [sys.executable, str(SCRIPT), "--results", str(empty),
+            [sys.executable, str(SCRIPT), "--inputs-manifest", str(manifest_from_tree(empty)),
              "--output", str(Path(self.tmp.name) / "x.html")],
             capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
@@ -171,11 +204,12 @@ class Wiring(unittest.TestCase):
 class TheReportNeverShowsAStaleSample(unittest.TestCase):
     """Ludmil, revised report finding 5.
 
-    The report scans by_sample/ in the published tree by path, not by consuming the
+    The report scanned by_sample/ in the published tree by path, not by consuming the
     current run's channels, so a directory left over from an older run at the same
     --outdir was indistinguishable from a sample this run produced. --expected-samples
-    is the filter: everything on disk still gets read, but only IDs the current run
-    actually named are reported.
+    is the filter: only IDs the current run actually named are reported. Since P0-5b
+    the report reads a manifest of staged inputs instead (see the P0-5b classes below);
+    the filter still holds for any manifest row naming a sample outside the run.
 
     His acceptance test: place a stale fake sample in outdir and delay one optional
     branch. The stale sample must never appear, and the report must not start until
@@ -199,13 +233,13 @@ class TheReportNeverShowsAStaleSample(unittest.TestCase):
         self.expected.write_text("\n".join(name for name, *_ in COHORT) + "\n")
 
     def test_without_the_filter_the_stale_sample_leaks_through(self):
-        names = {r["sample"] for r in report.collect(self.results)}
+        names = {r["sample"] for r in collect_tree(self.results)}
         self.assertIn("S_stale_old_run", names,
                        "fixture assumption: an unfiltered scan does pick it up")
 
     def test_with_the_filter_the_stale_sample_is_gone(self):
         expected = report.expected_sample_ids(self.expected)
-        names = {r["sample"] for r in report.collect(self.results, expected)}
+        names = {r["sample"] for r in collect_tree(self.results, expected)}
         self.assertNotIn("S_stale_old_run", names)
         self.assertEqual(names, {name for name, *_ in COHORT})
 
@@ -213,7 +247,7 @@ class TheReportNeverShowsAStaleSample(unittest.TestCase):
         html = Path(self.tmp.name) / "report.html"
         tsv = Path(self.tmp.name) / "report.tsv"
         run = subprocess.run(
-            [sys.executable, str(SCRIPT), "--results", str(self.results),
+            [sys.executable, str(SCRIPT), "--inputs-manifest", str(manifest_from_tree(self.results)),
              "--output", str(html), "--table", str(tsv),
              "--expected-samples", str(self.expected)],
             capture_output=True, text=True)
@@ -227,11 +261,26 @@ class TheReportNeverShowsAStaleSample(unittest.TestCase):
         # The flag is optional so existing manual invocations are not broken by it.
         html = Path(self.tmp.name) / "report.html"
         run = subprocess.run(
-            [sys.executable, str(SCRIPT), "--results", str(self.results),
+            [sys.executable, str(SCRIPT), "--inputs-manifest", str(manifest_from_tree(self.results)),
              "--output", str(html)],
             capture_output=True, text=True)
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn("S_stale_old_run", html.read_text())
+
+
+def mix_calls(body, gate):
+    """The full text of every `<gate>.mix(...)` call, however many lines it spans."""
+    calls, start = [], 0
+    needle = f"{gate}.mix("
+    while (start := body.find(needle, start)) >= 0:
+        depth, end = 0, start + len(needle) - 1
+        for end in range(start + len(needle) - 1, len(body)):
+            depth += {"(": 1, ")": -1}.get(body[end], 0)
+            if depth == 0:
+                break
+        calls.append(body[start:end + 1])
+        start = end
+    return calls
 
 
 class TheCohortReportTaskWaitsForWhatItReads(unittest.TestCase):
@@ -247,7 +296,8 @@ class TheCohortReportTaskWaitsForWhatItReads(unittest.TestCase):
     def test_the_gene_matrix_task_feeds_the_gate(self):
         body = MAIN.split("workflow {", 1)[1]
         align_block = body.split("masterTableAlign(", 1)[1].split("\n    }", 1)[0]
-        self.assertIn("cohort_report_gate = cohort_report_gate.mix(masterTableAlign.out)",
+        self.assertIn("cohort_report_gate = cohort_report_gate.mix(", align_block)
+        self.assertIn("masterTableAlign.out.map { f -> tuple('', 'gene_counts', f) }",
                       align_block)
 
     def test_targeted_assembly_feeds_the_gate_only_when_it_runs(self):
@@ -264,7 +314,8 @@ class TheCohortReportTaskWaitsForWhatItReads(unittest.TestCase):
         qc_pos = body.index("masterQCSummary(")
         self.assertIn("EXPECTED_SAMPLE_IDS", body[qc_pos:qc_pos + 300])
         report_pos = body.index("cohortReport(")
-        self.assertIn("EXPECTED_SAMPLE_IDS", body[report_pos:report_pos + 300])
+        call = body[report_pos:body.index("\n\n", report_pos)]
+        self.assertIn("EXPECTED_SAMPLE_IDS", call)
 
     # Ludmil, 2026-09-25 report P0-5: every file build_cohort_report.py reads, and the
     # process whose completion publishes it. The report must wait for each of them.
@@ -279,21 +330,26 @@ class TheCohortReportTaskWaitsForWhatItReads(unittest.TestCase):
     }
 
     def test_the_report_waits_on_all_three_gates(self):
+        # P0-5b: the gates are now the report's staged inputs, not an ordering marker.
         body = MAIN.split("workflow {", 1)[1]
-        call = body[body.index("cohortReport("):]
-        call = call[:call.index(".collect()")]
+        inputs = body[body.index("COHORT_REPORT_INPUTS = sortReportInputs("):]
+        inputs = inputs[:inputs.index("cohortReport(")]
         for gate in ("cohort_report_gate", "optional_lane_gate", "report_display_gate"):
             with self.subTest(gate=gate):
-                self.assertIn(gate, call)
+                self.assertIn(gate, inputs)
+        call = body[body.index("cohortReport("):]
+        call = call[:call.index("\n\n")]
+        self.assertIn("COHORT_REPORT_INPUTS.map { rows -> rows.collect { row -> row[2] } }", call)
+        self.assertIn("COHORT_REPORT_INPUTS.map { rows -> reportManifestText(rows) }", call)
 
     def test_every_displayed_producer_feeds_a_gate(self):
         body = MAIN.split("workflow {", 1)[1]
-        mixes = [line for line in body.splitlines() if "report_display_gate.mix(" in line]
+        mixes = mix_calls(body, "report_display_gate")
         for path, producer in self.DISPLAYED_PRODUCERS.items():
             if producer == "optional_lane_gate":
                 continue
             with self.subTest(path=path):
-                self.assertTrue(any(f"{producer}.out" in line for line in mixes),
+                self.assertTrue(any(f"{producer}.out" in call for call in mixes),
                                 f"{producer} publishes {path} but no gate waits for it")
 
     def test_the_display_gate_is_never_reassigned(self):
@@ -329,7 +385,7 @@ class HoverSurvivesASandboxedViewer(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.results = build_results(self.tmp.name, COHORT)
         self.html = Path(self.tmp.name) / "report.html"
-        subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.results),
+        subprocess.run([sys.executable, str(SCRIPT), "--inputs-manifest", str(manifest_from_tree(self.results)),
                         "--output", str(self.html)], capture_output=True, text=True)
         self.text = self.html.read_text()
 
@@ -366,7 +422,7 @@ class FiguresOpenInlineFromTheRow(unittest.TestCase):
                 '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>')
             (figures / "circos.pdf").write_text("pdf")
         self.html = Path(self.tmp.name) / "report.html"
-        subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.results),
+        subprocess.run([sys.executable, str(SCRIPT), "--inputs-manifest", str(manifest_from_tree(self.results)),
                         "--output", str(self.html)], capture_output=True, text=True)
         self.text = self.html.read_text()
 
@@ -427,13 +483,13 @@ class RecruitmentStatsSurfaceInTheContigHoverText(unittest.TestCase):
             "S_ext\tcomplete_island\tconcordant\t0.93\t0.91\t9\t3\n")
 
     def test_collect_carries_the_recruitment_fields(self):
-        record = next(r for r in report.collect(self.results) if r["sample"] == "S_ext")
+        record = next(r for r in collect_tree(self.results) if r["sample"] == "S_ext")
         self.assertEqual(record["recruited_fragment_ids"], "9")
         self.assertEqual(record["paired_fragments"], "3")
 
     def test_the_hover_text_names_them(self):
         html_path = Path(self.tmp.name) / "report.html"
-        subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.results),
+        subprocess.run([sys.executable, str(SCRIPT), "--inputs-manifest", str(manifest_from_tree(self.results)),
                         "--output", str(html_path)], capture_output=True, text=True)
         self.assertIn("9 fragments recruited, 3 paired", html_path.read_text())
 
@@ -475,7 +531,7 @@ class GenomeBinsPanel(unittest.TestCase):
             "Caudovirales\tTrue\tTrue\tFalse\tpredicted_provirus\n")
         self.html = Path(self.tmp.name) / "report.html"
         self.run = subprocess.run(
-            [sys.executable, str(SCRIPT), "--results", str(self.results),
+            [sys.executable, str(SCRIPT), "--inputs-manifest", str(manifest_from_tree(self.results)),
              "--output", str(self.html)], capture_output=True, text=True)
         self.text = self.html.read_text()
 
@@ -483,7 +539,7 @@ class GenomeBinsPanel(unittest.TestCase):
         self.assertEqual(self.run.returncode, 0, self.run.stderr)
 
     def test_collect_reads_the_bin_row_without_recomputing_it(self):
-        by_sample = {r["sample"]: r for r in report.collect(self.results)}
+        by_sample = {r["sample"]: r for r in collect_tree(self.results)}
         bins = by_sample["S_ext"]["bins"]
         self.assertEqual(len(bins), 1)
         self.assertEqual(bins[0]["locus_tier"], "broad_island")
@@ -491,11 +547,11 @@ class GenomeBinsPanel(unittest.TestCase):
         self.assertAlmostEqual(bins[0]["completeness"], 92.5)
 
     def test_prophage_regions_are_grouped_by_bin_not_reparsed_from_genomad(self):
-        by_sample = {r["sample"]: r for r in report.collect(self.results)}
+        by_sample = {r["sample"]: r for r in collect_tree(self.results)}
         self.assertEqual(by_sample["S_ext"]["bins"][0]["prophage_regions"], 1)
 
     def test_a_sample_with_no_mag_summary_gets_no_bins_invented(self):
-        by_sample = {r["sample"]: r for r in report.collect(self.results)}
+        by_sample = {r["sample"]: r for r in collect_tree(self.results)}
         self.assertEqual(by_sample["S_neg"]["bins"], [])
 
     def test_the_row_link_and_the_panel_share_an_anchor(self):
@@ -521,10 +577,10 @@ class GenomeBinsPanel(unittest.TestCase):
             MAG_SUMMARY_HEADER +
             "S_broad\tbin_002\tbin\tunclassified\t50.0\t2.0\t3000000\t50000\t2\tclbA\t1e-8\t"
             "False\tFalse\t\tFalse\tNA\tNA\tNA\n")
-        by_sample = {r["sample"]: r for r in report.collect(self.results)}
+        by_sample = {r["sample"]: r for r in collect_tree(self.results)}
         self.assertEqual(by_sample["S_broad"]["bins"][0]["locus_tier"], "NA")
         html = Path(self.tmp.name) / "report2.html"
-        subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.results),
+        subprocess.run([sys.executable, str(SCRIPT), "--inputs-manifest", str(manifest_from_tree(self.results)),
                         "--output", str(html)], capture_output=True, text=True)
         self.assertIn("Not aligned", html.read_text())
 
@@ -550,11 +606,11 @@ class GenomeBinsPanel(unittest.TestCase):
             "S_ext\tbin_001\tbin\td__Bacteria;o__Enterobacterales;s__Escherichia coli\t"
             "92.5\t1.2\t4500000\t125000\t10\tclbA,clbB\t1e-20\tTrue\tFalse\tgyrB\tFalse\t"
             "negative\t0\t0.0\n", self.UNBINNED_ROW)
-        record = {r["sample"]: r for r in report.collect(self.results)}["S_ext"]
+        record = {r["sample"]: r for r in collect_tree(self.results)}["S_ext"]
         self.assertEqual([b["bin_id"] for b in record["bins"]], ["bin_001"])
         self.assertEqual(record["unbinned"]["locus_tier"], "broad_island")
         html = Path(self.tmp.name) / "report_unbinned.html"
-        subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.results),
+        subprocess.run([sys.executable, str(SCRIPT), "--inputs-manifest", str(manifest_from_tree(self.results)),
                         "--output", str(html)], capture_output=True, text=True, check=True)
         text = html.read_text()
         self.assertIn("1 bin, 0 pks+ (+ unbinned pks+)", text)
@@ -563,10 +619,10 @@ class GenomeBinsPanel(unittest.TestCase):
 
     def test_an_unbinned_pool_alone_still_gets_a_panel_but_zero_bins(self):
         self.write_s_ext(self.UNBINNED_ROW)
-        record = {r["sample"]: r for r in report.collect(self.results)}["S_ext"]
+        record = {r["sample"]: r for r in collect_tree(self.results)}["S_ext"]
         self.assertEqual(record["bins"], [])
         html = Path(self.tmp.name) / "report_unbinned_only.html"
-        subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.results),
+        subprocess.run([sys.executable, str(SCRIPT), "--inputs-manifest", str(manifest_from_tree(self.results)),
                         "--output", str(html)], capture_output=True, text=True, check=True)
         self.assertIn("0 bins, 0 pks+ (+ unbinned pks+)", html.read_text())
 
@@ -574,10 +630,10 @@ class GenomeBinsPanel(unittest.TestCase):
         self.write_s_ext(
             "S_ext\tbin_001\tbin\tunclassified\tNA\tNA\tNA\tNA\t0\t\tNA\tFalse\tFalse\t\tFalse\t"
             "broad_island\t9\t0.09\n")
-        record = {r["sample"]: r for r in report.collect(self.results)}["S_ext"]
+        record = {r["sample"]: r for r in collect_tree(self.results)}["S_ext"]
         self.assertIsNone(record["bins"][0]["completeness"])
         html = Path(self.tmp.name) / "report_na.html"
-        subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.results),
+        subprocess.run([sys.executable, str(SCRIPT), "--inputs-manifest", str(manifest_from_tree(self.results)),
                         "--output", str(html)], capture_output=True, text=True, check=True)
         self.assertNotIn("<td>0.0%</td>", html.read_text())
         self.assertIn("<td>NA</td>", html.read_text())
@@ -600,18 +656,18 @@ class DiamondRescueTaxonomyPanel(unittest.TestCase):
             "S_ext\tKlebsiella pneumoniae\t573\tclbB\t4\n"
             "S_ext\tKlebsiella pneumoniae\t573\tclbA\t1\n")
         self.html = Path(self.tmp.name) / "report.html"
-        subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.results),
+        subprocess.run([sys.executable, str(SCRIPT), "--inputs-manifest", str(manifest_from_tree(self.results)),
                         "--output", str(self.html)], capture_output=True, text=True)
         self.text = self.html.read_text()
 
     def test_collect_reads_both_rows(self):
-        by_sample = {r["sample"]: r for r in report.collect(self.results)}
+        by_sample = {r["sample"]: r for r in collect_tree(self.results)}
         rescued = by_sample["S_ext"]["diamond_rescue"]
         self.assertEqual(len(rescued), 2)
         self.assertEqual({r["clb_gene"] for r in rescued}, {"clbA", "clbB"})
 
     def test_a_sample_with_no_rescue_file_gets_none_invented(self):
-        by_sample = {r["sample"]: r for r in report.collect(self.results)}
+        by_sample = {r["sample"]: r for r in collect_tree(self.results)}
         self.assertEqual(by_sample["S_neg"]["diamond_rescue"], [])
 
     def test_the_row_link_and_the_panel_share_an_anchor(self):
@@ -640,7 +696,7 @@ class CommunitySpeciesSupportSection(unittest.TestCase):
         self.html = Path(self.tmp.name) / "report.html"
 
     def _run(self):
-        subprocess.run([sys.executable, str(SCRIPT), "--results", str(self.results),
+        subprocess.run([sys.executable, str(SCRIPT), "--inputs-manifest", str(manifest_from_tree(self.results)),
                         "--output", str(self.html)], capture_output=True, text=True)
         return self.html.read_text()
 
@@ -664,7 +720,7 @@ class CommunitySpeciesSupportSection(unittest.TestCase):
         self.assertIn("<th>clbA</th>", text)
 
     def test_species_support_reads_the_file_verbatim(self):
-        rows = report.species_support(self.results)
+        rows = report.species_support(report.read_manifest(manifest_from_tree(self.results)))
         self.assertEqual(rows, [])
         taxonomy = self.results / "cohort/taxonomy"
         taxonomy.mkdir(parents=True, exist_ok=True)
@@ -672,6 +728,194 @@ class CommunitySpeciesSupportSection(unittest.TestCase):
         row = ("S_ext\tEscherichia coli\t562\t" +
                "\t".join(["3"] + ["0"] * (len(GENES) - 1)) + "\t3\n")
         (taxonomy / "pks.clb_species_support.tsv").write_text(header + row)
-        rows = report.species_support(self.results)
+        rows = report.species_support(report.read_manifest(manifest_from_tree(self.results)))
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["Species"], "Escherichia coli")
+
+
+def stage(tree, work, manifest_name="pks.cohort_report.inputs.tsv"):
+    """Lay a fixture tree's report inputs out the way cohortReport's task sees them.
+
+    One inputs/<n>/ directory per file with the file's own basename, exactly what
+    `stageAs: 'inputs/*/*'` does, and a manifest whose paths are relative to it --
+    reportManifestText in main.nf. Per-sample basenames therefore repeat
+    (inputs/3/read_evidence.tsv, inputs/4/read_evidence.tsv, ...).
+    """
+    import shutil
+    work = Path(work)
+    work.mkdir(parents=True, exist_ok=True)
+    scratch = manifest_from_tree(tree)
+    lines = scratch.read_text().splitlines()
+    out = [lines[0]]
+    for index, line in enumerate(lines[1:], start=1):
+        sample, kind, path = line.split("\t")
+        target = work / "inputs" / str(index) / Path(path).name
+        target.parent.mkdir(parents=True)
+        shutil.copyfile(path, target)
+        out.append(f"{sample}\t{kind}\tinputs/{index}/{Path(path).name}")
+    (work / manifest_name).write_text("\n".join(out) + "\n")
+    return manifest_name
+
+
+class P0_5bTheReportReadsItsStagedInputsNotThePublishedTree(unittest.TestCase):
+    """Ludmil, 2026-09-25 report P0-5b.
+
+    cohortReport ran `build_cohort_report.py --results ${params.outdir}` and the script
+    scanned the published tree. The task was gated on every producer, but Nextflow
+    publishes asynchronously: a published copy may not exist yet when the report runs,
+    and a file left at the same --outdir by an earlier run can be read in its place.
+
+    His acceptance test: the report's values come from staged inputs, and a stale or
+    missing published file cannot change them. Here the staged inputs (this run) and
+    the published tree (an earlier run, laid out in the task's own working directory
+    and beside it) disagree on every value the page shows.
+    """
+
+    RUN = [("S_ext", "extensive_island", 1400, 19, 0.61, True),
+           ("S_neg", "negative", 0, 0, 0.0, False)]
+    STALE = [("S_ext", "negative", 3, 1, 0.01, False),
+             ("S_neg", "extensive_island", 9999, 19, 0.99, True),
+             ("S_stale_old_run", "extensive_island", 8888, 19, 0.98, True)]
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        run_tree = build_results(root / "this_run", self.RUN)
+        figures = run_tree / "by_sample/S_ext/figures"
+        figures.mkdir(parents=True)
+        (figures / "circos.pdf").write_text("pdf")
+        self.work = root / "work"
+        self.manifest = stage(run_tree, self.work)
+        self.expected = self.work / "expected_samples.txt"
+        self.expected.write_text("S_ext\nS_neg\n")
+        # The earlier run's published tree, twice: inside the task's working directory
+        # (the relative paths a tree scan would use) and as a sibling --outdir.
+        self.stale_roots = [self.work, root / "results"]
+        for stale_root in self.stale_roots:
+            build_results(stale_root, self.STALE)
+            figures = stale_root / "by_sample/S_neg/figures"
+            figures.mkdir(parents=True)
+            (figures / "contig_validation.svg").write_text("<svg/>")
+            (stale_root / "cohort/taxonomy").mkdir(parents=True)
+            (stale_root / "cohort/taxonomy/pks.clb_species_support.tsv").write_text(
+                "Sample\tSpecies\tTaxID\t" + "\t".join(GENES) + "\tTotal\n"
+                "S_neg\tStale organism\t1\t" + "\t".join(["1"] * len(GENES)) + "\t19\n")
+
+    def run_report(self, tag):
+        html, tsv = f"{tag}.html", f"{tag}.tsv"
+        run = subprocess.run(
+            [sys.executable, str(SCRIPT), "--inputs-manifest", self.manifest,
+             "--output", html, "--table", tsv, "--expected-samples", self.expected.name],
+            cwd=self.work, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        with (self.work / tsv).open(newline="") as handle:
+            rows = {r["sample"]: r for r in csv.DictReader(handle, delimiter="\t")}
+        return (self.work / html).read_text(), (self.work / tsv).read_text(), rows
+
+    def test_the_staged_basenames_repeat_across_samples(self):
+        # The collision the per-file inputs/<n>/ directories exist for.
+        names = [line.split("\t")[2].rsplit("/", 1)[1] for line in
+                 (self.work / self.manifest).read_text().splitlines()[1:]
+                 if "\tread_evidence\t" in line]
+        self.assertEqual(names, ["read_evidence.tsv", "read_evidence.tsv"])
+
+    def test_every_value_comes_from_the_staged_inputs(self):
+        html, _, rows = self.run_report("report")
+        self.assertEqual(set(rows), {"S_ext", "S_neg"})
+        self.assertEqual(rows["S_ext"]["read_evidence"], "extensive_island")
+        self.assertEqual(rows["S_ext"]["pks_reads"], "1400")
+        self.assertEqual(rows["S_ext"]["clbS"], str(1400 // 19))
+        self.assertEqual(rows["S_ext"]["assembler_agreement"], "concordant")
+        self.assertEqual(rows["S_neg"]["read_evidence"], "negative")
+        self.assertEqual(rows["S_neg"]["pks_reads"], "0")
+
+    def test_a_stale_published_file_the_run_did_not_stage_is_never_read(self):
+        html, _, rows = self.run_report("report")
+        # S_neg was not assembled this run; the stale tree says it was.
+        self.assertEqual(rows["S_neg"]["final_structural_evidence"], "")
+        self.assertNotIn("S_stale_old_run", html)
+        self.assertNotIn("Stale organism", html)
+        self.assertNotIn("Community species", html)
+        # Figures: the run made a circos plot for S_ext and nothing for S_neg.
+        self.assertIn("../by_sample/S_ext/figures/circos.pdf", html)
+        self.assertNotIn("../by_sample/S_neg/figures/contig_validation.svg", html)
+
+    def test_a_missing_published_tree_changes_nothing(self):
+        import shutil
+        with_stale = self.run_report("with_stale")
+        for stale_root in self.stale_roots:
+            for top in ("by_sample", "cohort"):
+                shutil.rmtree(stale_root / top)
+        without = self.run_report("without")
+        self.assertEqual(with_stale[0], without[0])
+        self.assertEqual(with_stale[1], without[1])
+
+    def test_an_expected_sample_with_nothing_staged_is_a_row_not_a_gap(self):
+        # The run named it; it produced nothing. It must not borrow the stale tree's
+        # values for itself either.
+        self.expected.write_text("S_ext\nS_neg\nS_stale_old_run\n")
+        _, _, rows = self.run_report("report")
+        self.assertEqual(rows["S_stale_old_run"]["read_evidence"], "not_classified")
+        self.assertEqual(rows["S_stale_old_run"]["pks_reads"], "0")
+
+    def test_two_staged_files_of_one_kind_for_one_sample_is_an_error(self):
+        manifest = self.work / self.manifest
+        line = next(l for l in manifest.read_text().splitlines()
+                    if l.startswith("S_ext\tread_evidence\t"))
+        manifest.write_text(manifest.read_text() + line + "\n")
+        run = subprocess.run(
+            [sys.executable, str(SCRIPT), "--inputs-manifest", self.manifest,
+             "--output", "x.html"], cwd=self.work, capture_output=True, text=True)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("two staged read_evidence files for S_ext", run.stderr)
+
+    def test_there_is_no_results_flag_left_to_pass(self):
+        run = subprocess.run(
+            [sys.executable, str(SCRIPT), "--results", str(self.work),
+             "--output", "x.html"], cwd=self.work, capture_output=True, text=True)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("--inputs-manifest", run.stderr)
+
+
+class P0_5bWiring(unittest.TestCase):
+    """The task is handed the files; the script is handed a manifest naming them."""
+
+    def process(self, name):
+        return PLOTTING.split(f"process {name} {{", 1)[1].split("\nprocess ", 1)[0]
+
+    def test_neither_cohort_task_points_a_script_at_the_published_tree(self):
+        for name in ("cohortReport", "masterSummary"):
+            script = self.process(name).split('"""', 1)[1]
+            with self.subTest(process=name):
+                self.assertNotIn("params.outdir", script)
+                self.assertNotIn("--results", script)
+                self.assertIn('--inputs-manifest "${inputs_manifest}"', script)
+
+    def test_every_input_file_gets_its_own_staging_directory(self):
+        for name in ("cohortReport", "masterSummary"):
+            with self.subTest(process=name):
+                self.assertIn("stageAs: 'inputs/*/*'", self.process(name))
+                self.assertIn("path(inputs_manifest)", self.process(name))
+        # ...and the manifest names the same inputs/<n>/ directories, 1-based, in the
+        # order of the one sorted list both the file list and the manifest come from.
+        self.assertIn("inputs/${i + 1}/${row[2].name}", MAIN)
+
+    def test_every_kind_main_nf_tags_is_one_a_script_reads(self):
+        import re
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import build_master_summary as summary
+        tagged = set(re.findall(r"tuple\((?:sampleID|''),\s*'([a-z_]+)'", MAIN))
+        known = (set(report.SAMPLE_INPUTS) | set(report.COHORT_INPUTS)
+                 | set(report.FIGURE_INPUTS) | set(summary.PUBLISHED)
+                 | set(summary.COHORT_PUBLISHED))
+        self.assertTrue(tagged)
+        self.assertEqual(tagged - known, set(), "main.nf stages a kind nothing reads")
+        report_kinds = (set(report.SAMPLE_INPUTS) | set(report.COHORT_INPUTS)
+                        | set(report.FIGURE_INPUTS))
+        self.assertEqual(report_kinds - tagged, set(),
+                         "the report reads a kind main.nf never stages")
+        # contig_mobility has no producer today (see build_master_summary.PUBLISHED).
+        self.assertEqual(set(summary.PUBLISHED) - tagged, {"contig_mobility"})
+        self.assertIn("qc_summary", tagged)
+

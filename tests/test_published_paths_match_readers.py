@@ -24,6 +24,21 @@ REPORT = (ROOT / "scripts/build_cohort_report.py").read_text()
 TARGETED = (ROOT / "Modules/pks_targeted.nf").read_text()
 FIXTURE = (ROOT / "tests/test_cohort_report.py").read_text()
 
+import importlib.util
+import sys
+
+
+def load(name):
+    sys.path.insert(0, str(ROOT / "scripts"))
+    spec = importlib.util.spec_from_file_location(name, ROOT / f"scripts/{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+REPORT_MODULE = load("build_cohort_report")
+SUMMARY_MODULE = load("build_master_summary")
+
 
 class ReadersAgreeWithPublishDir(unittest.TestCase):
     def test_final_evidence_is_read_where_it_is_published(self):
@@ -41,8 +56,16 @@ class ReadersAgreeWithPublishDir(unittest.TestCase):
         self.assertIn("contigs/final_evidence/final_pks_evidence.tsv", FIXTURE)
 
     def test_every_sample_dir_path_the_report_reads_is_published_somewhere(self):
+        # Ludmil, 2026-09-25 report P0-5b: the scripts read staged copies now, but the
+        # published path of each kind is still the contract -- it is what the page's
+        # figure links and "where these numbers come from" list point at, and what a
+        # hand run of build_master_summary.py --results globs. Its tables are checked.
         modules = "\n".join(p.read_text() for p in (ROOT / "Modules").glob("*.nf"))
-        reads = set(re.findall(r'by_sample / sample / "([^"]+)"', REPORT))
+        reads = (set(REPORT_MODULE.SAMPLE_INPUTS.values())
+                 | {f"figures/{name}" for name in REPORT_MODULE.FIGURE_INPUTS.values()}
+                 | (set(SUMMARY_MODULE.PUBLISHED.values())
+                    - {SUMMARY_MODULE.PUBLISHED["contig_mobility"]}))
+        self.assertIn("contigs/final_evidence/final_pks_evidence.tsv", reads)
         missing = []
         for rel in sorted(reads):
             leaf = rel.rsplit("/", 1)[-1]

@@ -13,12 +13,23 @@ Run it after a pipeline run:
 
 It only reads published output, so it is safe to re-run at any time and does not require
 re-running the pipeline.
+
+Inside the pipeline it does not read the published tree at all (Ludmil, 2026-09-25 report
+P0-5b): Nextflow publishes asynchronously, so a published copy could still be missing when
+the masterSummary task ran, and a file left at the same --outdir by an earlier run could be
+read in its place. The task stages every file it reads as a declared input and passes
+
+    --inputs-manifest pks.master_summary.inputs.tsv    sample<TAB>kind<TAB>path
+
+instead of --results. The two are mutually exclusive; --results stays for hand runs and
+simply builds the same manifest by looking where each kind is published (PUBLISHED below).
 """
 import argparse
 import csv
 import glob
 import os
 import sys
+from pathlib import Path
 from collections import defaultdict
 
 from mag_utils import POSITIVE_LOCUS_TIERS
@@ -50,6 +61,52 @@ COMMUNITY_COLUMNS = ["community_prophages_total", "community_pks_producers",
 TYPING_COLUMNS = ["typing_status", "ST", "clonal_complex", "phylogroup"]
 
 TRUE = {"true", "yes", "1", "t"}
+
+# P0-5b: every kind this table reads, and where it is published under by_sample/<sample>/
+# (per-sample) or the results root (cohort-level). main.nf tags each staged file with one
+# of these kinds; --results globs these paths for a hand run.
+PUBLISHED = {
+    "read_evidence": "read_evidence.tsv",
+    "final_evidence": "contigs/final_evidence/final_pks_evidence.tsv",
+    "mag_summary": "genomes/pks_mag_summary.tsv",
+    "prophage_inventory": "community/community_prophage_inventory.tsv",
+    "community_interactions": "community/pks_community_interactions.tsv",
+    "island_mobility": "community/pks_island_mobility.tsv",
+    # No current process publishes this (the tumour contig-context lane was removed);
+    # kept so a hand run over an older tree still reads it.
+    "contig_mobility": "community/contig_pks_mobility.tsv",
+    "strain_types": "strain/strain_types.tsv",
+}
+COHORT_PUBLISHED = {"qc_summary": "cohort/qc/pks.qc.summary.tsv"}
+
+
+def inputs_from_manifest(path):
+    """{kind: [(sample, path), ...]} from a staged-input manifest; paths relative to it.
+
+    Kinds this table does not read (the cohort report's, staged by the same channels)
+    are skipped. Cohort-level kinds carry an empty sample.
+    """
+    base = Path(path).parent
+    inputs = defaultdict(list)
+    with open(path, newline="") as fh:
+        for row in csv.DictReader(fh, delimiter="\t"):
+            kind, rel = row.get("kind") or "", row.get("path") or ""
+            if rel and (kind in PUBLISHED or kind in COHORT_PUBLISHED):
+                inputs[kind].append((row.get("sample") or "", str(base / rel)))
+    return inputs
+
+
+def inputs_from_results(results):
+    """The same shape, by looking where each kind is published. Hand runs only."""
+    inputs = defaultdict(list)
+    for kind, rel in COHORT_PUBLISHED.items():
+        path = os.path.join(results, rel)
+        if os.path.exists(path):
+            inputs[kind].append(("", path))
+    for kind, rel in PUBLISHED.items():
+        for path in sorted(glob.glob(f"{results}/by_sample/*/{rel}")):
+            inputs[kind].append((sample_of(path), path))
+    return inputs
 
 
 def rows(path, delim="\t"):
@@ -83,37 +140,39 @@ def sample_of(path, row=None):
     return None
 
 
-def read_qc(results, out):
-    path = os.path.join(results, "cohort/qc/pks.qc.summary.tsv")
-    if not os.path.exists(path):
+def read_qc(inputs, out):
+    if not inputs["qc_summary"]:
         return False
-    for row in rows(path):
-        sample = row.get("Sample")
-        if sample:
-            for c in QC_COLUMNS:
-                out[sample][c] = row.get(c, "NA")
+    for _, path in inputs["qc_summary"]:
+        for row in rows(path):
+            sample = row.get("Sample")
+            if sample:
+                for c in QC_COLUMNS:
+                    out[sample][c] = row.get(c, "NA")
     return True
 
 
-def read_evidence(results, out):
+def read_evidence(inputs, out):
     found = False
-    for path in glob.glob(f"{results}/by_sample/*/read_evidence.tsv"):
+    for sample, path in inputs["read_evidence"]:
         row = first(path)
-        if row.get("sample"):
+        sample = sample or row.get("sample")
+        if row and sample:
             found = True
             for c in EVIDENCE_COLUMNS:
-                out[row["sample"]][c] = row.get(c, "NA")
+                out[sample][c] = row.get(c, "NA")
     return found
 
 
-def read_contigs(results, out):
+def read_contigs(inputs, out):
     found = False
-    for path in glob.glob(f"{results}/by_sample/*/contigs/final_evidence/final_pks_evidence.tsv"):
+    for sample, path in inputs["final_evidence"]:
         row = first(path)
-        if row.get("sample"):
+        sample = sample or row.get("sample")
+        if row and sample:
             found = True
             for c in CONTIG_COLUMNS:
-                out[row["sample"]][c] = row.get(c, "NA")
+                out[sample][c] = row.get(c, "NA")
     return found
 
 
@@ -147,13 +206,13 @@ def locus_rank(b):
             float_or_zero(b.get("locus_breadth")))
 
 
-def read_mags(results, out):
+def read_mags(inputs, out):
     found = False
-    for path in glob.glob(f"{results}/by_sample/*/genomes/pks_mag_summary.tsv"):
+    for sample, path in inputs["mag_summary"]:
         all_rows = list(rows(path))
         if not all_rows:
             continue
-        sample = sample_of(path, all_rows[0])
+        sample = sample or sample_of(path, all_rows[0])
         if not sample:
             continue
         found = True
@@ -192,17 +251,17 @@ def read_mags(results, out):
     return found
 
 
-def read_community(results, out):
+def read_community(inputs, out):
     found = False
-    for path in glob.glob(f"{results}/by_sample/*/community/community_prophage_inventory.tsv"):
-        sample = sample_of(path)
+    for sample, path in inputs["prophage_inventory"]:
+        sample = sample or sample_of(path)
         if not sample:
             continue
         found = True
         out[sample]["community_prophages_total"] = str(len(list(rows(path))))
-    for path in glob.glob(f"{results}/by_sample/*/community/pks_community_interactions.tsv"):
+    for sample, path in inputs["community_interactions"]:
         pairs = list(rows(path))
-        sample = sample_of(path, pairs[0] if pairs else None)
+        sample = sample or sample_of(path, pairs[0] if pairs else None)
         if not sample:
             continue
         found = True
@@ -214,9 +273,9 @@ def read_community(results, out):
             except ValueError:
                 return False
         out[sample]["community_neighbours_with_prophage"] = str(sum(1 for p in pairs if has_prophage(p)))
-    for path in glob.glob(f"{results}/by_sample/*/community/pks_island_mobility.tsv"):
+    for sample, path in inputs["island_mobility"]:
         mob = list(rows(path))
-        sample = sample_of(path, mob[0] if mob else None)
+        sample = sample or sample_of(path, mob[0] if mob else None)
         if not sample:
             continue
         found = True
@@ -224,11 +283,11 @@ def read_community(results, out):
         out[sample]["island_nearby_integrase"] = anyof("nearby_integrase")
         out[sample]["island_nearby_trna"] = anyof("nearby_trna")
     # tumour contigs report the same three flags per clb hit
-    for path in glob.glob(f"{results}/by_sample/*/community/contig_pks_mobility.tsv"):
+    for sample, path in inputs["contig_mobility"]:
         hits = list(rows(path))
         if not hits:
             continue
-        sample = sample_of(path, hits[0])
+        sample = sample or sample_of(path, hits[0])
         if not sample:
             continue
         found = True
@@ -239,13 +298,13 @@ def read_community(results, out):
     return found
 
 
-def read_typing(results, out):
+def read_typing(inputs, out):
     found = False
-    for path in glob.glob(f"{results}/by_sample/*/strain/strain_types.tsv"):
+    for sample, path in inputs["strain_types"]:
         units = list(rows(path))
         if not units:
             continue
-        sample = sample_of(path, units[0])
+        sample = sample or sample_of(path, units[0])
         if not sample:
             continue
         found = True
@@ -259,13 +318,19 @@ def read_typing(results, out):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--results", required=True, help="a pksProfiler results directory")
+    source = ap.add_mutually_exclusive_group(required=True)
+    source.add_argument("--inputs-manifest",
+                        help="sample<TAB>kind<TAB>path, one row per staged input; what the "
+                             "pipeline passes (Ludmil, 2026-09-25 report P0-5b)")
+    source.add_argument("--results", help="a pksProfiler results directory (hand runs)")
     ap.add_argument("--output", required=True)
     ap.add_argument("--expected-samples", default=None,
                     help="one sample ID per line; samples outside this list are "
                          "dropped even if their directory is still on disk")
     a = ap.parse_args()
 
+    inputs = (inputs_from_manifest(a.inputs_manifest) if a.inputs_manifest
+              else inputs_from_results(a.results))
     out = defaultdict(dict)
     stages = [
         ("read profiling", QC_COLUMNS, read_qc),
@@ -277,22 +342,22 @@ def main():
     ]
     columns = ["sample"]
     for name, cols, fn in stages:
-        present = fn(a.results, out)
+        present = fn(inputs, out)
         print(f"  {name:20} {'found' if present else 'not run — columns omitted'}", file=sys.stderr)
         if present:
             columns += cols
 
-    # This walks by_sample/ by path rather than consuming the current run's
-    # channels, so a directory left over from an older run at the same
-    # --results is indistinguishable from one this run produced (the same
-    # class of bug as build_cohort_report.py's, finding 5).
+    # With --results this walks by_sample/ by path, so a directory left over from an
+    # older run is indistinguishable from one this run produced (the same class of bug
+    # as build_cohort_report.py's, finding 5). The pipeline's manifest cannot name one,
+    # but the filter stays: it is what the task was given as the run's sample list.
     if a.expected_samples:
         with open(a.expected_samples) as fh:
             expected = {line.strip() for line in fh if line.strip()}
         out = {sample: cols for sample, cols in out.items() if sample in expected}
 
     if not out:
-        sys.exit(f"No per-sample results found under {a.results}")
+        sys.exit(f"No per-sample results found in {a.inputs_manifest or a.results}")
 
     os.makedirs(os.path.dirname(os.path.abspath(a.output)), exist_ok=True)
     with open(a.output, "w", newline="") as fh:

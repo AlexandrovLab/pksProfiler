@@ -335,9 +335,12 @@ class Wiring(unittest.TestCase):
         self.assertIn("process masterSummary", self.PLOTTING)
         self.assertIn("masterSummary(", self.MAIN)
 
-    def test_it_takes_the_same_three_inputs_as_cohortReport(self):
+    def test_it_takes_the_same_inputs_as_cohortReport(self):
+        # Ludmil, 2026-09-25 report P0-5b: staged inputs plus their manifest, where
+        # both used to take one ordering marker and read the published tree.
         process = self.PLOTTING.split("process masterSummary {", 1)[1]
-        self.assertIn("path(results_marker)", process)
+        self.assertIn("path(summary_inputs, stageAs: 'inputs/*/*')", process)
+        self.assertIn("path(inputs_manifest)", process)
         self.assertIn("path(report_script)", process)
         self.assertIn("path(expected_samples)", process)
         self.assertIn('--expected-samples "${expected_samples}"', process)
@@ -348,10 +351,14 @@ class Wiring(unittest.TestCase):
 
     def test_its_gate_covers_cohort_report_gate_plus_the_optional_lanes(self):
         body = self.MAIN.split("workflow {", 1)[1]
-        call = body[body.index("masterSummary("):body.index("masterSummary(") + 300]
-        self.assertIn("masterQCSummary.out", call)
-        self.assertIn("cohort_report_gate", call)
-        self.assertIn("optional_lane_gate", call)
+        inputs = body[body.index("MASTER_SUMMARY_INPUTS = sortReportInputs("):]
+        inputs = inputs[:inputs.index("masterSummary(")]
+        self.assertIn("masterQCSummary.out", inputs)
+        self.assertIn("cohort_report_gate", inputs)
+        self.assertIn("optional_lane_gate", inputs)
+        call = body[body.index("masterSummary("):]
+        call = call[:call.index("\n}")]
+        self.assertIn("MASTER_SUMMARY_INPUTS", call)
         self.assertIn("EXPECTED_SAMPLE_IDS", call)
 
     def test_optional_lane_gate_defaults_empty_outside_if_do_align(self):
@@ -389,6 +396,114 @@ class Wiring(unittest.TestCase):
         # Assigned only inside the flag check, matching cohort_report_gate's own pattern.
         flag_block = workflow[workflow.index("if (params.enable_strain_typing"):]
         self.assertIn("strain_typing_summary_ch = magStrainTyping.out.summary", flag_block)
+
+
+
+def load_summary_module():
+    import importlib.util
+    sys.path.insert(0, str(ROOT / "scripts"))
+    spec = importlib.util.spec_from_file_location("build_master_summary", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+SUMMARY = load_summary_module()
+
+
+def stage(tree, work):
+    """A fixture tree's inputs laid out as masterSummary's task sees them: one
+    inputs/<n>/ directory per file, basename kept, manifest relative to the task dir."""
+    rows = []
+    for kind, rel in SUMMARY.COHORT_PUBLISHED.items():
+        if (tree / rel).is_file():
+            rows.append(("", kind, tree / rel))
+    for sample_dir in sorted((tree / "by_sample").iterdir()):
+        for kind, rel in SUMMARY.PUBLISHED.items():
+            if (sample_dir / rel).is_file():
+                rows.append((sample_dir.name, kind, sample_dir / rel))
+    lines = ["sample\tkind\tpath"]
+    for index, (sample, kind, path) in enumerate(rows, start=1):
+        target = work / "inputs" / str(index) / path.name
+        target.parent.mkdir(parents=True)
+        shutil.copyfile(path, target)
+        lines.append(f"{sample}\t{kind}\tinputs/{index}/{path.name}")
+    work.mkdir(parents=True, exist_ok=True)
+    (work / "pks.master_summary.inputs.tsv").write_text("\n".join(lines) + "\n")
+    return "pks.master_summary.inputs.tsv"
+
+
+class P0_5bTheSummaryReadsItsStagedInputs(unittest.TestCase):
+    """Ludmil, 2026-09-25 report P0-5b, mirrored from build_cohort_report.py.
+
+    masterSummary ran `--results ${params.outdir}` against the published tree, which
+    Nextflow may still be filling in when the task runs and which can hold an earlier
+    run's files. The task now stages what the script reads and passes a manifest.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        this_run = root / "this_run"
+        minimal(this_run); add_everything(this_run)
+        self.work = root / "work"
+        self.manifest = stage(this_run, self.work)
+        (self.work / "expected_samples.txt").write_text("S1\nS2\n")
+        # An earlier run's published tree, where a tree scan would find it: in the
+        # task's own working directory. Every value differs; S2 gains a stale tier.
+        write(self.work / "cohort/qc/pks.qc.summary.tsv",
+              ["Sample", "reads_clb_genes_align"], [["S1", "7"], ["S2", "7"]])
+        write(self.work / "by_sample/S1/read_evidence.tsv",
+              ["sample", "read_evidence", "pks_reads", "clb_genes_detected", "island_breadth_1x"],
+              [["S1", "negative", "0", "0", "0.0"]])
+        write(self.work / "by_sample/S2/read_evidence.tsv",
+              ["sample", "read_evidence", "pks_reads", "clb_genes_detected", "island_breadth_1x"],
+              [["S2", "extensive_island", "9999", "19", "0.99"]])
+        write(self.work / "by_sample/S1/strain/strain_types.tsv",
+              ["sample", "unit", "status", "ST", "clonal_complex", "phylogroup"],
+              [["S1", "bin.1", "typed", "999", "stale", "Z"]])
+
+    def run_summary(self, tag):
+        run = subprocess.run(
+            [sys.executable, str(SCRIPT), "--inputs-manifest", self.manifest,
+             "--output", f"{tag}.tsv", "--expected-samples", "expected_samples.txt"],
+            cwd=self.work, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        text = (self.work / f"{tag}.tsv").read_text()
+        return text, {r["sample"]: r for r in csv.DictReader(text.splitlines(), delimiter="\t")}
+
+    def test_every_value_comes_from_the_staged_inputs(self):
+        _, rows = self.run_summary("summary")
+        self.assertEqual(rows["S1"]["reads_clb_genes_align"], "1497")
+        self.assertEqual(rows["S1"]["read_evidence"], "extensive_island")
+        self.assertEqual(rows["S1"]["final_structural_evidence"], "near_complete_island")
+        self.assertEqual(rows["S1"]["mag_bins_pks_positive"], "1")
+        self.assertEqual(rows["S1"]["community_prophages_total"], "2")
+        self.assertEqual(rows["S1"]["ST"], "73")
+        self.assertEqual(rows["S2"]["read_evidence"], "NA")
+
+    def test_a_missing_published_tree_changes_nothing(self):
+        with_stale, _ = self.run_summary("with_stale")
+        shutil.rmtree(self.work / "by_sample")
+        shutil.rmtree(self.work / "cohort")
+        without, _ = self.run_summary("without")
+        self.assertEqual(with_stale, without)
+
+    def test_the_two_sources_are_mutually_exclusive(self):
+        run = subprocess.run(
+            [sys.executable, str(SCRIPT), "--inputs-manifest", self.manifest,
+             "--results", str(self.work), "--output", "x.tsv"],
+            cwd=self.work, capture_output=True, text=True)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("not allowed with", run.stderr)
+
+    def test_a_hand_run_over_the_published_tree_reads_the_same_kinds(self):
+        # --results builds the same {kind: [(sample, path)]} by globbing PUBLISHED.
+        inputs = SUMMARY.inputs_from_results(str(self.tmp.name) + "/this_run")
+        staged = SUMMARY.inputs_from_manifest(self.work / self.manifest)
+        self.assertEqual({k: [s for s, _ in v] for k, v in inputs.items() if v},
+                         {k: [s for s, _ in v] for k, v in staged.items() if v})
 
 
 if __name__ == "__main__":

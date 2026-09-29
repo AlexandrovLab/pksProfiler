@@ -20,7 +20,8 @@ The layout is that snapshot's, kept deliberately: same blue buckets for the gene
 matrix, same log-scaled read bar, same three breadth bars, same evidence badge. Its
 `contig pending` placeholder is now filled in, in the row where it always belonged.
 
-    build_cohort_report.py --results results --output cohort/pks_cohort_report.html
+    build_cohort_report.py --inputs-manifest pks.cohort_report.inputs.tsv \
+        --output pks_cohort_report.html --expected-samples expected_samples.txt
 
 Three more things the pipeline already computes and this now reads, none of them
 recomputed here either:
@@ -29,6 +30,19 @@ recomputed here either:
     by_sample/<sample>/community/community_prophage_inventory.tsv   prophage regions per bin
     by_sample/<sample>/prefilter/diamond_rescue_taxonomy.tsv        rescued reads by organism
     cohort/taxonomy/pks.clb_species_support.tsv                     --pks_taxa species support
+
+Ludmil, 2026-09-25 report P0-5b: those are where the files are *published*, and this
+used to read them there, from `--results`. Nextflow publishes asynchronously, so even
+with the task gated on every producer a published copy could still be missing when the
+report ran, and a file left at the same --outdir by an earlier run could be read in its
+place. The files are now the task's declared inputs, staged into its work directory,
+and --inputs-manifest names each one:
+
+    sample<TAB>kind<TAB>path      path relative to the manifest; sample empty for
+                                  cohort-level kinds (gene_counts, species_support)
+
+Nothing is read from the published tree; the published paths above are used only to
+write the page's relative figure links and its "where these numbers come from" list.
 """
 import argparse
 import csv
@@ -85,6 +99,64 @@ BIN_X, RESCUE_X = 1300, 1420
 WIDTH = 1560
 
 
+# Ludmil, 2026-09-25 report P0-5b: the manifest kinds this page reads, and where each is
+# published under by_sample/<sample>/ (or the run's root, for cohort-level kinds). The
+# published path is never opened here -- it documents the contract with the publishDir
+# directives (tests/test_published_paths_match_readers.py checks it) and gives the
+# figure links their hrefs. main.nf tags every staged file with one of these kinds.
+SAMPLE_INPUTS = {
+    "read_evidence": "read_evidence.tsv",
+    "final_evidence": "contigs/final_evidence/final_pks_evidence.tsv",
+    "mag_summary": "genomes/pks_mag_summary.tsv",
+    "prophage_inventory": "community/community_prophage_inventory.tsv",
+    "diamond_rescue": "prefilter/diamond_rescue_taxonomy.tsv",
+}
+COHORT_INPUTS = {
+    "gene_counts": "cohort/gene_counts/pks.gene.counts.align.txt",
+    "species_support": "cohort/taxonomy/pks.clb_species_support.tsv",
+}
+# Figures are linked, never read: the staged copy only says the figure exists for this
+# run. Two taxa producers (--pks_taxa island taxa and --pks_community_taxa) publish to
+# the same figures/taxa_barplots.pdf, so the kind maps to one name, listed once.
+FIGURE_INPUTS = {
+    "figure_circos": "circos.pdf",
+    "figure_contig_validation": "contig_validation.svg",
+    "figure_taxa": "taxa_barplots.pdf",
+}
+
+
+def read_manifest(path):
+    """{"cohort": {kind: Path}, "samples": {sample: {kind: Path}}, "figures": {sample: set}}.
+
+    Kinds this page does not display (the master summary's, staged by the same
+    channels) are skipped. A second file of one data kind for one sample is an error,
+    not a silent pick: which copy is the run's would be a guess.
+    """
+    base = path.parent
+    inputs = {"cohort": {}, "samples": {}, "figures": {}}
+    with path.open(newline="") as handle:
+        for row in csv.DictReader(handle, delimiter="\t"):
+            sample, kind, rel = row.get("sample") or "", row.get("kind") or "", row.get("path") or ""
+            if not kind or not rel:
+                continue
+            staged = base / rel
+            if kind in FIGURE_INPUTS and sample:
+                inputs["figures"].setdefault(sample, set()).add(FIGURE_INPUTS[kind])
+                continue
+            if kind in COHORT_INPUTS:
+                slot, key = inputs["cohort"], kind
+            elif kind in SAMPLE_INPUTS and sample:
+                slot, key = inputs["samples"].setdefault(sample, {}), kind
+            else:
+                continue
+            if key in slot:
+                raise SystemExit(f"[ERROR] {path}: two staged {kind} files"
+                                 f"{' for ' + sample if sample else ''}: "
+                                 f"{slot[key]} and {staged}")
+            slot[key] = staged
+    return inputs
+
+
 def bucket(count):
     for floor, colour in BUCKETS:
         if count >= floor:
@@ -93,7 +165,7 @@ def bucket(count):
 
 
 def read_tsv(path):
-    if not path.is_file():
+    if path is None or not path.is_file():
         return []
     with path.open(newline="") as handle:
         return list(csv.DictReader(handle, delimiter="\t"))
@@ -123,7 +195,7 @@ def number(value, default=0.0):
         return default
 
 
-def mag_bins(sample_dir):
+def mag_bins(summary_path, inventory_path=None):
     """Per-bin locus evidence, taxonomy and prophage context for one sample.
 
     pks_mag_summary.tsv already carries the alignment-confirmed locus_tier (magBinLocusEvidence,
@@ -133,7 +205,7 @@ def mag_bins(sample_dir):
     floors) and this reads its answer rather than re-deriving it.
     """
     prophage_regions = {}
-    for row in read_tsv(sample_dir / "community/community_prophage_inventory.tsv"):
+    for row in read_tsv(inventory_path):
         bin_id = row.get("bin_id", "")
         prophage_regions[bin_id] = prophage_regions.get(bin_id, 0) + 1
 
@@ -144,7 +216,7 @@ def mag_bins(sample_dir):
     # Bins are genomes only; the unbinned pool is returned separately by
     # mag_unbinned(); completeness stays None when it was not measured.
     bins = []
-    for row in read_tsv(sample_dir / "genomes/pks_mag_summary.tsv"):
+    for row in read_tsv(summary_path):
         if row.get("unit_type", "bin") == "unbinned":
             continue
         bin_id = row.get("bin_id", "")
@@ -160,13 +232,13 @@ def mag_bins(sample_dir):
     return bins
 
 
-def mag_unbinned(sample_dir):
+def mag_unbinned(summary_path):
     """The unbinned-contig pool's locus evidence, or None.
 
     Community-level evidence: clb sequence on contigs that no recovered genome
     contains. Never a genome bin and never a carrier attribution.
     """
-    for row in read_tsv(sample_dir / "genomes/pks_mag_summary.tsv"):
+    for row in read_tsv(summary_path):
         if row.get("unit_type") == "unbinned":
             return {"locus_tier": row.get("locus_tier") or "NA",
                     "locus_genes_detected": row.get("locus_genes_detected", "NA"),
@@ -174,11 +246,11 @@ def mag_unbinned(sample_dir):
     return None
 
 
-def diamond_rescue_reads(sample_dir):
+def diamond_rescue_reads(path):
     """Organism x clb-gene read counts for reads DIAMOND rescued but krakenPrefilter's
     target-taxon routing did not keep -- see summarize_diamond_rescue_taxonomy.py."""
     rows = []
-    for row in read_tsv(sample_dir / "prefilter/diamond_rescue_taxonomy.tsv"):
+    for row in read_tsv(path):
         rows.append({
             "organism": row.get("organism", ""),
             "taxid": row.get("taxid", ""),
@@ -188,9 +260,9 @@ def diamond_rescue_reads(sample_dir):
     return rows
 
 
-def species_support(results):
+def species_support(inputs):
     """Cohort-wide species x clb-gene support matrix from --pks_taxa, if it ran."""
-    return read_tsv(results / "cohort/taxonomy/pks.clb_species_support.tsv")
+    return read_tsv(inputs["cohort"].get("species_support"))
 
 
 def expected_sample_ids(path):
@@ -199,27 +271,28 @@ def expected_sample_ids(path):
     return {line.strip() for line in path.read_text().splitlines() if line.strip()}
 
 
-def collect(results, expected=None):
-    counts = gene_counts(results / "cohort/gene_counts/pks.gene.counts.align.txt")
-    by_sample = results / "by_sample"
-    samples = sorted({p.name for p in by_sample.iterdir() if p.is_dir()} | set(counts)) \
-        if by_sample.is_dir() else sorted(counts)
-    # Ludmil, revised report finding 5: this directory is the published tree, not a
-    # manifest of the current run, so a sample left over from an older run at the same
-    # --outdir was indistinguishable from one this run produced.
+def collect(inputs, expected=None):
+    """One record per sample, from the staged inputs `read_manifest()` returned."""
+    counts = gene_counts(inputs["cohort"].get("gene_counts"))
+    # Ludmil, revised report finding 5, and P0-5b: with --expected-samples the rows are
+    # exactly the samples the current run named -- one that produced nothing reads "Not
+    # classified" rather than vanishing, and nothing outside the list can appear. Without
+    # it (a hand run), every sample the manifest or the gene matrix names.
     if expected is not None:
-        samples = [sample for sample in samples if sample in expected]
+        samples = sorted(expected)
+    else:
+        samples = sorted(set(inputs["samples"]) | set(inputs["figures"]) | set(counts))
 
     records = []
     for sample in samples:
-        evidence = read_tsv(by_sample / sample / "read_evidence.tsv")
+        staged = inputs["samples"].get(sample, {})
+        evidence = read_tsv(staged.get("read_evidence"))
         evidence = evidence[0] if evidence else {}
-        # pks_targeted.nf publishes this to contigs/final_evidence/, not contigs/.
-        # Reading the wrong path did not error -- read_tsv returned nothing, `assembled`
-        # went False, and the report simply showed no contig columns for samples that had
-        # assembled perfectly well. Silent, and only visible by noticing an absence.
-        contigs = read_tsv(
-            by_sample / sample / "contigs/final_evidence/final_pks_evidence.tsv")
+        # pks_targeted.nf publishes this to contigs/final_evidence/, not contigs/, which
+        # the path-based reader once got wrong -- read_tsv returned nothing, `assembled`
+        # went False, and the report showed no contig columns for samples that had
+        # assembled perfectly well. Staged by kind now, so the path cannot drift.
+        contigs = read_tsv(staged.get("final_evidence"))
         contigs = contigs[0] if contigs else {}
         records.append({
             "sample": sample,
@@ -239,12 +312,13 @@ def collect(results, expected=None):
             "metaspades_cov": number(contigs.get("metaspades_reference_coverage")),
             "recruited_fragment_ids": contigs.get("recruited_fragment_ids", ""),
             "paired_fragments": contigs.get("paired_fragments", ""),
-            "figures": [p.name for p in
-                        sorted((by_sample / sample / "figures").glob("*"))
-                        if p.is_file() and not p.name.startswith(".")],
-            "bins": mag_bins(by_sample / sample),
-            "unbinned": mag_unbinned(by_sample / sample),
-            "diamond_rescue": diamond_rescue_reads(by_sample / sample),
+            # P0-5b: which figures this run made comes from the staged figure outputs,
+            # not from listing figures/ in the published tree, which could still be
+            # filling in -- or hold a figure an earlier run left there.
+            "figures": sorted(inputs["figures"].get(sample, ())),
+            "bins": mag_bins(staged.get("mag_summary"), staged.get("prophage_inventory")),
+            "unbinned": mag_unbinned(staged.get("mag_summary")),
+            "diamond_rescue": diamond_rescue_reads(staged.get("diamond_rescue")),
         })
 
     records.sort(key=lambda r: (TIER_RANK.get(r["tier"], -1), r["genes_detected"],
@@ -562,7 +636,7 @@ def species_support_section(rows):
   <thead>{header}</thead><tbody>{body}</tbody></table></div>"""
 
 
-def page(records, results, species_rows=()):
+def page(records, species_rows=()):
     tiers = {tier: sum(1 for r in records if r["tier"] == tier) for tier in TIERS}
     untiered = sum(1 for r in records if r["tier"] == "untiered")
     unclassified = sum(1 for r in records if r["tier"] not in TIER_RANK and r["tier"] != "untiered")
@@ -624,7 +698,7 @@ def page(records, results, species_rows=()):
 </style></head>
 <body><main id="top">
   <h1>pks cohort report</h1>
-  <p class="muted">{len(records)} samples &middot; {esc(results)}</p>
+  <p class="muted">{len(records)} samples &middot; read from this run's staged outputs</p>
   <div class="tiles">{tiles}</div>
   {no_assembly}
   <div class="scroll">{svg_matrix(records)}</div>
@@ -644,7 +718,9 @@ def page(records, results, species_rows=()):
     <li><code>by_sample/&lt;sample&gt;/figures/</code> &mdash; what the Figures links open;
         they are relative, so this page has to stay in <code>cohort/</code></li>
   </ul>
-  <p class="muted">This page reads and arranges; it derives nothing.</p>
+  <p class="muted">This page reads and arranges; it derives nothing. The paths above are
+  where each input is published; the page read the copy the run handed to its own task,
+  so a file still being published, or one left by an earlier run, could not change it.</p>
 </main>
 <div id="tip"></div>
 <script>
@@ -672,20 +748,23 @@ def page(records, results, species_rows=()):
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--results", required=True, type=Path)
+    parser.add_argument("--inputs-manifest", required=True, type=Path,
+                        help="sample<TAB>kind<TAB>path, one row per staged input "
+                             "(Ludmil, 2026-09-25 report P0-5b)")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--table", default=None, type=Path)
     parser.add_argument("--expected-samples", default=None, type=Path,
-                         help="one sample ID per line; samples outside this list "
-                              "are dropped even if their directory is still on disk")
+                         help="one sample ID per line; the report has exactly these "
+                              "rows, and nothing outside the list appears")
     args = parser.parse_args()
 
-    records = collect(args.results, expected_sample_ids(args.expected_samples))
+    inputs = read_manifest(args.inputs_manifest)
+    records = collect(inputs, expected_sample_ids(args.expected_samples))
     if not records:
-        raise SystemExit(f"[ERROR] no samples found under {args.results}")
+        raise SystemExit(f"[ERROR] no samples in {args.inputs_manifest}")
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(page(records, args.results, species_support(args.results)))
+    args.output.write_text(page(records, species_support(inputs)))
 
     if args.table:
         fields = ["sample", *GENES, "pks_reads", "genes_detected", "island_breadth_1x",
