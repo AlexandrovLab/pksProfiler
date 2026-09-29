@@ -40,7 +40,9 @@ QC_COLUMNS = ["input_alignment_records", "total_primary_reads", "extracted_unmap
               "filter_input_reads", "reads_after_fastp", "reads_after_hg38", "reads_after_t2t_phix",
               "reads_mapped_ihe3034_mapq40", "num_clb_genes_align", "reads_clb_genes_align",
               "num_clb_genes_hmm", "reads_clb_genes_hmm"]
-EVIDENCE_COLUMNS = ["read_evidence", "pks_reads", "clb_genes_detected", "island_breadth_1x"]
+# pks_reads_per_million / host_depleted_reads: metagenome only (26 Sep memo section 5), NA for wgs.
+EVIDENCE_COLUMNS = ["read_evidence", "pks_reads_per_million", "pks_reads", "host_depleted_reads",
+                    "clb_genes_detected", "island_breadth_1x"]
 # Ludmil, 26 Sep mode memo sections 3, 4 and 6: WES and RNA evidence keep their own
 # column names (classify_tumor_pks_evidence.py SCHEMAS) and are never folded into the WGS
 # tier columns above; `mode` and `evidence_label` say which kind of evidence a row is.

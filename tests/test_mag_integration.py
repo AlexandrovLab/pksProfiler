@@ -46,12 +46,29 @@ class MagRoutingTests(unittest.TestCase):
 
 
 class MagModuleContractTests(unittest.TestCase):
+    # 26 Sep mode memo section 5: pairs rebuilt after depletion reach both assembly
+    # and read-to-contig alignment; singletons go alongside, never dropped.
+    def test_pairs_are_rebuilt_before_assembly(self):
+        workflow = MAG[MAG.index("workflow pksMAG"):]
+        self.assertIn("pairDepletedReads(reads)", workflow)
+        self.assertIn("megahitAssemble(paired_reads)", workflow)
+        self.assertIn("reads_contigs_ch = paired_reads.join(nonempty_contigs_ch, by: 0)", workflow)
+        self.assertLess(workflow.index("pairDepletedReads(reads)"), workflow.index("megahitAssemble("))
+        self.assertIn("recover_recruited_mates.py\" --all-reads", MAG)
+
     def test_single_and_paired_megahit_modes_are_present(self):
-        self.assertIn('"-1 ${reads_list[0]} -2 ${reads_list[1]}"', MAG)
-        self.assertIn('"-r ${reads_list[0]}"', MAG)
+        self.assertIn('args+=(-1 "${r1}" -2 "${r2}")', MAG)
+        self.assertIn('args+=(-r "${single}")', MAG)
+        self.assertIn("tuple val(sampleID), path(r1), path(r2), path(single)", MAG)
+
+    def test_contig_alignment_uses_pairs_and_singletons(self):
+        block = MAG[MAG.index("process alignToContigs"):MAG.index("// ─── Contig coverage depth")]
+        self.assertIn('minimap2 -ax sr -t ${task.cpus} ${contigs} "${r1}" "${r2}"', block)
+        self.assertIn('minimap2 -ax sr -t ${task.cpus} ${contigs} "${single}"', block)
+        self.assertIn("samtools merge", block)
 
     def test_invalid_read_cardinality_is_rejected(self):
-        self.assertEqual(MAG.count("reads_list.size() in [1, 2]"), 2)
+        self.assertIn("reads_list.size() != 1", MAG)
 
     def test_empty_bin_output_is_explicitly_optional(self):
         self.assertRegex(

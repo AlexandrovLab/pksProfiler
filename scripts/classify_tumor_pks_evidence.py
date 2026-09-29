@@ -45,9 +45,12 @@ RNA_LIBRARY_TYPES = ("polyA", "total", "unknown")
 # rows read untiered); wes and rna have their own, with no tier column at all.
 READ_EVIDENCE_FIELDS = ["sample", "mode", "read_evidence", "pks_reads", "clb_genes_detected",
                         "island_breadth_1x", "island_breadth_2x", "island_breadth_3x"]
+# Ludmil, 26 Sep mode memo section 5: for metagenomes the primary quantity is pks reads per
+# million host-depleted reads (stool cohorts differ greatly in depth); the raw count stays.
+METAGENOME_FIELDS = READ_EVIDENCE_FIELDS + ["host_depleted_reads", "pks_reads_per_million"]
 SCHEMAS = {
     "wgs": READ_EVIDENCE_FIELDS,
-    "metagenome": READ_EVIDENCE_FIELDS,
+    "metagenome": METAGENOME_FIELDS,
     "wes": ["sample", "mode", "clb_wes_reads", "wes_clb_genes_detected",
             "wes_island_breadth_1x", "wes_island_breadth_2x", "wes_island_breadth_3x"],
     "rna": ["sample", "mode", "clb_rna_reads", "rna_clb_genes_detected",
@@ -113,6 +116,9 @@ def main():
     p.add_argument("--no-tiers", action="store_true")
     p.add_argument("--rna-library-type", choices=RNA_LIBRARY_TYPES, default="unknown",
                    help="recorded in rna_evidence.tsv; --mode rna only")
+    p.add_argument("--depletion-qc", default=None,
+                   help="mapReads' depletion QC fragment; the metagenome reads-per-million "
+                        "denominator (reads_after_pangenome, else reads_after_t2t_phix)")
     p.add_argument("--qc-fragment", default=None,
                    help="also write a Sample/Metric/Value QC fragment carrying "
                         "evidence_outcome (positive|negative|untiered) for build_qc_summary.py")
@@ -130,8 +136,12 @@ def main():
     metrics = qc_metrics(a.qc)
     reads = int(float(metrics.get("reads_clb_genes_align", 0))); genes = detected_genes(a.counts)
     b1, b2, b3 = breadths(a.depth, a.island_length)
+    if a.mode == "metagenome" and not a.depletion_qc:
+        raise SystemExit("--mode metagenome needs --depletion-qc for pks_reads_per_million")
+    depleted = depleted_reads(a.depletion_qc) if a.depletion_qc else None
     row = evidence_row(a.mode, a.sample, reads, genes, (b1, b2, b3), thresholds,
-                       no_tiers=a.no_tiers, rna_library_type=a.rna_library_type)
+                       no_tiers=a.no_tiers, rna_library_type=a.rna_library_type,
+                       depleted=depleted)
 
     with Path(a.output).open("w", newline="") as handle:
         writer = csv.DictWriter(handle, SCHEMAS[a.mode], delimiter="\t"); writer.writeheader()
@@ -140,6 +150,24 @@ def main():
         with Path(a.qc_fragment).open("w", newline="") as handle:
             handle.write("Sample\tMetric\tValue\n")
             handle.write(f"{a.sample}\tevidence_outcome\t{evidence_outcome(row)}\n")
+
+
+def depleted_reads(path):
+    """The final host-depleted read count from a depletion QC fragment: after the
+    pangenome pass when it ran, otherwise after T2T + phiX."""
+    metrics = qc_metrics(path)
+    for metric in ("reads_after_pangenome", "reads_after_t2t_phix"):
+        value = metrics.get(metric)
+        if value not in (None, "", "NA"):
+            return int(value)
+    raise SystemExit(f"{path} has neither reads_after_pangenome nor reads_after_t2t_phix")
+
+
+def reads_per_million(reads, depleted):
+    """pks reads per million host-depleted reads; NA when nothing survived depletion."""
+    if depleted is None or depleted <= 0:
+        return "NA"
+    return f"{reads * 1e6 / depleted:.4f}"
 
 
 def evidence_outcome(row):
@@ -157,15 +185,19 @@ def evidence_outcome(row):
 
 
 def evidence_row(mode, sample, reads, genes, breadth, thresholds, no_tiers=False,
-                 rna_library_type="unknown"):
+                 rna_library_type="unknown", depleted=None):
     """One output row in `mode`'s schema. Only wgs (without no_tiers) is ever tiered."""
     b1, b2, b3 = (f"{value:.6f}" for value in breadth)
     if mode in ("wgs", "metagenome"):
         tiered = mode == "wgs" and not no_tiers
-        return dict(sample=sample, mode=mode,
-                    read_evidence=classify(reads, genes, breadth[0], thresholds) if tiered else "untiered",
-                    pks_reads=reads, clb_genes_detected=genes,
-                    island_breadth_1x=b1, island_breadth_2x=b2, island_breadth_3x=b3)
+        row = dict(sample=sample, mode=mode,
+                   read_evidence=classify(reads, genes, breadth[0], thresholds) if tiered else "untiered",
+                   pks_reads=reads, clb_genes_detected=genes,
+                   island_breadth_1x=b1, island_breadth_2x=b2, island_breadth_3x=b3)
+        if mode == "metagenome":
+            row.update(host_depleted_reads=depleted if depleted is not None else "NA",
+                       pks_reads_per_million=reads_per_million(reads, depleted))
+        return row
     if mode == "wes":
         return dict(sample=sample, mode=mode, clb_wes_reads=reads, wes_clb_genes_detected=genes,
                     wes_island_breadth_1x=b1, wes_island_breadth_2x=b2, wes_island_breadth_3x=b3)

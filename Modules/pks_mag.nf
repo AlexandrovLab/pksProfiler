@@ -2,6 +2,48 @@ nextflow.enable.dsl=2
 
 include { strainTyping as magStrainTyping } from './pks_typing.nf'
 
+// ─── Mate pairs, rebuilt after host depletion ────────────────────────────────
+// Ludmil, 26 Sep mode memo section 5: the MAG lane already took -1/-2 but received one
+// host-depleted FASTQ, so every metagenome assembled as single-end. Depletion stays
+// read-independent (compatible with --frag=no); the pairs are reconstructed afterwards,
+// from the mate suffixes, into R1/R2 plus singletons. Every read is kept: pairs +
+// singletons == the host-depleted stream, so assembly still sees all of it.
+
+process pairDepletedReads {
+    label 'sample_stage'
+    label 'mag_binning'
+    scratch true
+    publishDir { "${params.sample_dir}/${sampleID}/genomes/assembly" },
+        mode: 'copy', pattern: "*.mate_pairing.tsv", saveAs: { "mate_pairing.tsv" }
+    conda "${params.samtools_env}"
+
+    input:
+    tuple val(sampleID), path(reads)
+
+    output:
+    tuple val(sampleID), path("${sampleID}.pairs.R1.fastq.gz"), path("${sampleID}.pairs.R2.fastq.gz"),
+          path("${sampleID}.pairs.single.fastq.gz"), emit: reads
+    tuple val(sampleID), path("${sampleID}.mate_pairing.tsv"), emit: stats
+
+    script:
+    def reads_list = reads instanceof List ? reads : [reads]
+    if (reads_list.size() != 1) {
+        error "Mate pairing for ${sampleID} expects the one host-depleted FASTQ; received ${reads_list.size()} files"
+    }
+    """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # scripts ${params.dep_digest?.scripts}
+    set -euo pipefail
+    python "${params.scripts}/recover_recruited_mates.py" --all-reads \\
+        --fastq "${reads_list[0]}" \\
+        --r1 "${sampleID}.pairs.R1.fastq.gz" --r2 "${sampleID}.pairs.R2.fastq.gz" \\
+        --single "${sampleID}.pairs.single.fastq.gz" \\
+        --stats "${sampleID}.mate_pairing.tsv" \\
+        --threads ${task.cpus} --sort-memory ${Math.max(1, (task.memory ? task.memory.toGiga().intValue() : 2) / 2)}G \\
+        --tmpdir .
+    """
+}
+
 // ─── Assembly ─────────────────────────────────────────────────────────────────
 
 process megahitAssemble {
@@ -9,30 +51,34 @@ process megahitAssemble {
     label 'mag_assembly'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/genomes/assembly" },
-        mode: 'copy', enabled: params.save_intermediates.toString().toBoolean()
+        mode: 'copy', pattern: "*.contig*", enabled: params.save_intermediates.toString().toBoolean()
     conda "${projectDir}/conda_envs/megahit_env.yml"
 
     input:
-    tuple val(sampleID), path(reads)
+    tuple val(sampleID), path(r1), path(r2), path(single)
 
     output:
     tuple val(sampleID), path("${sampleID}.contigs.fa"), emit: contigs
     tuple val(sampleID), path("${sampleID}.contig_count.txt"), emit: contig_count
 
     script:
-    def reads_list = reads instanceof List ? reads : [reads]
-    if (!(reads_list.size() in [1, 2])) {
-        error "MAG assembly for ${sampleID} requires one single/interleaved FASTQ or an R1/R2 pair; received ${reads_list.size()} files"
-    }
-    def r_flag = reads_list.size() == 2
-        ? "-1 ${reads_list[0]} -2 ${reads_list[1]}"
-        : "-r ${reads_list[0]}"
+    // Pairs as -1/-2, singletons (unsuffixed, orphaned or single-end reads) as -r; each
+    // only when it has reads, since MEGAHIT refuses an empty input file.
     """
     set -euo pipefail
-    megahit ${r_flag} -t ${task.cpus} -o megahit_out
-    cp megahit_out/final.contigs.fa ${sampleID}.contigs.fa
-    grep -c '^>' ${sampleID}.contigs.fa > ${sampleID}.contig_count.txt || \
-        printf '0\n' > ${sampleID}.contig_count.txt
+    pairs=\$(gzip -dc "${r1}" | awk 'END {print int(NR/4)}')
+    singles=\$(gzip -dc "${single}" | awk 'END {print int(NR/4)}')
+    args=()
+    if [[ \$pairs -gt 0 ]]; then args+=(-1 "${r1}" -2 "${r2}"); fi
+    if [[ \$singles -gt 0 ]]; then args+=(-r "${single}"); fi
+    if [[ \${#args[@]} -eq 0 ]]; then
+        : > ${sampleID}.contigs.fa
+    else
+        megahit "\${args[@]}" -t ${task.cpus} -o megahit_out
+        cp megahit_out/final.contigs.fa ${sampleID}.contigs.fa
+    fi
+    grep -c '^>' ${sampleID}.contigs.fa > ${sampleID}.contig_count.txt || \\
+        printf '0\\n' > ${sampleID}.contig_count.txt
     """
 }
 
@@ -45,23 +91,37 @@ process alignToContigs {
     conda "${projectDir}/conda_envs/minimap2_env.yml"
 
     input:
-    tuple val(sampleID), path(reads), path(contigs)
+    tuple val(sampleID), path(r1), path(r2), path(single), path(contigs)
 
     output:
     tuple val(sampleID), path("${sampleID}.contigs.sorted.bam"),
           path("${sampleID}.contigs.sorted.bam.bai"), emit: bam
 
     script:
-    def reads_list = reads instanceof List ? reads : [reads]
-    if (!(reads_list.size() in [1, 2])) {
-        error "MAG contig alignment for ${sampleID} requires one single/interleaved FASTQ or an R1/R2 pair; received ${reads_list.size()} files"
-    }
-    def read_args = reads_list.join(' ')
+    // Pairs are aligned as pairs (two files: minimap2 -ax sr pairs them) and singletons
+    // on their own; the two sorted BAMs are merged, so MetaBAT2's depths count every read.
     """
     set -euo pipefail
-    minimap2 -ax sr -t ${task.cpus} ${contigs} ${read_args} \
-        | samtools view -F 4 -bS \
-        | samtools sort -@ ${task.cpus} -o ${sampleID}.contigs.sorted.bam
+    pairs=\$(gzip -dc "${r1}" | awk 'END {print int(NR/4)}')
+    singles=\$(gzip -dc "${single}" | awk 'END {print int(NR/4)}')
+    parts=()
+    if [[ \$pairs -gt 0 ]]; then
+        minimap2 -ax sr -t ${task.cpus} ${contigs} "${r1}" "${r2}" \\
+            | samtools view -F 4 -b \\
+            | samtools sort -@ ${task.cpus} -o paired.bam
+        parts+=(paired.bam)
+    fi
+    if [[ \$singles -gt 0 ]]; then
+        minimap2 -ax sr -t ${task.cpus} ${contigs} "${single}" \\
+            | samtools view -F 4 -b \\
+            | samtools sort -@ ${task.cpus} -o single.bam
+        parts+=(single.bam)
+    fi
+    if [[ \${#parts[@]} -eq 1 ]]; then
+        mv "\${parts[0]}" ${sampleID}.contigs.sorted.bam
+    else
+        samtools merge -@ ${task.cpus} -o ${sampleID}.contigs.sorted.bam "\${parts[@]}"
+    fi
     samtools index ${sampleID}.contigs.sorted.bam
     """
 }
@@ -566,12 +626,16 @@ process magSummaryTable {
 
 workflow pksMAG {
     take:
-    reads  // tuple val(sampleID), path(reads)
+    reads  // tuple val(sampleID), path(reads): the complete host-depleted stream
 
     main:
 
+    // 0. Mate pairs, rebuilt from the host-depleted stream (26 Sep memo section 5)
+    pairDepletedReads(reads)
+    paired_reads = pairDepletedReads.out.reads
+
     // 1. Assembly
-    megahitAssemble(reads)
+    megahitAssemble(paired_reads)
 
     assembly_contig_counts_ch = megahitAssemble.out.contig_count
         .map { sampleID, count_file ->
@@ -592,7 +656,7 @@ workflow pksMAG {
         .map { sampleID, contigs, _contig_count -> tuple(sampleID, contigs) }
 
     // 2. Align reads only when assembly produced at least one contig.
-    reads_contigs_ch = reads.join(nonempty_contigs_ch, by: 0)
+    reads_contigs_ch = paired_reads.join(nonempty_contigs_ch, by: 0)
     alignToContigs(reads_contigs_ch)
 
     // 3. Contig coverage depth
@@ -863,4 +927,7 @@ workflow pksMAG {
     // emitted again here, named, so it is not only discoverable by reading a table.
     // Neither cohort-level script reads it, so main.nf does not stage it.
     unbinned_locus_evidence = unbinned_locus_evidence_ch
+    // 26 Sep memo section 5 / A7: pairs, singletons and mate-tag diagnostics per sample,
+    // published as genomes/assembly/mate_pairing.tsv.
+    mate_pairing = pairDepletedReads.out.stats
 }

@@ -1135,10 +1135,14 @@ workflow {
         // file itself is staged into the report, not read back from the published tree.
         // Empty when the lane that writes it did not run.
         if (params.sample_type in ["wgs", "metagenome", "wes", "rna"]) {
+            // MAP_OUT.qc: the host-depleted read count, the denominator of the metagenome
+            // pks_reads_per_million (26 Sep mode memo section 5). Host depletion, not the
+            // prefiltered profiling input, so the rate does not move with --prefilter_mode.
             read_evidence_input_ch = ALIGN_OUT.profile
                 .join(ALIGN_OUT.qc, by: 0)
-                .map { sampleID, rawCoverage, bedgraph, counts, bam, bai, qc ->
-                    tuple(sampleID, rawCoverage, counts, bam, bai, qc)
+                .join(MAP_OUT.qc, by: 0)
+                .map { sampleID, rawCoverage, bedgraph, counts, bam, bai, qc, depletionQc ->
+                    tuple(sampleID, rawCoverage, counts, bam, bai, qc, depletionQc)
                 }
             classifyPksReadEvidence(read_evidence_input_ch)
             QC_FRAGMENTS = QC_FRAGMENTS.mix(

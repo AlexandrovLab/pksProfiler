@@ -57,6 +57,15 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
   counts-only summary that `RUN_REPORT.txt` prints as INPUT ALIGNMENTS
   (`scripts/header_provenance.py`, adapted from the E3 validation script).
 
+- Metagenome paired assembly and abundance (Ludmil, 26 Sep mode memo section 5): the MAG
+  lane rebuilds R1/R2 + singletons from the host-depleted stream by mate suffix
+  (`recover_recruited_mates.py --all-reads`, external sort, every read kept) and feeds MEGAHIT
+  `-1/-2/-r` and read-to-contig alignment as pairs; `genomes/assembly/mate_pairing.tsv` carries
+  the A7 mate-tag diagnostics (also added to targeted recruitment stats; duplicate mate slots
+  are kept as singletons instead of overwriting). `pks_reads_per_million` (per million
+  host-depleted reads) and `host_depleted_reads` join metagenome `read_evidence.tsv`, the
+  cohort report and the master summary; raw `pks_reads` kept.
+
 **Changed**
 - Mode-specific evidence schemas (Ludmil, 26 Sep mode memo sections 3, 4, 6):
   `classify_tumor_pks_evidence.py --mode {wgs,metagenome,wes,rna}` writes `read_evidence.tsv`

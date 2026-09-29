@@ -125,6 +125,26 @@ def main():
                   row.get("mag_unbinned_pks_positive") == "yes",
                   f"got {row.get('mag_unbinned_pks_positive')!r}")
 
+    # ---------- 26 Sep memo section 5: pairs rebuilt, rate reported ----------
+    pairing_path = by_sample / "genomes" / "assembly" / "mate_pairing.tsv"
+    check("genomes/assembly/mate_pairing.tsv exists (pairs rebuilt before assembly)",
+          pairing_path.exists())
+    if pairing_path.exists():
+        pairing = {r["metric"]: r["value"] for r in read_tsv(pairing_path)}
+        check("every host-depleted read is paired (paired fixture: no singletons)",
+              pairing.get("singleton_reads") == "0" and pairing.get("paired_fragments") not in (None, "0")
+              and int(pairing.get("input_reads", -1)) == 2 * int(pairing.get("paired_fragments", 0)),
+              f"got {pairing}")
+        for metric in ("fragments_without_mate_tag", "orphan_reads", "duplicate_mate_slot_overwrites"):
+            check(f"A7 diagnostic {metric} is 0 on a valid paired run",
+                  pairing.get(metric) == "0", f"got {pairing.get(metric)!r}")
+    evidence_path = by_sample / "read_evidence.tsv"
+    if evidence_path.exists():
+        ev = read_tsv(evidence_path)[0]
+        check("read_evidence.tsv carries pks_reads_per_million (metagenome primary quantity)",
+              ev.get("pks_reads_per_million") not in (None, "", "NA"),
+              f"got {ev.get('pks_reads_per_million')!r}")
+
     print()
     if FAILURES:
         print(f"metagenome MAG assertions: {len(FAILURES)} FAILED: {', '.join(FAILURES)}",

@@ -7,7 +7,8 @@ process classifyPksReadEvidence {
     publishDir { "${params.sample_dir}/${sampleID}" }, mode: 'copy', pattern: "*_evidence.tsv", saveAs: { fn -> fn - "${sampleID}." }
     conda "${params.pks_align_env}"
     input:
-    tuple val(sampleID), path(raw_coverage), path(counts), path(bam), path(bai), path(qc)
+    // depletion_qc: mapReads' fragment, the metagenome reads-per-million denominator.
+    tuple val(sampleID), path(raw_coverage), path(counts), path(bam), path(bai), path(qc), path(depletion_qc)
     output:
     // Ludmil, 26 Sep mode memo: one schema per mode, and a file name that says which --
     // read_evidence.tsv (wgs, metagenome), wes_evidence.tsv, rna_evidence.tsv. The prefix
@@ -33,7 +34,7 @@ process classifyPksReadEvidence {
     # (50768, not the old pks_island_len=50767), or classify_tumor_pks_evidence.py's
     # own row-count check raises rather than silently disagreeing.
     samtools depth -aa -s -Q 40 -r "${params.pks_contig}:${params.pks_start_1based}-${params.pks_end_1based}" "${bam}" > "${sampleID}.island.raw_depth.tsv"
-    python "${params.scripts}/classify_tumor_pks_evidence.py" --sample "${sampleID}" --qc "${qc}" --counts "${counts}" --depth "${sampleID}.island.raw_depth.tsv" --island-length "${params.pks_island_len_1based}" --multi-gene-reads "${params.tumor_multi_gene_min_pks_reads}" --multi-gene-genes "${params.tumor_multi_gene_min_clb_genes}" --multi-gene-breadth "${params.tumor_multi_gene_min_breadth}" --broad-island-reads "${params.tumor_broad_island_min_pks_reads}" --broad-island-genes "${params.tumor_broad_island_min_clb_genes}" --broad-island-breadth "${params.tumor_broad_island_min_breadth}" --extensive-island-reads "${params.tumor_extensive_island_min_pks_reads}" --extensive-island-genes "${params.tumor_extensive_island_min_clb_genes}" --extensive-island-breadth "${params.tumor_extensive_island_min_breadth}" ${mode_args} --output "${evidence_file}" --qc-fragment "${sampleID}.evidence.qc.tsv"
+    python "${params.scripts}/classify_tumor_pks_evidence.py" --sample "${sampleID}" --qc "${qc}" --counts "${counts}" --depth "${sampleID}.island.raw_depth.tsv" --island-length "${params.pks_island_len_1based}" --multi-gene-reads "${params.tumor_multi_gene_min_pks_reads}" --multi-gene-genes "${params.tumor_multi_gene_min_clb_genes}" --multi-gene-breadth "${params.tumor_multi_gene_min_breadth}" --broad-island-reads "${params.tumor_broad_island_min_pks_reads}" --broad-island-genes "${params.tumor_broad_island_min_clb_genes}" --broad-island-breadth "${params.tumor_broad_island_min_breadth}" --extensive-island-reads "${params.tumor_extensive_island_min_pks_reads}" --extensive-island-genes "${params.tumor_extensive_island_min_clb_genes}" --extensive-island-breadth "${params.tumor_extensive_island_min_breadth}" ${mode_args} --depletion-qc "${depletion_qc}" --output "${evidence_file}" --qc-fragment "${sampleID}.evidence.qc.tsv"
     """
 }
 

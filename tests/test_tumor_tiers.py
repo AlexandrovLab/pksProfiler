@@ -219,9 +219,19 @@ class MetagenomesAreNotTiered(unittest.TestCase):
                 subprocess.run(base + list(extra), check=True)
                 with out.open() as fh:
                     return list(csv.DictReader(fh, delimiter="\t"))[0]
+            (d / "dep.tsv").write_text("Sample\tMetric\tValue\nS\treads_after_hg38\t4000000\n"
+                                       "S\treads_after_t2t_phix\t2500000\n")
             tiered = run("--mode", "wgs")
-            untiered = run("--mode", "metagenome")
+            untiered = run("--mode", "metagenome", "--depletion-qc", str(d / "dep.tsv"))
             no_tiers_wgs = run("--mode", "wgs", "--no-tiers")
+            # 26 Sep memo section 5: metagenomes cannot be classified without the denominator
+            refused = subprocess.run(base + ["--mode", "metagenome"], capture_output=True, text=True)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("--depletion-qc", refused.stderr)
+        # 500 pks reads in 2.5M host-depleted reads = 200 per million; raw count kept
+        self.assertEqual((untiered["pks_reads_per_million"], untiered["host_depleted_reads"]),
+                         ("200.0000", "2500000"))
+        self.assertNotIn("pks_reads_per_million", tiered)
         self.assertEqual((tiered["mode"], tiered["read_evidence"]), ("wgs", "extensive_island"))
         self.assertEqual((untiered["mode"], untiered["read_evidence"]), ("metagenome", "untiered"))
         self.assertEqual((no_tiers_wgs["mode"], no_tiers_wgs["read_evidence"]), ("wgs", "untiered"))

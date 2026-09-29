@@ -352,6 +352,8 @@ def collect(inputs, expected=None, sample_type=None):
             "evidence_label": evidence_label(mode, tier) if evidence else "NA",
             "tier": tier,
             "pks_reads": int(number(evidence.get(reads_field))),
+            # 26 Sep memo section 5: the primary metagenome quantity; NA for other modes.
+            "pks_rpm": evidence.get("pks_reads_per_million") or "NA",
             "genes_detected": int(number(evidence.get(genes_field))),
             "breadth_1x": number(evidence.get(f"{breadth_field}_1x")),
             "breadth_2x": number(evidence.get(f"{breadth_field}_2x")),
@@ -435,6 +437,8 @@ def svg_matrix(records):
         y = TOP + index * ROW_H
         tip = (f'{record["sample"]} · {record["mode"]} · '
                f'{record["evidence_label"] if record["evidence_label"] != "NA" else badge_label(record)} '
+               + (f'· {record["pks_rpm"]} pks reads per million host-depleted reads '
+                  if record["pks_rpm"] != "NA" else '') +
                f'· {record["pks_reads"]} reads across {record["genes_detected"]} genes '
                f'· breadth {100 * record["breadth_1x"]:.1f}% at ≥1×, '
                f'{100 * record["breadth_2x"]:.1f}% at ≥2×, '
@@ -832,7 +836,8 @@ def main():
     args.output.write_text(page(records, species_support(inputs)))
 
     if args.table:
-        fields = ["sample", "mode", "evidence_label", *GENES, "pks_reads", "genes_detected", "island_breadth_1x",
+        fields = ["sample", "mode", "evidence_label", *GENES, "pks_reads_per_million", "pks_reads",
+                  "genes_detected", "island_breadth_1x",
                   "island_breadth_2x", "island_breadth_3x", "read_evidence",
                   "megahit_supporting_contigs", "metaspades_supporting_contigs",
                   "megahit_reference_coverage", "metaspades_reference_coverage",
@@ -844,6 +849,7 @@ def main():
                 writer.writerow({
                     "sample": record["sample"], "mode": record["mode"],
                     "evidence_label": record["evidence_label"], **record["genes"],
+                    "pks_reads_per_million": record["pks_rpm"],
                     "pks_reads": record["pks_reads"],
                     "genes_detected": record["genes_detected"],
                     "island_breadth_1x": f"{record['breadth_1x']:.6f}",

@@ -41,6 +41,7 @@ by_sample/<sample>/
 │   └── final_evidence/     final_pks_evidence.tsv
 ├── genomes/                                                          (step 5, --enable_mags)
 │   ├── assembly/  bins/  checkm2/  gtdbtk/  annotation/
+│   │   assembly/mate_pairing.tsv: pairs rebuilt after host depletion (see below)
 │   ├── pks_mag_summary.tsv      one row per draft genome
 │   └── mag_status.tsv
 ├── community/                                                        (step 6)
@@ -136,7 +137,7 @@ Column groups appear only when the stage that produces them ran:
 | sample mode | `mode` (the sample type) and `evidence_label` (what the row's evidence may be read as); always second and third |
 | terminal state | `terminal_state`, copied from the QC summary (fourth) |
 | read profiling | `input_alignment_records`, `total_primary_reads`, `extracted_unmapped_reads`, `filter_input_reads`, `reads_after_*`, `num_clb_genes_*`, `reads_clb_genes_*` |
-| evidence tier | `read_evidence`, `pks_reads`, `clb_genes_detected`, `island_breadth_1x` |
+| evidence tier | `read_evidence`, `pks_reads_per_million` and `host_depleted_reads` (metagenome), `pks_reads`, `clb_genes_detected`, `island_breadth_1x` |
 | WES evidence | `clb_wes_reads`, `wes_clb_genes_detected`, `wes_island_breadth_1x` |
 | RNA evidence | `clb_rna_reads`, `rna_clb_genes_detected`, `rna_expression_breadth_1x`, `rna_library_type` |
 | contig reassembly | `final_structural_evidence`, `assembler_agreement` |
@@ -162,9 +163,29 @@ and every mode names them for what they can mean. Each file's second column is `
 | Mode | File | Columns after `sample`, `mode` | Tier? | Read as |
 |---|---|---|---|---|
 | `wgs` | `read_evidence.tsv` | `read_evidence`, `pks_reads`, `clb_genes_detected`, `island_breadth_{1,2,3}x` | yes (short reads) | genomic *pks* evidence |
-| `metagenome` | `read_evidence.tsv` | same; `read_evidence` is `untiered` | no | microbial read evidence |
+| `metagenome` | `read_evidence.tsv` | same, plus `host_depleted_reads` and **`pks_reads_per_million`**; `read_evidence` is `untiered` | no | microbial read evidence; read the rate first |
 | `wes` | `wes_evidence.tsv` | `clb_wes_reads`, `wes_clb_genes_detected`, `wes_island_breadth_{1,2,3}x` | no | exploratory off-target DNA evidence; a negative is not absence |
 | `rna` | `rna_evidence.tsv` | `clb_rna_reads`, `rna_clb_genes_detected`, `rna_expression_breadth_{1,2,3}x`, `rna_library_type` | no | expressed *clb* sequence; breadth is expression breadth, not island completeness; a negative is not genomic absence |
+
+**Metagenome abundance** (26 Sep mode memo section 5). `pks_reads_per_million` is
+`pks_reads * 1e6 / host_depleted_reads`, where `host_depleted_reads` is the final
+host-depleted count (`reads_after_pangenome` when that pass ran, else
+`reads_after_t2t_phix`) -- host depletion, not the prefiltered profiling input, so the rate
+does not move with `--prefilter_mode`. It is the primary metagenome quantity because stool
+cohorts differ greatly in depth; the raw `pks_reads` stays beside it. `NA` for other modes
+(and when nothing survived depletion). It is in `read_evidence.tsv`, the cohort report TSV
+and `pks.master_summary.tsv`.
+
+**Metagenome read pairs** (section 5, A7). Host depletion evaluates reads independently;
+the MAG lane then rebuilds R1/R2 plus singletons from the mate suffixes of the complete
+host-depleted stream (`scripts/recover_recruited_mates.py --all-reads`) and gives MEGAHIT
+`-1/-2` plus `-r`, and read-to-contig alignment the pairs as pairs. Every read is kept
+(pairs + singletons == the host-depleted stream). `genomes/assembly/mate_pairing.tsv`
+reports `input_reads`, `paired_fragments`, `singleton_reads` and the mate-tag diagnostics
+`mate_tag_1`, `mate_tag_2`, `fragments_without_mate_tag`, `orphan_reads`,
+`duplicate_mate_slot_overwrites` (the last warns when > 0 and fails the task above 0.1% of
+reads). Profiling is unchanged. The MAG lane assembles with MEGAHIT only; metaSPAdes runs
+in the WGS targeted lane, not here.
 
 The cohort report TSV (`cohort/pks_cohort_report.tsv`) keeps one set of measurement columns
 for every mode, so it carries `mode` and `evidence_label` beside them; its `read_evidence`
