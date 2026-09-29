@@ -67,3 +67,14 @@ class TemplateCruftTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CondaEnvironmentWinsOnPath(unittest.TestCase):
+    """29 Sep: activation swaps the conda base bin for the env's in place, so a tool
+    earlier on the launching shell's PATH (a user minimap2 2.24) shadowed the pinned env.
+    beforeScript puts the base bin first, so the env bin is first after activation."""
+
+    def test_before_script_puts_the_conda_base_first(self):
+        config = (Path(__file__).resolve().parents[1] / "nextflow.config").read_text()
+        self.assertIn('process.beforeScript = \'if command -v conda >/dev/null 2>&1; then '
+                      'export PATH="$(conda info --base)/bin:$PATH"; fi\'', config)
