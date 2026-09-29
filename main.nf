@@ -1127,6 +1127,8 @@ workflow {
                     tuple(sampleID, rawCoverage, counts, bam, bai, qc)
                 }
             classifyPksReadEvidence(read_evidence_input_ch)
+            QC_FRAGMENTS = QC_FRAGMENTS.mix(
+                classifyPksReadEvidence.out.qc.map { _sampleID, qc_file -> qc_file })
             // Ludmil, 26 Sep mode memo section 6: the manifest kind names the schema --
             // read_evidence (wgs, metagenome), wes_evidence or rna_evidence -- so the
             // report and master summary can never read a WES or RNA row as a WGS tier.
@@ -1329,11 +1331,23 @@ workflow {
         checkIfExists: true
     )
 
+    // GAMEPLAN rc1: every expected sample ends in exactly one terminal_state. The stages
+    // this run should have produced a QC fragment for, in pipeline order;
+    // build_qc_summary.py names the first one a sample is missing (failed_at_<stage>).
+    def qc_stages = alignment_input ? ['extraction'] : []
+    qc_stages += ['read_qc', 'host_depletion']
+    if (prefilter_mode == "balanced") qc_stages += ['prefilter', 'diamond_rescue', 'candidate_merge']
+    if (do_align) qc_stages << 'alignment_profiling'
+    if (do_hmm) qc_stages << 'hmm_profiling'
+    if (do_align) qc_stages << 'evidence'
+    if (do_align && pks_taxa_b) qc_stages << 'taxonomy'
+
     masterQCSummary(
         QC_MERGE.files.collect(),
         qc_summary_script,
         EXPECTED_SAMPLE_IDS,
-        QC_MERGE.rows.collectFile(name: 'pks.qc.fragments.list', newLine: true, sort: true)
+        QC_MERGE.rows.collectFile(name: 'pks.qc.fragments.list', newLine: true, sort: true),
+        qc_stages.join(',')
     )
 
     // ---------- STEP 6: One page for the cohort ----------

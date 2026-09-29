@@ -45,6 +45,9 @@ EVIDENCE_COLUMNS = ["read_evidence", "pks_reads", "clb_genes_detected", "island_
 # column names (classify_tumor_pks_evidence.py SCHEMAS) and are never folded into the WGS
 # tier columns above; `mode` and `evidence_label` say which kind of evidence a row is.
 MODE_COLUMNS = ["mode", "evidence_label"]
+# GAMEPLAN rc1: how the sample ended (build_qc_summary.py terminal_state), right after the
+# mode so the row's outcome is read before any of its numbers.
+TERMINAL_COLUMNS = ["terminal_state"]
 WES_EVIDENCE_COLUMNS = ["clb_wes_reads", "wes_clb_genes_detected", "wes_island_breadth_1x"]
 RNA_EVIDENCE_COLUMNS = ["clb_rna_reads", "rna_clb_genes_detected", "rna_expression_breadth_1x",
                         "rna_library_type"]
@@ -158,9 +161,13 @@ def read_qc(inputs, out):
         for row in rows(path):
             sample = row.get("Sample")
             if sample:
-                for c in QC_COLUMNS:
+                for c in QC_COLUMNS + TERMINAL_COLUMNS:
                     out[sample][c] = row.get(c, "NA")
     return True
+
+
+def has_terminal_state(inputs):
+    return any("terminal_state" in first(path) for _, path in inputs["qc_summary"])
 
 
 def evidence_label(mode, read_evidence=None):
@@ -392,6 +399,8 @@ def main():
     # Mode first, so a table mixing modalities can never be read without it.
     if read_mode(inputs, out) or a.sample_type:
         columns += MODE_COLUMNS
+    if has_terminal_state(inputs):
+        columns += TERMINAL_COLUMNS
     for name, cols, fn in stages:
         present = fn(inputs, out)
         print(f"  {name:20} {'found' if present else 'not run — columns omitted'}", file=sys.stderr)

@@ -45,6 +45,11 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
   the git commit (and a dirty-tree flag). The workflow figure's legend now reads the manifest
   (it said v0.0.2 while the manifest said 0.0.2dev).
 
+- QC terminal-state schema (GAMEPLAN rc1): `terminal_state` in `cohort/qc/pks.qc.summary.tsv`
+  and `pks.master_summary.tsv`, exactly one of `completed_positive`, `completed_negative`,
+  `completed_untiered`, `failed_at_<stage>` (first missing stage in pipeline order) or
+  `excluded_<reason>`. `classifyPksReadEvidence` emits an `evidence_outcome` QC fragment.
+
 **Changed**
 - Mode-specific evidence schemas (Ludmil, 26 Sep mode memo sections 3, 4, 6):
   `classify_tumor_pks_evidence.py --mode {wgs,metagenome,wes,rna}` writes `read_evidence.tsv`

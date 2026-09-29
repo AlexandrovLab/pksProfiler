@@ -112,6 +112,7 @@ Column groups appear only when the stage that produces them ran:
 | Group | Columns |
 |---|---|
 | sample mode | `mode` (the sample type) and `evidence_label` (what the row's evidence may be read as); always second and third |
+| terminal state | `terminal_state`, copied from the QC summary (fourth) |
 | read profiling | `input_alignment_records`, `total_primary_reads`, `extracted_unmapped_reads`, `filter_input_reads`, `reads_after_*`, `num_clb_genes_*`, `reads_clb_genes_*` |
 | evidence tier | `read_evidence`, `pks_reads`, `clb_genes_detected`, `island_breadth_1x` |
 | WES evidence | `clb_wes_reads`, `wes_clb_genes_detected`, `wes_island_breadth_1x` |
@@ -188,10 +189,29 @@ warning.
 | `num_clb_genes_hmm` | as above, HMM profiling; `NA` unless `--profiling_method hmm` or `both` |
 | `reads_clb_genes_hmm` | as above, HMM profiling |
 | `status` | `complete`, `incomplete` (sample ran partially), or `no_qc_produced` (sample entered the run but emitted no QC) |
+| `terminal_state` | how the sample ended; exactly one value per sample, below |
 
 A sample that failed mid-run still gets a row. The table is built from whatever
 fragments exist, so one sample hitting a time cap no longer costs the cohort its QC —
 check `status` before treating an `NA` as a biological zero.
+
+**`terminal_state`** (GAMEPLAN v1.0.0-rc1). Every expected sample ends in exactly one of:
+
+| Value | Meaning |
+|---|---|
+| `completed_positive` | every stage ran; tiered short-read `wgs` at a formal tier (`multi_gene`, `broad_island`, `extensive_island`) |
+| `completed_negative` | every stage ran; tiered short-read `wgs` with 0 *clb* reads or `localized_indeterminate` (not a formal positive tier) |
+| `completed_untiered` | every stage ran; the evidence carries no call: `wes`, `rna`, `metagenome`, long-read `wgs`, or an HMM-only run with no evidence step |
+| `failed_at_<stage>` | the first stage, in pipeline order, the sample has no QC for: `extraction`, `read_qc`, `host_depletion`, `prefilter`, `diamond_rescue`, `candidate_merge`, `alignment_profiling`, `hmm_profiling`, `evidence`, `taxonomy` |
+| `excluded_<reason>` | named in `build_qc_summary.py --excluded-samples` (`sample<TAB>reason`) |
+
+`main.nf` passes the stages the run should have produced (`extraction` only for BAM/CRAM,
+the prefilter trio only with `--prefilter_mode balanced`, `taxonomy` only with `--pks_taxa`).
+The positive/negative split is the evidence tier, written by `classifyPksReadEvidence` as
+an `evidence_outcome` QC fragment; the tier in `read_evidence.tsv` stays authoritative.
+Not part of the terminal state: targeted assembly, MAGs, community context and strain
+typing, which have their own status columns. The pipeline itself excludes no sample yet;
+`--excluded-samples` is for a curated exclusion list passed to a hand run.
 
 ### `cohort/gene_counts/pks.gene.counts.*.txt`
 

@@ -41,6 +41,10 @@ def emitted_metrics():
     idx = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(idx)
     names.update(idx.summarize([]))
+    # GAMEPLAN rc1 terminal state: classifyPksReadEvidence's fragment is written by
+    # classify_tumor_pks_evidence.py --qc-fragment.
+    classify = (ROOT / "scripts/classify_tumor_pks_evidence.py").read_text()
+    names.update(re.findall(r'\{a\.sample\}\\t(\w+)\\t', classify))
     return names
 
 

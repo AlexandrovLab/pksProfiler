@@ -11,6 +11,7 @@ counts all mean a bug, not a missing sample.
 
 import argparse
 import csv
+import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -76,7 +77,35 @@ OUTPUT_COLUMNS = [
     "taxonomy_status",
     "clb_species_reported",
     "status",
+    # GAMEPLAN rc1 (release mechanics): how the sample ended -- exactly one of
+    # completed_positive / completed_negative / completed_untiered / failed_at_<stage> /
+    # excluded_<reason>. See terminal_state() below.
+    "terminal_state",
 ]
+
+# Pipeline stages in execution order, and the QC metrics whose presence shows the stage
+# finished for a sample. A failed sample is failed_at_<the first expected stage it is
+# missing>: stages downstream of a failure never run, so the first gap is the failure.
+# alignment_profiling and hmm_profiling run side by side; alignment is listed first.
+STAGE_METRICS = {
+    "extraction": ("extracted_unmapped_reads",),
+    "read_qc": ("filter_input_reads", "reads_after_fastp"),
+    "host_depletion": ("reads_after_hg38", "reads_after_t2t_phix"),
+    "prefilter": ("prefilter_input_reads",),
+    "diamond_rescue": ("diamond_input_reads",),
+    "candidate_merge": ("candidate_total_reads",),
+    "alignment_profiling": ("reads_clb_genes_align", "num_clb_genes_align"),
+    "hmm_profiling": ("reads_clb_genes_hmm", "num_clb_genes_hmm"),
+    "evidence": ("evidence_outcome",),
+    "taxonomy": ("taxonomy_status",),
+}
+STAGE_ORDER = tuple(STAGE_METRICS)
+# evidence_outcome (classify_tumor_pks_evidence.py) -> completed state. Only tiered
+# short-read wgs is ever positive or negative; wes, rna, metagenome and long-read wgs
+# evidence is untiered.
+COMPLETED_STATE = {"positive": "completed_positive", "negative": "completed_negative",
+                   "untiered": "completed_untiered"}
+EXCLUSION_REASON = re.compile(r"^[a-z0-9][a-z0-9_]*$")
 
 # complete       every required metric present
 # incomplete     some required metrics missing -- the sample ran partially
@@ -98,6 +127,7 @@ REQUIRED = [
 TEXT_METRICS = {
     "taxonomy_status": {"no_pks_reads", "below_rank_threshold",
                         "no_species_identified", "species_identified"},
+    "evidence_outcome": set(COMPLETED_STATE),
 }
 
 
@@ -129,6 +159,15 @@ def parse_args():
         help="file of sample IDs, one per line, that entered the run; any that "
              "produced no QC fragment are still given a row",
     )
+    parser.add_argument(
+        "--expected-stages", default=None,
+        help="comma-separated stages this run should have produced QC for, from: "
+             + ", ".join(STAGE_ORDER) + ". main.nf passes them; without it they are "
+             "inferred as read_qc, host_depletion plus every stage any sample reported")
+    parser.add_argument(
+        "--excluded-samples", type=Path, default=None,
+        help="sample<TAB>reason per line (reason: lower-case, digits, underscores); those "
+             "samples end as excluded_<reason> whatever QC they have")
     args = parser.parse_args()
     if args.inputs and args.inputs_file:
         parser.error("give --inputs or --inputs-file, not both")
@@ -290,8 +329,60 @@ def output_row(sample, values):
     }
 
 
-def write_summary(metrics, output_path, expected=()):
-    samples = sorted(set(metrics) | set(expected))
+def parse_stages(text):
+    stages = [s.strip() for s in (text or "").split(",") if s.strip()]
+    unknown = [s for s in stages if s not in STAGE_METRICS]
+    if unknown:
+        raise ValueError(f"Unknown stage(s) {', '.join(unknown)}; expected: {', '.join(STAGE_ORDER)}")
+    return [s for s in STAGE_ORDER if s in stages]
+
+
+def infer_stages(metrics):
+    """For hand runs without --expected-stages: the always-run stages plus any stage
+    at least one sample reported. A stage every sample failed cannot be inferred."""
+    seen = {metric for values in metrics.values() for metric in values}
+    return [stage for stage in STAGE_ORDER
+            if stage in ("read_qc", "host_depletion")
+            or any(m in seen for m in STAGE_METRICS[stage])]
+
+
+def terminal_state(values, stages, excluded_reason=None):
+    """Exactly one of completed_positive / completed_negative / completed_untiered /
+    failed_at_<stage> / excluded_<reason>.
+
+    `values` is the sample's raw metrics (empty for a sample that emitted no QC). A run
+    whose stages include no evidence step (HMM-only profiling) has nothing to tier, so a
+    sample that finished every stage is completed_untiered.
+    """
+    if excluded_reason:
+        return f"excluded_{excluded_reason}"
+    for stage in stages:
+        if any(values.get(metric) is None for metric in STAGE_METRICS[stage]):
+            return f"failed_at_{stage}"
+    outcome = values.get("evidence_outcome")
+    return COMPLETED_STATE.get(outcome, "completed_untiered")
+
+
+def read_excluded(path):
+    if path is None:
+        return {}
+    excluded = {}
+    for number, line in enumerate(path.read_text().splitlines(), start=1):
+        if not line.strip():
+            continue
+        fields = line.rstrip("\n").split("\t")
+        if len(fields) != 2 or not fields[0].strip() or not EXCLUSION_REASON.match(fields[1].strip()):
+            raise ValueError(f"{path} line {number}: expected sample<TAB>reason with a reason of "
+                             f"lower-case letters, digits and underscores, got {line!r}")
+        excluded[fields[0].strip()] = fields[1].strip()
+    return excluded
+
+
+def write_summary(metrics, output_path, expected=(), stages=None, excluded=None):
+    excluded = excluded or {}
+    if stages is None:
+        stages = infer_stages(metrics)
+    samples = sorted(set(metrics) | set(expected) | set(excluded))
     with output_path.open("w", newline="") as handle:
         # extrasaction: the row carries metrics the table does not show, such as
         # reads_mapped_ihe3034_mapq40, which is still used for the monotonic check above.
@@ -300,12 +391,14 @@ def write_summary(metrics, output_path, expected=()):
         writer.writeheader()
         for sample in samples:
             if sample in metrics:
-                writer.writerow(output_row(sample, metrics[sample]))
+                row = output_row(sample, metrics[sample])
             else:
                 row = {column: "NA" for column in OUTPUT_COLUMNS}
                 row["Sample"] = sample
                 row["status"] = "no_qc_produced"
-                writer.writerow(row)
+            row["terminal_state"] = terminal_state(metrics.get(sample, {}), stages,
+                                                   excluded.get(sample))
+            writer.writerow(row)
 
 
 def read_expected(path):
@@ -318,11 +411,13 @@ def main():
     args = parse_args()
     metrics = load_fragments(args.inputs)
     expected = read_expected(args.expected_samples)
+    excluded = read_excluded(args.excluded_samples)
 
-    if not metrics and not expected:
+    if not metrics and not expected and not excluded:
         raise ValueError("No QC records were supplied")
 
-    write_summary(metrics, args.output, expected)
+    stages = parse_stages(args.expected_stages) if args.expected_stages is not None else None
+    write_summary(metrics, args.output, expected, stages, excluded)
 
 
 if __name__ == "__main__":

@@ -97,6 +97,7 @@ process masterQCSummary {
     path(qc_script)
     path(expected_samples)
     path(fragment_list)
+    val(expected_stages)
 
     output:
     path "pks.qc.summary.tsv"
@@ -110,6 +111,7 @@ process masterQCSummary {
     python3 "${qc_script}" \
         --inputs-file "${fragment_list}" \
         --expected-samples "${expected_samples}" \
+        --expected-stages "${expected_stages}" \
         --output pks.qc.summary.tsv
     """
 }

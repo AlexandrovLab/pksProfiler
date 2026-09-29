@@ -113,6 +113,9 @@ def main():
     p.add_argument("--no-tiers", action="store_true")
     p.add_argument("--rna-library-type", choices=RNA_LIBRARY_TYPES, default="unknown",
                    help="recorded in rna_evidence.tsv; --mode rna only")
+    p.add_argument("--qc-fragment", default=None,
+                   help="also write a Sample/Metric/Value QC fragment carrying "
+                        "evidence_outcome (positive|negative|untiered) for build_qc_summary.py")
     a = p.parse_args()
 
     thresholds = {
@@ -133,6 +136,24 @@ def main():
     with Path(a.output).open("w", newline="") as handle:
         writer = csv.DictWriter(handle, SCHEMAS[a.mode], delimiter="\t"); writer.writeheader()
         writer.writerow(row)
+    if a.qc_fragment:
+        with Path(a.qc_fragment).open("w", newline="") as handle:
+            handle.write("Sample\tMetric\tValue\n")
+            handle.write(f"{a.sample}\tevidence_outcome\t{evidence_outcome(row)}\n")
+
+
+def evidence_outcome(row):
+    """positive | negative | untiered, for the QC terminal state (GAMEPLAN rc1).
+
+    Only a tiered wgs row is ever positive or negative: positive is a formal tier
+    (multi_gene, broad_island, extensive_island); negative is 0 reads or
+    localized_indeterminate, which is explicitly not a positive tier. Every other row --
+    metagenome, wes, rna, long-read wgs -- is evidence without a call.
+    """
+    tier = row.get("read_evidence")
+    if row.get("mode") != "wgs" or tier in (None, "untiered"):
+        return "untiered"
+    return "positive" if tier in TIERS else "negative"
 
 
 def evidence_row(mode, sample, reads, genes, breadth, thresholds, no_tiers=False,
