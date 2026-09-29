@@ -30,7 +30,7 @@ params.bracken_read_length = null // Must match a read length supported by the s
 // classification, contig analysis and MAG/taxonomy lanes silently never ran,
 // with no error and a gene-count table that looked like a normal, if evidence-
 // free, result. His own first preference: no default: required, and explicit.
-params.sample_type = null     // required: metagenome | tumor_wgs | tumor_wes | tumor_rna
+params.sample_type = null     // required: metagenome | tumor_wgs  (tumor_wes / tumor_rna: lanes not built yet)
 
 // ---------------- v0.0.2: optional taxonomic prefilter + clb homology rescue ----------------
 // off      -> host-depleted reads go straight to profiling (v0.0.1 behaviour, the default)
@@ -325,8 +325,8 @@ workflow {
 
         Common:
           --input_data_type   auto | bam | cram | fastq            (default: auto)
-          --sample_type       metagenome | tumor_wgs |
-                              tumor_wes | tumor_rna                (required, no default)
+          --sample_type       metagenome | tumor_wgs               (required, no default;
+                              tumor_wes / tumor_rna are refused until their lanes exist)
           --profiling_method  bowtie2 | hmm | both                 (default: bowtie2)
           --outdir            results directory                    (default: ./results)
           --save_intermediates  publish extracted/filtered/host-depleted FASTQs
@@ -492,7 +492,7 @@ workflow {
     // Ludmil, revised report finding 9: fail loudly before any task runs, rather
     // than accept "auto" and silently resolve it to nothing.
     if (!params.sample_type) {
-        exit 1, "Missing required parameter: --sample_type. Supported: metagenome, tumor_wgs, tumor_wes, tumor_rna"
+        exit 1, "Missing required parameter: --sample_type. Supported: metagenome, tumor_wgs"
     }
 
     if (pks_taxa_b && !params.kraken_db) {
@@ -752,7 +752,15 @@ workflow {
     }
 
 	// ---------- v0.0.2: sample-type and contig-analysis validation ----------
-    def valid_sample_types = ["metagenome", "tumor_wgs", "tumor_wes", "tumor_rna"]
+    // Ludmil, 26 Sep mode memo: every accepted sample_type must map to a real execution
+    // branch. tumor_wes and tumor_rna used to pass this check and then match no branch,
+    // so they ran generic profiling with no mode-specific handling. Refused, loudly,
+    // until the WES (evidence-only) and RNA (splice-aware depletion) lanes exist.
+    def planned_sample_types = ["tumor_wes", "tumor_rna"]
+    if (params.sample_type in planned_sample_types) {
+        exit 1, "--sample_type ${params.sample_type} is not supported in this release: its dedicated lane (WES evidence-only / RNA splice-aware depletion) is not built yet. Use metagenome or tumor_wgs."
+    }
+    def valid_sample_types = ["metagenome", "tumor_wgs"]
     if (!(params.sample_type in valid_sample_types)) {
         exit 1, "Unknown --sample_type: ${params.sample_type}. Supported: ${valid_sample_types.join(', ')}"
     }
@@ -924,12 +932,12 @@ workflow {
             ALIGN_OUT.qc.map { _sampleID, qc_file -> qc_file }
         )
 
-        // ---------- v0.0.2: read-level pks evidence tier ----------
-        // Computed for tumour and metagenome alike. For metagenomes it is an annotation
-        // only: the tiers were derived from TCGA tumour breadth distributions and are not
-        // calibrated for metagenome depth, and gating genome-resolved analysis on a
-        // reference-based nucleotide tier would filter out the divergent carriers that
-        // lane exists to find. The contig-count gate remains the metagenome gate.
+        // ---------- v0.0.2: read-level pks evidence (tier for tumour WGS only) ----------
+        // The evidence -- pks reads, clb genes, island breadth -- is computed for tumour
+        // and metagenome alike. The tier is tumour WGS only (Ludmil, 26 Sep mode memo): the
+        // thresholds were derived from TCGA tumour breadth distributions and are not a
+        // metagenome call, so metagenomes get read_evidence=untiered (--no-tiers in
+        // classifyPksReadEvidence). The contig-count gate remains the metagenome gate.
         // The cohort report reads the published tree, so it must not start before the
         // per-sample evidence is there. Depending only on the QC summary, it could run
         // while read_evidence.tsv was still unpublished and report every sample as

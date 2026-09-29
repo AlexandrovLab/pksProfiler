@@ -69,6 +69,10 @@ def main():
     p.add_argument("--extensive-island-reads", type=int, default=100)
     p.add_argument("--extensive-island-genes", type=int, default=10)
     p.add_argument("--extensive-island-breadth", type=float, default=.15)
+    # Ludmil, 26 Sep mode memo: the tiers were derived from TCGA tumour WGS and are not
+    # a metagenome call. --no-tiers keeps the evidence (reads, genes, breadth) and writes
+    # read_evidence=untiered instead of a tier.
+    p.add_argument("--no-tiers", action="store_true")
     a = p.parse_args()
 
     thresholds = {
@@ -83,7 +87,7 @@ def main():
     metrics = qc_metrics(a.qc)
     reads = int(float(metrics.get("reads_clb_genes_align", 0))); genes = detected_genes(a.counts)
     b1, b2, b3 = breadths(a.depth, a.island_length)
-    evidence = classify(reads, genes, b1, thresholds)
+    evidence = "untiered" if a.no_tiers else classify(reads, genes, b1, thresholds)
 
     fields = ["sample", "read_evidence", "pks_reads", "clb_genes_detected", "island_breadth_1x", "island_breadth_2x", "island_breadth_3x"]
     with Path(a.output).open("w", newline="") as handle:

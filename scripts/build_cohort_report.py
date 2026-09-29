@@ -55,12 +55,14 @@ BUCKETS = ((10, "#2166ac"), (3, "#67a9cf"), (1, "#d1e5f0"))
 EMPTY = "#f2f2f2"
 TIER_FILL = {"extensive_island": "#9e2a2b", "broad_island": "#e09f3e",
              "multi_gene": "#f0c987", "localized_indeterminate": "#8c8c8c",
-             "negative": "#d9d9d9", "not_classified": "#d9d9d9"}
+             "negative": "#d9d9d9", "not_classified": "#d9d9d9", "untiered": "#eeeeee"}
 TIER_INK = {"multi_gene": "#3b2a12", "negative": "#4d4d4d",
-            "not_classified": "#4d4d4d"}
+            "not_classified": "#4d4d4d", "untiered": "#4d4d4d"}
 TIER_LABEL = {"extensive_island": "Extensive", "broad_island": "Broad",
               "multi_gene": "Multi-gene", "localized_indeterminate": "Indeterminate",
               "negative": "Negative", "not_classified": "Not classified",
+              # 26 Sep mode memo: metagenomes get the evidence but no WGS tumour tier.
+              "untiered": "Not tiered (metagenome)",
               "NA": "Not aligned"}
 TIER_FILL["NA"] = "#eeeeee"
 TIER_INK["NA"] = "#4d4d4d"
@@ -562,13 +564,17 @@ def species_support_section(rows):
 
 def page(records, results, species_rows=()):
     tiers = {tier: sum(1 for r in records if r["tier"] == tier) for tier in TIERS}
-    unclassified = sum(1 for r in records if r["tier"] not in TIER_RANK)
+    untiered = sum(1 for r in records if r["tier"] == "untiered")
+    unclassified = sum(1 for r in records if r["tier"] not in TIER_RANK and r["tier"] != "untiered")
     assembled = sum(1 for r in records if r["assembled"])
 
     tiles = "".join(
         f'<div class="tile"><div class="n">{count}</div>'
         f'<div class="l">{esc(TIER_LABEL[tier])}</div></div>'
         for tier, count in sorted(tiers.items(), key=lambda kv: -TIER_RANK[kv[0]]))
+    if untiered:
+        tiles += (f'<div class="tile"><div class="n">{untiered}</div>'
+                  f'<div class="l">{esc(TIER_LABEL["untiered"])}</div></div>')
     if unclassified:
         tiles += (f'<div class="tile"><div class="n">{unclassified}</div>'
                   f'<div class="l">Not classified</div></div>')

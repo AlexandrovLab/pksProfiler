@@ -39,7 +39,20 @@ class SampleTypeHasNoDefault(unittest.TestCase):
         self.assertIsNotNone(m, "valid_sample_types list not found")
         values = eval(m.group(1))
         self.assertNotIn("auto", values)
-        self.assertEqual(set(values), {"metagenome", "tumor_wgs", "tumor_wes", "tumor_rna"})
+        self.assertEqual(set(values), {"metagenome", "tumor_wgs"})
+
+    def test_modes_without_a_lane_are_refused_not_accepted(self):
+        # 26 Sep mode memo: every accepted value maps to a real branch. The only
+        # branches main.nf routes on are these two.
+        code = code_only(MAIN)
+        routed = set(re.findall(r'params\.sample_type\s*==\s*"(\w+)"', code)) | \
+            set(v for group in re.findall(r'params\.sample_type in \[([^\]]*)\]', code)
+                for v in re.findall(r'"(\w+)"', group))
+        m = re.search(r"def valid_sample_types = (\[[^\]]*\])", code)
+        for value in eval(m.group(1)):
+            with self.subTest(sample_type=value):
+                self.assertIn(value, routed, f"{value} is accepted but no branch uses it")
+        self.assertIn("is not supported in this release", MAIN)
 
 
 class MissingSampleTypeFailsBeforeAnyTaskRuns(unittest.TestCase):
@@ -61,7 +74,7 @@ class MissingSampleTypeFailsBeforeAnyTaskRuns(unittest.TestCase):
     def test_the_error_message_names_every_supported_value(self):
         self.assertIn(
             "Missing required parameter: --sample_type. Supported: "
-            "metagenome, tumor_wgs, tumor_wes, tumor_rna",
+            "metagenome, tumor_wgs",
             MAIN)
 
 

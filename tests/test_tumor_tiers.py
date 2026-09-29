@@ -192,3 +192,33 @@ class ClassifierOutputTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MetagenomesAreNotTiered(unittest.TestCase):
+    """26 Sep mode memo: no WGS tumour tiers for metagenomes; the evidence stays."""
+
+    ROOT = Path(__file__).resolve().parents[1]
+
+    def test_the_module_passes_no_tiers_for_metagenomes_only(self):
+        targeted = (self.ROOT / "Modules/pks_targeted.nf").read_text()
+        self.assertIn("params.sample_type == 'metagenome' ? '--no-tiers' : ''", targeted)
+
+    def test_no_tiers_writes_untiered_and_keeps_the_evidence(self):
+        import subprocess, sys, tempfile
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "qc.tsv").write_text("Sample\tMetric\tValue\nS\treads_clb_genes_align\t500\n")
+            (d / "counts.tsv").write_text("# featureCounts\nGeneid\tChr\tStart\tEnd\tStrand\tLength\tbam\n"
+                                          + "".join(f"clb{g}\tc\t1\t2\t+\t2\t50\n" for g in "ABCDEFGHIJKL"))
+            (d / "depth.tsv").write_text("".join(f"c\t{i}\t5\n" for i in range(1, 101)))
+            out = d / "ev.tsv"
+            base = [sys.executable, str(self.ROOT / "scripts/classify_tumor_pks_evidence.py"),
+                    "--sample", "S", "--qc", str(d / "qc.tsv"), "--counts", str(d / "counts.tsv"),
+                    "--depth", str(d / "depth.tsv"), "--island-length", "100", "--output", str(out)]
+            subprocess.run(base, check=True)
+            tiered = out.read_text().splitlines()[1].split("\t")
+            subprocess.run(base + ["--no-tiers"], check=True)
+            untiered = out.read_text().splitlines()[1].split("\t")
+        self.assertEqual(tiered[1], "extensive_island")
+        self.assertEqual(untiered[1], "untiered")
+        self.assertEqual(tiered[2:], untiered[2:])
