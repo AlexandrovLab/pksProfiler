@@ -60,6 +60,10 @@ printf 'patient,bam\nCONSTRUCTION_CHECK,%s/input.bam\n' "$work" > "$work/sheet.c
 # one-byte stand-ins are enough (the real ones: docs/running/wes_rna.md).
 printf 'x' > "$work/splice_sr.mmi"
 printf 'x' > "$work/junctions.bed"
+# Long-read indexes (owner decision, 29 Sep): stand-ins, as above.
+printf 'x' > "$work/hg38_long.mmi"
+printf 'x' > "$work/t2t_long.mmi"
+printf 'x' > "$work/splice_long.mmi"
 
 pass=0; fail=0; skip=0
 failed_names=(); skipped_names=()
@@ -151,6 +155,19 @@ NO_HG38=1 construct "rna, junctions + library type" --sample_type rna --profilin
 construct "rna, frag=no, assembly flag inert" --sample_type rna --profiling_method bowtie2 \
                                           --rna_splice_db "$work/splice_sr.mmi" \
                                           --minimap2_frag_mode no --tumor_targeted_assembly true
+
+# Long reads, wgs and rna only. Long-read WGS is untiered and refuses targeted assembly
+# (on by default), so it is switched off explicitly.
+for rt in ont hifi; do
+    NO_HG38=1 construct "wgs, $rt" --sample_type wgs --read_type "$rt" --profiling_method bowtie2 \
+                                   --tumor_targeted_assembly false \
+                                   --hg38_db_long "$work/hg38_long.mmi" \
+                                   --t2t_phix_db_long "$work/t2t_long.mmi"
+    NO_HG38=1 construct "rna, $rt" --sample_type rna --read_type "$rt" --profiling_method both \
+                                   --rna_splice_db_long "$work/splice_long.mmi" \
+                                   --rna_junctions_bed "$work/junctions.bed" \
+                                   --t2t_phix_db_long "$work/t2t_long.mmi"
+done
 
 construct "metagenome, profiling only"    --sample_type metagenome --profiling_method bowtie2
 construct "metagenome, HMM only"          --sample_type metagenome --profiling_method hmm

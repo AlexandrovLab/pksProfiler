@@ -5,7 +5,9 @@
 #
 # Ludmil, 26 Sep mode memo section 4: RNA's human pass must be splice-aware
 # (-ax splice:sr, optional -j junctions) while the T2T+phiX and pangenome passes stay
-# -ax sr; E0's --frag=no must reach every short-read call. The unit tests read the
+# unspliced; E0's --frag=no must reach every short-read call. Owner decision, 29 Sep:
+# ont/hifi use map-ont/map-hifi (splice/splice:hq for rna's human pass) against the
+# *_long indexes, and never --frag. The unit tests read the
 # Groovy source; this runs it, through the same Nextflow the pipeline uses.
 #
 #     bash tests/check_depletion_plan.sh
@@ -24,38 +26,67 @@ def show(label, m) {
 }
 
 workflow {
-    // sample_type, frag_mode, hg38_db, rna_splice_db, rna_junctions_bed
+    // sample_type, read_type, frag_mode
     def cases = [
-        ['wgs',        'default', 'HG38', null,     null],
-        ['wgs',        'no',      'HG38', null,     null],
-        ['wes',        'default', 'HG38', null,     null],
-        ['metagenome', 'no',      'HG38', 'SPLICE', 'JUNC'],
-        ['rna',        'default', 'HG38', 'SPLICE', null],
-        ['rna',        'no',      null,   'SPLICE', 'JUNC'],
+        ['wgs', 'short', 'default'], ['wgs', 'short', 'no'], ['wes', 'short', 'default'],
+        ['metagenome', 'short', 'no'], ['rna', 'short', 'default'], ['rna', 'short', 'no'],
+        ['wgs', 'ont', 'no'], ['wgs', 'hifi', 'default'], ['rna', 'ont', 'no'], ['rna', 'hifi', 'default'],
     ]
     cases.each { c ->
-        show("human:${c[0]}:${c[1]}", HostDepletion.humanPass(c[0], c[1], c[2], c[3], c[4]))
+        def label = "${c[0]}:${c[1]}:${c[2]}"
+        // hg38, hg38_long, splice, splice_long, junctions (junctions only reach rna)
+        show("human:${label}", HostDepletion.humanPass(c[0], c[1], c[2],
+            'HG38', 'HG38_LONG', 'SPLICE', 'SPLICE_LONG', c[2] == 'no' ? 'JUNC' : null))
+        show("t2t:${label}", HostDepletion.t2tPass(c[1], c[2], 'T2T', 'T2T_LONG'))
+        show("pangenome:${label}", HostDepletion.pangenomePass(c[1], c[2]))
+        println "param:${label}|${HostDepletion.humanIndexParam(c[0], c[1])}|${HostDepletion.t2tIndexParam(c[1])}|${HostDepletion.profilingPreset(c[1])}"
     }
-    show('t2t:default', HostDepletion.t2tPass('default', 'T2T'))
-    show('t2t:no', HostDepletion.t2tPass('no', 'T2T'))
-    show('pangenome:no', HostDepletion.pangenomePass('no'))
-    println "param:wgs|${HostDepletion.humanIndexParam('wgs')}"
-    println "param:rna|${HostDepletion.humanIndexParam('rna')}"
+    println "param:default|${HostDepletion.humanIndexParam('wgs', null)}|${HostDepletion.t2tIndexParam(null)}"
 }
 NF
 
 cat > "$work/expected.txt" <<'TXT'
-human:wgs:default|sr|HG38|
-human:wgs:no|sr|HG38|--frag=no
-human:wes:default|sr|HG38|
-human:metagenome:no|sr|HG38|--frag=no
-human:rna:default|splice:sr|SPLICE|
-human:rna:no|splice:sr|SPLICE|--frag=no -j "JUNC"
-t2t:default|sr|T2T|
-t2t:no|sr|T2T|--frag=no
-pangenome:no|sr||--frag=no
-param:wgs|hg38_db
-param:rna|rna_splice_db
+human:wgs:short:default|sr|HG38|
+t2t:wgs:short:default|sr|T2T|
+pangenome:wgs:short:default|sr||
+param:wgs:short:default|hg38_db|t2t_phix_db|sr
+human:wgs:short:no|sr|HG38|--frag=no
+t2t:wgs:short:no|sr|T2T|--frag=no
+pangenome:wgs:short:no|sr||--frag=no
+param:wgs:short:no|hg38_db|t2t_phix_db|sr
+human:wes:short:default|sr|HG38|
+t2t:wes:short:default|sr|T2T|
+pangenome:wes:short:default|sr||
+param:wes:short:default|hg38_db|t2t_phix_db|sr
+human:metagenome:short:no|sr|HG38|--frag=no
+t2t:metagenome:short:no|sr|T2T|--frag=no
+pangenome:metagenome:short:no|sr||--frag=no
+param:metagenome:short:no|hg38_db|t2t_phix_db|sr
+human:rna:short:default|splice:sr|SPLICE|
+t2t:rna:short:default|sr|T2T|
+pangenome:rna:short:default|sr||
+param:rna:short:default|rna_splice_db|t2t_phix_db|sr
+human:rna:short:no|splice:sr|SPLICE|--frag=no -j "JUNC"
+t2t:rna:short:no|sr|T2T|--frag=no
+pangenome:rna:short:no|sr||--frag=no
+param:rna:short:no|rna_splice_db|t2t_phix_db|sr
+human:wgs:ont:no|map-ont|HG38_LONG|
+t2t:wgs:ont:no|map-ont|T2T_LONG|
+pangenome:wgs:ont:no|map-ont||
+param:wgs:ont:no|hg38_db_long|t2t_phix_db_long|map-ont
+human:wgs:hifi:default|map-hifi|HG38_LONG|
+t2t:wgs:hifi:default|map-hifi|T2T_LONG|
+pangenome:wgs:hifi:default|map-hifi||
+param:wgs:hifi:default|hg38_db_long|t2t_phix_db_long|map-hifi
+human:rna:ont:no|splice|SPLICE_LONG|-j "JUNC"
+t2t:rna:ont:no|map-ont|T2T_LONG|
+pangenome:rna:ont:no|map-ont||
+param:rna:ont:no|rna_splice_db_long|t2t_phix_db_long|map-ont
+human:rna:hifi:default|splice:hq|SPLICE_LONG|
+t2t:rna:hifi:default|map-hifi|T2T_LONG|
+pangenome:rna:hifi:default|map-hifi||
+param:rna:hifi:default|rna_splice_db_long|t2t_phix_db_long|map-hifi
+param:default|hg38_db|t2t_phix_db
 TXT
 
 (cd "$work" && nextflow -q run main.nf -work-dir "$work/w" > "$work/actual.raw" 2>&1) || {

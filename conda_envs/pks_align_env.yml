@@ -9,6 +9,8 @@ dependencies:
   - python=3.10
   - pandas=2.3
   - bowtie2=2.5.4
+  # long-read profiling (--read_type ont|hifi), same version as host depletion
+  - minimap2=2.31
   - samtools=1.21
   - bedtools=2.31.1
   - subread=2.1.1

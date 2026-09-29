@@ -198,7 +198,9 @@ TIER_FIELDS = (("min_pks_reads", "pks reads"), ("min_clb_genes", "clb genes"),
 PARAMETER_GROUPS = (
     ("INPUT", ("sample", "input_data_type", "sample_type", "cram_reference", "outdir",
                # Ludmil, 26 Sep mode memo section 4: RNA library type is recorded.
-               "rna_library_type")),
+               "rna_library_type",
+               # Owner decision, 29 Sep: long-read input.
+               "read_type")),
     ("PROFILING", ("profiling_method", "hmm_evalue", "hmm_protein_evalue", "prefilter_mode",
                    "pks_contig", "pks_start_1based", "pks_end_1based",
                    "pks_island_len_1based",
@@ -206,13 +208,14 @@ PARAMETER_GROUPS = (
                    "pks_align_bowtie2_mode", "pks_align_bowtie2_preset",
                    "pks_align_bowtie2_score_min", "pks_align_min_mapq",
                    # E0: host-depletion fragment mode.
-                   "minimap2_frag_mode")),
+                   "minimap2_frag_mode", "long_read_min_length")),
     ("EVIDENCE TIERS", tuple(f"tumor_{tier}_{field}" for tier in TIER_NAMES
                              for field, _label in TIER_FIELDS)),
     ("STAGES", ("enable_mags", "tumor_targeted_assembly",
                 "diamond_rescue", "pks_community_taxa",
                 "enable_strain_typing", "pks_taxa")),
     ("DATABASES", ("hg38_db", "rna_splice_db", "rna_junctions_bed",
+                   "hg38_db_long", "rna_splice_db_long", "t2t_phix_db_long",
                    "t2t_phix_db", "pangenome_db", "kraken_db", "genomad_db",
                    "gtdbtk_db", "checkm2_db", "bracken_read_length")),
     ("RESOURCES", ("max_cpus", "max_memory", "max_time", "conda_cache_dir")),
@@ -245,6 +248,28 @@ def unknown_parameter_names(params):
         return []
     return [name for _title, names in PARAMETER_GROUPS for name in names
             if name not in params]
+
+
+def long_read_type(params):
+    """The long read type (ont/hifi) the run used, or None for short reads."""
+    value = params.get("read_type")
+    return value if is_set(value) and value != "short" else None
+
+
+# Owner decision, 29 Sep: which aligner made the profiling alignment. Mirrors
+# lib/HostDepletion.DNA_PRESET for the long-read presets.
+LONG_READ_PRESET = {"ont": "map-ont", "hifi": "map-hifi"}
+
+
+def profiling_aligner(params):
+    mapq = params.get("pks_align_min_mapq") or "?"
+    long_read = long_read_type(params)
+    if long_read:
+        return (f"minimap2 -ax {LONG_READ_PRESET.get(long_read, '?')} against the IHE3034 genome "
+                f"FASTA, MAPQ >= {mapq}, featureCounts -L")
+    return (f"bowtie2 --{params.get('pks_align_bowtie2_mode') or '?'} "
+            f"--{params.get('pks_align_bowtie2_preset') or '?'} "
+            f"--score-min {params.get('pks_align_bowtie2_score_min') or '?'}, MAPQ >= {mapq}")
 
 
 def island_interval(params):
@@ -355,11 +380,18 @@ def render(record):
             lines.append(f"    {name:<38}{value}")
 
     params = invocation.get("params") or {}
+    if params:
+        lines.append("")
+        lines.append(f"  profiling aligner  {profiling_aligner(params)}")
     interval = island_interval(params)
+    long_read = long_read_type(params)
     if interval or params.get("sample_type") == "wgs":
         lines += section("PKS ISLAND AND TIER DEFINITION")
         lines.append(f"  analytical interval  {interval or 'NOT RECORDED'}")
-        if params.get("sample_type") == "wgs":
+        if params.get("sample_type") == "wgs" and long_read:
+            lines.append(f"  evidence tiers       not applied: long-read WGS (read_type={long_read}) is "
+                         "evidence-only; the tiers were calibrated on short-read Bowtie2")
+        elif params.get("sample_type") == "wgs":
             lines.append("  evidence tiers (wgs; all thresholds must be met)")
             lines += tier_definition(params)
 

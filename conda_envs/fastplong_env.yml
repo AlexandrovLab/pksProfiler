@@ -1,0 +1,9 @@
+name: pksprofiler-fastplong
+
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  - fastplong=0.7.1

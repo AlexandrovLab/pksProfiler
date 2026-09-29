@@ -29,10 +29,18 @@ process pksProfiler_align {
     def bam          = "${sampleID}.sorted.bam"
 	def bai          = "${sampleID}.sorted.bam.bai"
     def qc           = "${sampleID}.alignment.qc.tsv"
+    // Owner decision, 29 Sep: long reads (--read_type ont|hifi) are profiled with
+    // minimap2 -ax map-ont/map-hifi against the IHE3034 genome FASTA (the sequence the
+    // Bowtie2 index was built from), with the same MAPQ filter; featureCounts gets -L.
+    // Every output keeps its name, so nothing downstream changes.
+    def long_read          = HostDepletion.isLong(params.read_type)
+    def long_preset        = HostDepletion.profilingPreset(params.read_type)
+    def featurecounts_long = long_read ? "-L" : ""
 
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # pks_annotation ${params.dep_digest?.pks_annotation}  pks_genome ${params.dep_digest?.pks_genome}  scripts ${params.dep_digest?.scripts}
+    # pks_reference_fasta ${params.dep_digest?.pks_reference_fasta}
 	    set -euo pipefail
 
 	# Build and validate the exact manuscript-facing clbA-clbS annotation.
@@ -48,6 +56,13 @@ process pksProfiler_align {
         exit 1
     fi
 
+    if [[ "${long_read}" == "true" ]]; then
+    echo "minimap2 -ax ${long_preset} alignment (sample: ${sampleID})"
+    minimap2 -ax ${long_preset} --secondary=no -t "${task.cpus}" \
+        "${params.pks_reference_fasta}" "${reads}" \
+      | samtools view -@ "${task.cpus}" -b -F 4 -q ${params.pks_align_min_mapq} - \
+      | samtools sort -@ "${task.cpus}" -o "${bam}" -
+    else
     echo "Bowtie2 Alignment (sample: ${sampleID})"
     # F18: bowtie2 streams straight into the sorter. The SAM was written to disk, kept
     # as a process output, published beside the BAM that duplicates it, and read by
@@ -61,6 +76,7 @@ process pksProfiler_align {
         --score-min ${params.pks_align_bowtie2_score_min} --no-unal \
       | samtools view -@ "${task.cpus}" -bS -q ${params.pks_align_min_mapq} - \
       | samtools sort -@ "${task.cpus}" -o "${bam}" -
+    fi
     samtools index -@ "${task.cpus}" "${bam}" "${bai}"
 
     MAPPED_READS=\$(samtools view -c -F 4 "${bam}")
@@ -75,7 +91,7 @@ process pksProfiler_align {
         -t gene \
         -F GFF \
         -g Name \
-        --largestOverlap \
+        --largestOverlap ${featurecounts_long} \
         "${bam}"
 
     python "${params.scripts}/validate_featurecounts.py" \

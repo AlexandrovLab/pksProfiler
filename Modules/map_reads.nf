@@ -29,15 +29,21 @@ process mapReads {
     // given), because -ax sr leaves exon-junction human reads undepleted. The T2T+phiX and
     // pangenome passes stay -ax sr: there is no junction annotation for those references.
     // The QC metric names (reads_after_hg38, ...) are unchanged in every mode.
-    def human = HostDepletion.humanPass(params.sample_type, params.minimap2_frag_mode,
-                                        params.hg38_db, params.rna_splice_db,
+    // Long reads (--read_type ont|hifi): map-ont/map-hifi for DNA passes, splice/splice:hq
+    // for rna's human pass, against the *_long indexes; --frag is omitted (it only changes
+    // how minimap2 treats short paired reads).
+    def human = HostDepletion.humanPass(params.sample_type, params.read_type, params.minimap2_frag_mode,
+                                        params.hg38_db, params.hg38_db_long,
+                                        params.rna_splice_db, params.rna_splice_db_long,
                                         params.rna_junctions_bed)
-    def t2t = HostDepletion.t2tPass(params.minimap2_frag_mode, params.t2t_phix_db)
-    def pangenome = HostDepletion.pangenomePass(params.minimap2_frag_mode)
+    def t2t = HostDepletion.t2tPass(params.read_type, params.minimap2_frag_mode,
+                                    params.t2t_phix_db, params.t2t_phix_db_long)
+    def pangenome = HostDepletion.pangenomePass(params.read_type, params.minimap2_frag_mode)
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # hg38_db ${params.dep_digest?.hg38_db}  pangenome_db ${params.dep_digest?.pangenome_db}  t2t_phix_db ${params.dep_digest?.t2t_phix_db}
     # rna_splice_db ${params.dep_digest?.rna_splice_db}  rna_junctions_bed ${params.dep_digest?.rna_junctions_bed}
+    # hg38_db_long ${params.dep_digest?.hg38_db_long}  t2t_phix_db_long ${params.dep_digest?.t2t_phix_db_long}  rna_splice_db_long ${params.dep_digest?.rna_splice_db_long}
     set -euo pipefail
 
     if ! gzip -t "${reads_fastq}" >/dev/null 2>&1; then

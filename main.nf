@@ -43,6 +43,19 @@ params.rna_splice_db     = null        // required for rna: minimap2 index built
 params.rna_junctions_bed = null        // optional: BED12 of annotated junctions, passed to minimap2 -j
 params.rna_library_type  = "unknown"   // polyA | total | unknown; recorded in rna_evidence.tsv and RUN_REPORT
 
+// ---------------- Long reads (owner decision, 29 Sep) ----------------
+// short | ont | hifi. Long reads are accepted for wgs and rna only. For ont/hifi: fastplong
+// replaces fastp (QC metric names unchanged), every depletion pass uses the long-read
+// minimap2 preset against the *_long indexes (an index carries its preset's k/w, so the
+// short-read .mmi files are not reused), profiling aligns with minimap2 -ax map-ont/map-hifi
+// to the IHE3034 genome FASTA instead of Bowtie2, and WGS evidence is untiered (the tiers
+// were calibrated on short-read Bowtie2). See lib/HostDepletion.groovy.
+params.read_type             = "short"   // short | ont | hifi
+params.long_read_min_length  = 200       // fastplong --length_required, long reads only
+params.hg38_db_long          = null      // required for wgs + ont/hifi: GRCh38 FASTA, or .mmi built with -x map-ont / map-hifi
+params.t2t_phix_db_long      = null      // required for ont/hifi: T2T + phiX FASTA, or .mmi built with the matching preset
+params.rna_splice_db_long    = null      // required for rna + ont/hifi: GRCh38 FASTA, or .mmi built with -x splice (ont) / splice:hq (hifi)
+
 // ---------------- v0.0.2: optional taxonomic prefilter + clb homology rescue ----------------
 // off      -> host-depleted reads go straight to profiling (v0.0.1 behaviour, the default)
 // balanced -> krakenuniq narrows to primary_taxid, then DIAMOND blastx rescues clb-homologous
@@ -247,6 +260,7 @@ params.pks_cytoband          = "${projectDir}/indices/GCF_000025745.1/genomic_pk
 // Envs
 params.samtools_env = "${projectDir}/conda_envs/samtools_env.yml"
 params.fastp_env = "${projectDir}/conda_envs/fastp_env.yml"
+params.fastplong_env = "${projectDir}/conda_envs/fastplong_env.yml"
 params.minimap2_env = "${projectDir}/conda_envs/minimap2_env.yml"
 params.pks_align_env = "${projectDir}/conda_envs/pks_align_env.yml"
 params.pks_hmm_env = "${projectDir}/conda_envs/pks_hmm_env.yml"
@@ -294,6 +308,9 @@ params.dep_digest = [
     hg38_db             : Provenance.data(params.hg38_db),
     rna_splice_db       : Provenance.data(params.rna_splice_db),
     rna_junctions_bed   : Provenance.code(params.rna_junctions_bed),
+    hg38_db_long        : Provenance.data(params.hg38_db_long),
+    t2t_phix_db_long    : Provenance.data(params.t2t_phix_db_long),
+    rna_splice_db_long  : Provenance.data(params.rna_splice_db_long),
     t2t_phix_db         : Provenance.data(params.t2t_phix_db),
     pangenome_db        : Provenance.data(params.pangenome_db),
     pks_genome          : Provenance.data(params.pks_genome),
@@ -392,6 +409,14 @@ workflow {
           --rna_splice_db     minimap2 index built with -x splice:sr (or FASTA); required
           --rna_junctions_bed BED12 of annotated junctions for minimap2 -j (optional)
           --rna_library_type  polyA | total | unknown                (default: unknown)
+
+        Long reads (--read_type ont | hifi; wgs and rna only):
+          --read_type         short | ont | hifi                     (default: short)
+          --hg38_db_long      human index for wgs (FASTA, or .mmi built with map-ont/map-hifi)
+          --rna_splice_db_long human index for rna (FASTA, or .mmi built with splice/splice:hq)
+          --t2t_phix_db_long  T2T + PhiX index for long reads
+          --long_read_min_length  fastplong length floor              (default: 200)
+          Long-read WGS is evidence-only (untiered) and needs --tumor_targeted_assembly false.
 
         Optional stages (each off unless stated):
           --enable_mags            recover draft genomes from metagenomes
@@ -501,6 +526,10 @@ workflow {
         hg38_db                  : params.hg38_db,
         rna_splice_db            : params.rna_splice_db,
         rna_junctions_bed        : params.rna_junctions_bed,
+        read_type                : params.read_type,
+        hg38_db_long             : params.hg38_db_long,
+        t2t_phix_db_long         : params.t2t_phix_db_long,
+        rna_splice_db_long       : params.rna_splice_db_long,
         t2t_phix_db              : params.t2t_phix_db,
         pangenome_db             : params.pangenome_db,
         pks_genome               : params.pks_genome,
@@ -545,16 +574,18 @@ workflow {
         exit 1, "Missing required parameter: --sample"
     }
 
-    // Ludmil, 26 Sep mode memo section 4: rna's human pass uses the splice index instead;
-    // preflight.py applies the same rule (HostDepletion.humanIndexParam).
-    def human_index_param = HostDepletion.humanIndexParam(params.sample_type)
+    // Ludmil, 26 Sep mode memo section 4: rna's human pass uses the splice index instead,
+    // and long reads use the *_long indexes; preflight.py applies the same rule
+    // (HostDepletion.humanIndexParam / t2tIndexParam).
+    def human_index_param = HostDepletion.humanIndexParam(params.sample_type, params.read_type)
     if (!params[human_index_param]) {
         exit 1, "Missing required parameter: --${human_index_param}" +
             (human_index_param == 'rna_splice_db' ? " (--sample_type rna depletes human reads with minimap2 -ax splice:sr against it)" : "")
     }
 
-    if (!params.t2t_phix_db) {
-        exit 1, "Missing required parameter: --t2t_phix_db"
+    def t2t_index_param = HostDepletion.t2tIndexParam(params.read_type)
+    if (!params[t2t_index_param]) {
+        exit 1, "Missing required parameter: --${t2t_index_param}"
     }
 
     // Ludmil, revised report finding 9: fail loudly before any task runs, rather
@@ -567,6 +598,20 @@ workflow {
     def renamed_sample_types = [tumor_wgs: "wgs", tumor_wes: "wes", tumor_rna: "rna"]
     if (renamed_sample_types.containsKey(params.sample_type.toString())) {
         exit 1, "--sample_type ${params.sample_type} was renamed to ${renamed_sample_types[params.sample_type.toString()]}. Pass --sample_type ${renamed_sample_types[params.sample_type.toString()]}."
+    }
+    // Owner decision, 29 Sep: long reads for wgs and rna only, refused before submission.
+    def read_type = params.read_type.toString()
+    if (!(read_type in HostDepletion.READ_TYPES)) {
+        exit 1, "--read_type must be one of ${HostDepletion.READ_TYPES.join(', ')} (got ${params.read_type})"
+    }
+    def long_reads = HostDepletion.isLong(read_type)
+    if (long_reads && !(params.sample_type.toString() in HostDepletion.LONG_READ_SAMPLE_TYPES)) {
+        exit 1, "--read_type ${read_type} with --sample_type ${params.sample_type}: long-read input is supported for wgs and rna only"
+    }
+    // Targeted recruitment and assembly are Bowtie2 + MEGAHIT/metaSPAdes, short-read tools.
+    // Refused where it would otherwise run (wgs); rna never assembles, so it stays inert there.
+    if (long_reads && params.sample_type.toString() == "wgs" && tumor_targeted_assembly_b) {
+        exit 1, "--tumor_targeted_assembly is not supported with --read_type ${read_type}: recruitment and assembly are short-read tools (Bowtie2 + MEGAHIT/metaSPAdes), and long-read WGS is untiered. Pass --tumor_targeted_assembly false."
     }
 
     if (pks_taxa_b && !params.kraken_db) {
@@ -668,6 +713,11 @@ workflow {
                             error "Sample sheet row ${row_number} has an empty ${column} value"
                         }
                     }
+
+                // fastplong takes one read stream; long reads have no mates.
+                if (long_reads && row.fastq2?.toString()?.trim()) {
+                    error "Sample sheet row ${row_number} has a fastq2 value, but --read_type ${read_type} is single-stream long-read input"
+                }
 
                 if (alignment_input) {
                     def alignment = row.alignment?.toString()?.trim() ?: row.bam?.toString()?.trim()

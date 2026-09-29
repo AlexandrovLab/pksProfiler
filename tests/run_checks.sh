@@ -153,6 +153,25 @@ check_validation \
     rna-bad-library-type \
     '--rna_library_type must be polyA, total or unknown' \
     --sample_type rna --rna_splice_db "$test_dir/placeholder-hg38.mmi" --rna_library_type ribo
+# Owner decision, 29 Sep: long reads for wgs and rna only; long-read wgs cannot assemble.
+check_validation \
+    long-read-metagenome \
+    'long-read input is supported for wgs and rna only' \
+    --sample_type metagenome --read_type ont \
+    --hg38_db_long "$test_dir/placeholder-hg38.mmi" --t2t_phix_db_long "$test_dir/placeholder-t2t.mmi"
+check_validation \
+    unknown-read-type \
+    '--read_type must be one of short, ont, hifi' \
+    --sample_type wgs --read_type nanopore
+check_validation \
+    long-read-wgs-assembly \
+    '--tumor_targeted_assembly is not supported with --read_type hifi' \
+    --sample_type wgs --read_type hifi \
+    --hg38_db_long "$test_dir/placeholder-hg38.mmi" --t2t_phix_db_long "$test_dir/placeholder-t2t.mmi"
+check_validation \
+    long-read-missing-index \
+    '--hg38_db_long is not set' \
+    --sample_type wgs --read_type ont --tumor_targeted_assembly false
 
 echo
 echo "Running the host-depletion plan (lib/HostDepletion.groovy)"

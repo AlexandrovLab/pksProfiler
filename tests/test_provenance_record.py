@@ -274,6 +274,20 @@ class ReportStructure(unittest.TestCase):
         self.assertRegex(report, r"rna_library_type\s+polyA")
         self.assertRegex(report, r"rna_splice_db\s+/refs/splice.mmi")
 
+    def test_long_read_wgs_reports_its_aligner_and_no_tiers(self):
+        # Owner decision, 29 Sep: the profiling aligner is recorded; long-read WGS is untiered.
+        record = json.loads(json.dumps(LAUNCH_RECORD))
+        record["invocation"]["params"] = {"sample": "sheet.csv", "sample_type": "wgs",
+                                          "read_type": "ont", "pks_align_min_mapq": "40",
+                                          "pks_start_1based": "1", "pks_end_1based": "10",
+                                          "pks_contig": "c"}
+        (self.runs / "provenance" / "SESSION-A.json").write_text(json.dumps(record) + "\n")
+        self.finalise()
+        report = self.history()
+        self.assertIn("profiling aligner  minimap2 -ax map-ont", report)
+        self.assertIn("evidence tiers       not applied: long-read WGS", report)
+        self.assertRegex(report, r"read_type\s+ont")
+
     def test_a_failed_task_says_where_its_stderr_is(self):
         record = json.loads(json.dumps(LAUNCH_RECORD))
         record["invocation"]["work_dir"] = "/scratch/pks/work"

@@ -114,26 +114,31 @@ class RnaLane(unittest.TestCase):
         self.assertIn("rna", accepted())
 
     def test_only_rna_s_human_pass_is_spliced(self):
-        presets = groovy_map("HUMAN_PRESET")
-        self.assertEqual(presets, {"wgs": "sr", "wes": "sr", "metagenome": "sr",
-                                   "rna": "splice:sr"})
-        self.assertEqual(set(presets), set(accepted()))
+        self.assertEqual(groovy_map("DNA_PRESET")["short"], "sr")
+        self.assertEqual(groovy_map("RNA_PRESET")["short"], "splice:sr")
+        body = PLAN[PLAN.index("static Map humanPass("):]
+        body = body[:body.index("\n    }\n")]
+        self.assertIn("preset: (rna ? RNA_PRESET : DNA_PRESET)[rt]", body)
+        self.assertIn("boolean rna = sampleType?.toString() == 'rna'", body)
 
-    def test_t2t_and_pangenome_passes_stay_sr(self):
-        self.assertIn("static final String RESIDUAL_PRESET = 'sr'", PLAN)
+    def test_t2t_and_pangenome_passes_are_never_spliced(self):
         for plan in ("t2tPass", "pangenomePass"):
             body = PLAN[PLAN.index(f"static Map {plan}("):]
-            self.assertIn("preset: RESIDUAL_PRESET", body[:body.index("\n    }\n")])
+            body = body[:body.index("\n    }\n")]
+            with self.subTest(plan=plan):
+                self.assertIn("preset: DNA_PRESET[rt]", body)
+                self.assertNotIn("RNA_PRESET", body)
 
     def test_the_human_pass_uses_the_splice_index_and_junctions_for_rna_only(self):
         body = PLAN[PLAN.index("static Map humanPass("):]
         body = body[:body.index("\n    }\n")]
         self.assertIn("if (rna && rnaJunctionsBed) args << \"-j", body)
-        self.assertIn("index : (rna ? rnaSpliceDb : hg38Db)", body)
+        self.assertIn("rna ? (lr ? rnaSpliceDbLong : rnaSpliceDb) : (lr ? hg38DbLong : hg38Db)", body)
 
     def test_map_reads_builds_every_call_from_the_plan(self):
-        self.assertIn("HostDepletion.humanPass(params.sample_type, params.minimap2_frag_mode,\n"
-                      "                                        params.hg38_db, params.rna_splice_db,\n"
+        self.assertIn("HostDepletion.humanPass(params.sample_type, params.read_type, params.minimap2_frag_mode,\n"
+                      "                                        params.hg38_db, params.hg38_db_long,\n"
+                      "                                        params.rna_splice_db, params.rna_splice_db_long,\n"
                       "                                        params.rna_junctions_bed)", MAP)
         self.assertNotRegex(MAP, r"minimap2 -2 -ax sr\b", "a hard-coded -ax sr call bypasses the plan")
         self.assertIn('"${human.index}"', MAP)
@@ -143,9 +148,9 @@ class RnaLane(unittest.TestCase):
             self.assertIn(f"\\t{metric}\\t", MAP)
 
     def test_hg38_db_is_not_required_for_rna_and_the_splice_db_is(self):
-        self.assertIn("static String humanIndexParam(Object sampleType)", PLAN)
+        self.assertIn("static String humanIndexParam(Object sampleType, Object readType)", PLAN)
         self.assertIn("sampleType?.toString() == 'rna' ? 'rna_splice_db' : 'hg38_db'", PLAN)
-        self.assertIn("def human_index_param = HostDepletion.humanIndexParam(params.sample_type)", CODE)
+        self.assertIn("def human_index_param = HostDepletion.humanIndexParam(params.sample_type, params.read_type)", CODE)
         self.assertIn("if (!params[human_index_param])", CODE)
         self.assertNotIn("if (!params.hg38_db)", CODE)
         pre = load_script("preflight")
@@ -185,6 +190,97 @@ class RnaLane(unittest.TestCase):
     def test_rna_references_invalidate_the_depletion_task(self):
         self.assertRegex(MAIN, r"rna_splice_db\s*:\s*Provenance\.data\(params\.rna_splice_db\)")
         self.assertRegex(MAIN, r"rna_junctions_bed\s*:\s*Provenance\.code\(params\.rna_junctions_bed\)")
+
+
+class LongReadLane(unittest.TestCase):
+    """Owner decision, 29 Sep: --read_type short|ont|hifi; long reads for wgs and rna only.
+
+    The preset table itself is executed by tests/check_depletion_plan.sh; this pins the
+    source and the wiring around it.
+    """
+
+    FILTER = (ROOT / "Modules/filter_reads.nf").read_text()
+    ALIGN = (ROOT / "Modules/pksProfiler_align.nf").read_text()
+    TARGETED = (ROOT / "Modules/pks_targeted.nf").read_text()
+
+    def test_read_types_and_the_modes_that_take_long_reads(self):
+        self.assertIn("READ_TYPES = ['short', 'ont', 'hifi']", PLAN)
+        self.assertIn("LONG_READ_SAMPLE_TYPES = ['wgs', 'rna']", PLAN)
+        self.assertIn('params.read_type             = "short"', MAIN)
+
+    def test_preset_per_read_type(self):
+        self.assertEqual(groovy_map("DNA_PRESET"), {"short": "sr", "ont": "map-ont", "hifi": "map-hifi"})
+        self.assertEqual(groovy_map("RNA_PRESET"),
+                         {"short": "splice:sr", "ont": "splice", "hifi": "splice:hq"})
+
+    def test_read_type_is_validated_and_refused_outside_wgs_and_rna(self):
+        self.assertIn("if (!(read_type in HostDepletion.READ_TYPES))", CODE)
+        self.assertIn("long-read input is supported for wgs and rna only", MAIN)
+        body = MAIN.split("workflow {", 1)[1]
+        self.assertLess(body.index("long-read input is supported"), body.index("extractReads("))
+
+    def test_long_read_wgs_refuses_targeted_assembly(self):
+        self.assertIn('if (long_reads && params.sample_type.toString() == "wgs" && tumor_targeted_assembly_b)', CODE)
+        self.assertIn("Pass --tumor_targeted_assembly false", MAIN)
+
+    def test_long_read_wgs_is_untiered(self):
+        self.assertIn("params.sample_type.toString() == 'wgs' && HostDepletion.isLong(params.read_type) ? ' --no-tiers' : ''",
+                      self.TARGETED)
+
+    def test_long_reads_need_the_long_indexes(self):
+        self.assertIn('return isLong(readType) ? "${base}_long".toString() : base', PLAN)
+        self.assertIn("return isLong(readType) ? 't2t_phix_db_long' : 't2t_phix_db'", PLAN)
+        self.assertIn("def t2t_index_param = HostDepletion.t2tIndexParam(params.read_type)", CODE)
+        self.assertNotIn("if (!params.t2t_phix_db)", CODE)
+        pre = load_script("preflight")
+        cases = {("wgs", "short"): ("hg38_db", "t2t_phix_db"),
+                 ("wgs", "ont"): ("hg38_db_long", "t2t_phix_db_long"),
+                 ("rna", "short"): ("rna_splice_db", "t2t_phix_db"),
+                 ("rna", "hifi"): ("rna_splice_db_long", "t2t_phix_db_long")}
+        for (mode, rt), expected in cases.items():
+            config = {"sample_type": mode, "read_type": rt}
+            with self.subTest(mode=mode, read_type=rt):
+                self.assertEqual((pre.human_index_param(config), pre.t2t_index_param(config)), expected)
+
+    def test_frag_is_never_passed_to_long_reads(self):
+        body = PLAN[PLAN.index("static String fragArg("):]
+        self.assertIn("!isLong(readType)", body[:body.index("\n    }\n")])
+
+    def test_long_reads_are_filtered_with_fastplong_keeping_the_metric_names(self):
+        self.assertIn("HostDepletion.isLong(params.read_type) ? params.fastplong_env : params.fastp_env", self.FILTER)
+        self.assertIn("-l ${params.long_read_min_length}", self.FILTER)
+        for metric in ("filter_input_reads", "reads_after_fastp"):
+            self.assertIn(f"\\t{metric}\\t", self.FILTER)
+        env = (ROOT / "conda_envs/fastplong_env.yml").read_text()
+        self.assertIn("fastplong=", env)
+        self.assertIn("params.long_read_min_length  = 200", MAIN)
+
+    def test_long_reads_are_profiled_with_minimap2_not_bowtie2(self):
+        self.assertIn("minimap2 -ax ${long_preset} --secondary=no", self.ALIGN)
+        self.assertIn('"${params.pks_reference_fasta}" "${reads}"', self.ALIGN)
+        self.assertIn("-q ${params.pks_align_min_mapq}", self.ALIGN.split("minimap2 -ax ${long_preset}", 1)[1][:400])
+        self.assertIn('def featurecounts_long = long_read ? "-L" : ""', self.ALIGN)
+        self.assertIn("--largestOverlap ${featurecounts_long}", self.ALIGN)
+        self.assertIn("minimap2=2.31", (ROOT / "conda_envs/pks_align_env.yml").read_text())
+        self.assertIn("static String profilingPreset(Object readType)", PLAN)
+
+    def test_long_reads_refuse_a_mate_file(self):
+        self.assertIn("if (long_reads && row.fastq2?.toString()?.trim())", CODE)
+
+    def test_run_report_records_read_type_and_the_long_indexes(self):
+        prov = load_script("finalize_provenance")
+        names = {n for _group, members in prov.PARAMETER_GROUPS for n in members}
+        for name in ("read_type", "long_read_min_length", "hg38_db_long",
+                     "t2t_phix_db_long", "rna_splice_db_long"):
+            self.assertIn(name, names)
+        self.assertIn("minimap2 -ax map-ont", prov.profiling_aligner({"read_type": "ont", "pks_align_min_mapq": "40"}))
+        self.assertIn("minimap2 -ax map-hifi", prov.profiling_aligner({"read_type": "hifi"}))
+        self.assertTrue(prov.profiling_aligner({"read_type": "short"}).startswith("bowtie2"))
+        self.assertTrue(prov.profiling_aligner({}).startswith("bowtie2"))
+
+    def test_long_indexes_carry_digests(self):
+        for key in ("hg38_db_long", "t2t_phix_db_long", "rna_splice_db_long"):
+            self.assertRegex(MAIN, rf"{key}\s*:\s*Provenance\.data\(params\.{key}\)")
 
 
 if __name__ == "__main__":

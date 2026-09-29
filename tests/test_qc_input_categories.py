@@ -181,15 +181,16 @@ class FragModeIsASwitch(unittest.TestCase):
         self.assertEqual(set(calls), {"human", "t2t", "pangenome"})
         for plan in ("humanPass", "t2tPass", "pangenomePass"):
             with self.subTest(plan=plan):
-                self.assertRegex(self.MAP, rf"HostDepletion\.{plan}\(params\.(sample_type, )?params\.minimap2_frag_mode"
-                                 if plan == "humanPass" else rf"HostDepletion\.{plan}\(params\.minimap2_frag_mode")
+                self.assertRegex(self.MAP, rf"HostDepletion\.{plan}\((params\.sample_type, )?"
+                                           rf"params\.read_type, params\.minimap2_frag_mode")
                 body = self.PLAN[self.PLAN.index(f"static Map {plan}("):]
                 body = body[:body.index("\n    }\n")]
-                self.assertIn("fragArg(fragMode)", body)
+                self.assertIn("fragArg(rt, fragMode)", body)
 
     def test_the_default_is_the_behaviour_runs_have_used(self):
         self.assertIn('params.minimap2_frag_mode = "default"', self.MAIN)
-        self.assertIn("fragMode?.toString() == 'no' ? '--frag=no' : ''", self.PLAN)
+        # --frag only concerns short paired reads, so long reads never get it.
+        self.assertIn("(!isLong(readType) && fragMode?.toString() == 'no') ? '--frag=no' : ''", self.PLAN)
 
     def test_run_report_records_it(self):
         prov = load("finalize_provenance")

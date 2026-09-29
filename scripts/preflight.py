@@ -26,6 +26,7 @@ from pathlib import Path
 HMM_PRESS_SUFFIXES = (".h3f", ".h3i", ".h3m", ".h3p")
 BOWTIE2_SUFFIXES = (".1.bt2", ".2.bt2", ".3.bt2", ".4.bt2", ".rev.1.bt2", ".rev.2.bt2")
 CLB_GENES = [f"clb{letter}" for letter in "ABCDEFGHIJKLMNOPQRS"]
+READ_TYPES = ("short", "ont", "hifi")   # lib/HostDepletion.READ_TYPES
 SAMPLE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 ALIGNMENT_SUFFIXES = (".bam", ".cram")
@@ -151,6 +152,10 @@ def check_sample_sheet(config, report):
                     report.problem(section, f"row {number}: {column} must be "
                                             f"gzip-compressed (.fastq.gz/.fq.gz): {path.name}")
 
+        if is_long(config) and str(row.get("fastq2", "") or "").strip():
+            report.problem(section, f"row {number}: fastq2 is set, but --read_type "
+                                    f"{config.get('read_type')} is single-stream long-read input")
+
         alignment_value = str(row.get("alignment", "") or row.get("bam", "") or "").strip()
         looks_cram = alignment_value.lower().endswith(".cram")
         if looks_cram and not config.get("cram_reference"):
@@ -159,9 +164,23 @@ def check_sample_sheet(config, report):
     report.note(section, f"{len(rows)} samples")
 
 
+def is_long(config):
+    return str(config.get("read_type") or "short") != "short"
+
+
 def human_index_param(config):
-    """The parameter naming the human-depletion index this sample type needs."""
-    return "rna_splice_db" if str(config.get("sample_type")) == "rna" else "hg38_db"
+    """The parameter naming the human-depletion index this run needs.
+
+    Mirrors lib/HostDepletion.humanIndexParam: rna takes the splice index, and long reads
+    (--read_type ont|hifi) the *_long index built for their preset.
+    """
+    base = "rna_splice_db" if str(config.get("sample_type")) == "rna" else "hg38_db"
+    return f"{base}_long" if is_long(config) else base
+
+
+def t2t_index_param(config):
+    """Mirrors lib/HostDepletion.t2tIndexParam."""
+    return "t2t_phix_db_long" if is_long(config) else "t2t_phix_db"
 
 
 def check_references(config, report):
@@ -171,9 +190,16 @@ def check_references(config, report):
     # Ludmil, 26 Sep mode memo section 4: --sample_type rna depletes human reads with
     # minimap2 -ax splice:sr against --rna_splice_db, which replaces --hg38_db there. The
     # same rule as main.nf's required-parameter check (lib/HostDepletion.humanIndexParam).
+    # Owner decision, 29 Sep: validated here as well as in main.nf, so an unknown value is
+    # named instead of surfacing as a missing *_long index.
+    read_type = str(config.get("read_type") or "short")
+    if read_type not in READ_TYPES:
+        report.problem(section, f"--read_type must be one of {', '.join(READ_TYPES)} (got {read_type})")
+        return
     human_param = human_index_param(config)
     report.require_path(section, f"--{human_param}", config.get(human_param))
-    report.require_path(section, "--t2t_phix_db", config.get("t2t_phix_db"))
+    t2t_param = t2t_index_param(config)
+    report.require_path(section, f"--{t2t_param}", config.get(t2t_param))
     if str(config.get("sample_type")) == "rna" and config.get("rna_junctions_bed"):
         report.require_path(section, "--rna_junctions_bed", config.get("rna_junctions_bed"))
     if config.get("pangenome_db"):

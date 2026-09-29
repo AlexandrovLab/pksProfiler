@@ -93,6 +93,25 @@ class PreflightTests(unittest.TestCase):
                 result = self.run_preflight(sample_type=mode, hg38_db=None)
                 self.assertIn("--hg38_db is not set", result.stdout)
 
+    # Owner decision, 29 Sep: long reads use the *_long indexes built for their preset.
+    def test_long_reads_need_the_long_indexes(self):
+        for name in ("hg38_long.mmi", "t2t_long.mmi", "splice_long.mmi"):
+            (self.d / name).write_text("x")
+        result = self.run_preflight(sample_type="wgs", read_type="ont", hg38_db=None, t2t_phix_db=None,
+                                    hg38_db_long=str(self.d / "hg38_long.mmi"),
+                                    t2t_phix_db_long=str(self.d / "t2t_long.mmi"))
+        self.assertEqual(result.returncode, 0, result.stdout)
+        result = self.run_preflight(sample_type="rna", read_type="hifi")
+        self.assertIn("--rna_splice_db_long is not set", result.stdout)
+        self.assertIn("--t2t_phix_db_long is not set", result.stdout)
+
+    def test_long_reads_refuse_a_mate_file(self):
+        (self.d / "r1.fastq.gz").write_text("x")
+        (self.d / "fq.csv").write_text(f"patient,fastq1,fastq2\nS,{self.d}/r1.fastq.gz,{self.d}/r1.fastq.gz\n")
+        result = self.run_preflight(sample=str(self.d / "fq.csv"), input_data_type="fastq",
+                                    read_type="ont")
+        self.assertIn("fastq2 is set, but --read_type ont is single-stream", result.stdout)
+
     def test_a_missing_junctions_bed_is_caught_for_rna(self):
         (self.d / "splice.mmi").write_text("x")
         result = self.run_preflight(sample_type="rna", rna_splice_db=str(self.d / "splice.mmi"),

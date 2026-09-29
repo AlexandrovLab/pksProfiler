@@ -8,7 +8,8 @@ process filterReads {
 	    mode: 'copy',
 	    enabled: params.save_intermediates.toString().toBoolean()
 	)
-    conda "${params.fastp_env}"
+    // Long reads (--read_type ont|hifi) are filtered with fastplong, in its own env.
+    conda "${HostDepletion.isLong(params.read_type) ? params.fastplong_env : params.fastp_env}"
 	maxRetries 2
 
 
@@ -48,6 +49,11 @@ process filterReads {
 	def fastp_prefix = input_list.size() == 1 ?
 	    "" :
 	    "{\n${tagged_input_commands}\n} |"
+	// Owner decision, 29 Sep: fastplong for ont/hifi. The QC metric names below
+	// (filter_input_reads, reads_after_fastp) are kept, so for long reads "fastp" means
+	// fastplong; its JSON has the same summary.before/after_filtering.total_reads.
+	// main.nf refuses fastq2 for long reads, so there is one input stream.
+	def long_read = HostDepletion.isLong(params.read_type)
 
 	"""
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
@@ -66,6 +72,17 @@ process filterReads {
 	    fi
 	done
 
+	if [[ "${long_read}" == "true" ]]; then
+	    fastplong \
+	        -l ${params.long_read_min_length} \
+	        ${adapter_arg} \
+	        -i ${inputs} \
+	        -w "${task.cpus}" \
+	        --compression 4 \
+	        --json "\$FASTP_JSON" \
+	        --html "\$FASTP_HTML" \
+	        -o "\$FILTERED"
+	else
 	# Single streams go directly to fastp. Paired FASTQs are streamed as one
 	# unpaired input after mate suffixes are added; no merged file is written.
 	${fastp_prefix} fastp \
@@ -78,6 +95,7 @@ process filterReads {
 	        --json "\$FASTP_JSON" \
 	        --html "\$FASTP_HTML" \
 	        -o "\$FILTERED"
+	fi
 
 	if ! gzip -t "\$FILTERED" >/dev/null 2>&1; then
 	    echo "ERROR: Corrupt fastp output for ${sampleID}: \$FILTERED" >&2

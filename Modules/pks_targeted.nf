@@ -16,7 +16,9 @@ process classifyPksReadEvidence {
     script:
     def evidence_file = "${sampleID}.${params.sample_type.toString() in ['wes', 'rna'] ? params.sample_type : 'read'}_evidence.tsv"
     def mode_args = "--mode ${params.sample_type}" +
-        (params.sample_type.toString() == 'rna' ? " --rna-library-type ${params.rna_library_type}" : '')
+        (params.sample_type.toString() == 'rna' ? " --rna-library-type ${params.rna_library_type}" : '') +
+        // Long-read WGS: evidence only. The tiers were calibrated on short-read Bowtie2.
+        (params.sample_type.toString() == 'wgs' && HostDepletion.isLong(params.read_type) ? ' --no-tiers' : '')
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # scripts ${params.dep_digest?.scripts}
