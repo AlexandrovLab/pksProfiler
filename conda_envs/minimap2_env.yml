@@ -6,7 +6,7 @@ channels:
   - defaults
 
 dependencies:
-  - minimap2=2.28
+  - minimap2=2.31
   - samtools=1.21
   - htslib
 

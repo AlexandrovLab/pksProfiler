@@ -24,6 +24,9 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 - Continuous integration, `CITATION.cff`, `CITATIONS.md`.
 
 **Changed**
+- minimap2 pinned to **2.31** for every mode (`conda_envs/minimap2_env.yml`,
+  `conda_envs/targeted_alignment_env.yml`; was 2.28), so WGS, WES, RNA and metagenome runs
+  deplete with one aligner version and the RNA lane's `-ax splice:sr` preset is available.
 - Island breadth tier thresholds converted for the change of measurement axis: `broad_island`
   0.10 -> **0.075**, `extensive_island` 0.20 -> **0.15**. v0.0.1 measured breadth from a 50 bp
   binned coverage track; v0.0.2 measures per base, which reads a median 0.794x lower on the same
