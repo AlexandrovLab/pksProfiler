@@ -570,10 +570,11 @@ c1\tRefSeq\tgene\t600\t900\t.\t+\t.\tID=g3;Name=clbC
 """
 
 
-def paf_line(contig="c1", qlen=1000, ts=0, te=1000, aligned=1000, identity=1.0, mapq=60):
+def paf_line(contig="c1", qlen=1000, ts=0, te=1000, aligned=1000, identity=1.0, mapq=60, target="c1"):
+    # target = the reference sequence, the same seqid as LOCUS_GFF's.
     nm = int(round(aligned * (1 - identity)))
     return "\t".join(str(x) for x in (
-        contig, qlen, 0, aligned, "+", "ref", 1000, ts, te, aligned - nm, aligned, mapq,
+        contig, qlen, 0, aligned, "+", target, 1000, ts, te, aligned - nm, aligned, mapq,
     ))
 
 
@@ -611,6 +612,17 @@ class TestMagBinLocusEvidence(unittest.TestCase):
             paf = self._write(tmp, "low_identity.paf", paf_line(identity=0.5) + "\n")
             hits = self.mod.paf_hits(paf, 0, 1000, 0.90, 20)
         self.assertEqual(hits, [])
+
+    def test_alignment_to_another_reference_sequence_is_dropped(self):
+        # P1 (25 Sep): an alignment inside the island window but on a different target
+        # sequence is not island coverage.
+        with tempfile.TemporaryDirectory() as tmp:
+            paf = self._write(tmp, "two_targets.paf",
+                              paf_line() + "\n" + paf_line(target="plasmid") + "\n")
+            on_target = self.mod.paf_hits(paf, 0, 1000, 0.90, 20, target="c1")
+            off_only = self.mod.paf_hits(paf, 0, 1000, 0.90, 20, target="not_present")
+        self.assertEqual(on_target, [(0, 1000)])
+        self.assertEqual(off_only, [])
 
     def test_partial_alignment_covers_only_overlapping_genes(self):
         # Covers clbA (1-100) and part of clbB (200-400) but not clbC (600-900).

@@ -28,8 +28,12 @@ from pathlib import Path
 TIERS = ("extensive_island", "broad_island", "multi_gene")
 
 
-def paf_hits(path, start, end, min_identity, min_mapq):
-    """Alignment blocks overlapping [start, end), identity- and MAPQ-filtered.
+def paf_hits(path, start, end, min_identity, min_mapq, target=None):
+    """Alignment blocks on `target` overlapping [start, end), identity- and MAPQ-filtered.
+
+    `target` is the reference contig the island coordinates refer to. Without it an
+    alignment to any other sequence in the reference that happens to fall inside the
+    same coordinate window would be counted as island coverage.
 
     Mirrors summarize_tumor_pks_contigs.py's paf(): every alignment counts, not one
     per contig -- the island is repeat-rich and a bin's assembly is as fragmented as
@@ -41,6 +45,8 @@ def paf_hits(path, start, end, min_identity, min_mapq):
     for line in text.splitlines():
         fields = line.split("\t")
         if len(fields) < 12:
+            continue
+        if target is not None and fields[5] != target:
             continue
         alen = int(fields[10])
         ident = int(fields[9]) / alen if alen else 0
@@ -127,7 +133,7 @@ def main():
             raise SystemExit(f"locus tier thresholds must be non-decreasing: {lower} exceeds {higher}")
 
     length = a.island_end - a.island_start
-    hits = paf_hits(a.paf, a.island_start, a.island_end, a.min_identity, a.min_mapq)
+    hits = paf_hits(a.paf, a.island_start, a.island_end, a.min_identity, a.min_mapq, a.contig)
     breadth = union_length(hits) / length
     genes = genes_covered(a.gff, a.contig, a.island_start, a.island_end, hits)
     tier = classify(len(genes), breadth, thresholds)

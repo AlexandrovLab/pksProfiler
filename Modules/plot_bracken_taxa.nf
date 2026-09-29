@@ -1,6 +1,7 @@
 nextflow.enable.dsl = 2
 
 process plotBrackenTaxa {
+  label 'sample_stage'
   label 'process_medium'
   scratch true
   publishDir { "${params.sample_dir}/${sampleID}/figures" }, mode: 'copy', saveAs: { "taxa_barplots.pdf" }

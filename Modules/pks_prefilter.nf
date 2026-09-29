@@ -117,6 +117,8 @@ process diamondRescueTaxonomy {
     python "${params.scripts}/summarize_diamond_rescue_taxonomy.py" \
       --sample "${sampleID}" --diamond "${diamond_matches}" \
       --kraken-output "${kraken_output}" --kraken-db "${params.kraken_db}" \
+      --max-evalue ${params.diamond_evalue} --min-aa ${params.diamond_min_aa} \
+      --min-query-coverage ${params.diamond_min_query_coverage} \
       --output "${sampleID}.diamond_rescue_taxonomy.tsv"
     """
 }
