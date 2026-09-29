@@ -30,7 +30,7 @@
 <rect x="160.378" y="188" width="151.244" height="19" rx="9.5" fill="#fcfcfb" stroke="#2166ac" stroke-width="1"/>
 <text x="236.0" y="201.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#2166ac" text-anchor="middle">sample_type = metagenome</text>
 <path d="M465.0 164 V184 H694.0 V204" fill="none" stroke="#b2182b" stroke-width="1.4" marker-end="url(#tip)"/>
-<rect x="620.98725" y="188" width="146.0255" height="19" rx="9.5" fill="#fcfcfb" stroke="#b2182b" stroke-width="1"/>
+<rect x="636.64275" y="188" width="114.7145" height="19" rx="9.5" fill="#fcfcfb" stroke="#b2182b" stroke-width="1"/>
 <text x="694.0" y="201.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#b2182b" text-anchor="middle">sample_type = wgs</text>
 <text x="30.0" y="226.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="700" fill="#2166ac" text-anchor="start" letter-spacing="1.2">METAGENOME LANE</text>
 <path d="M30 233 H442" stroke="#2166ac" stroke-width="2"/>
@@ -134,5 +134,5 @@
 <text x="168.3" y="797.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="400" fill="#6f7a83" text-anchor="start">optional</text>
 <path d="M244.0255 789 l4.5 4.5 l-4.5 4.5 l-4.5 -4.5 z" fill="#b8892b"/>
 <text x="255.0" y="797.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="400" fill="#6f7a83" text-anchor="start">decision or filter</text>
-<text x="900.0" y="797.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="600" fill="#6f7a83" text-anchor="end">pksProfiler v0.0.2</text>
+<text x="900.0" y="797.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="600" fill="#6f7a83" text-anchor="end">pksProfiler v0.0.2dev</text>
 </svg>

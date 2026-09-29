@@ -23,8 +23,16 @@ Conventions, the ones journal figures tend to share:
 Palette checked with the dataviz validator (categorical, light surface): worst adjacent
 CVD separation dE 16.6 deutan, 23.1 normal vision, all four checks pass.
 """
+import re
 from pathlib import Path
 from xml.sax.saxutils import escape
+
+# The legend's version label comes from nextflow.config's manifest, the one source of truth
+# (tests/test_version_consistency.py); it used to be a literal "v0.0.2" while the manifest
+# said 0.0.2dev.
+VERSION = re.search(r"^\s*version\s*=\s*'([^']+)'",
+                    (Path(__file__).resolve().parents[1] / "nextflow.config").read_text(),
+                    re.M).group(1)
 
 # ---------------------------------------------------------------- design tokens
 INK     = "#161c21"
@@ -274,7 +282,7 @@ def render():
             emit(f'<circle cx="{x + 4}" cy="{ly - 3.5}" r="3.4" fill="{MUTED}"/>')
         emit(txt(x + 15, ly, label, SZ_LEG, MUTED))
         x += 15 + len(label) * SZ_LEG * W_REG + 30
-    emit(txt(W - MARGIN, ly, "pksProfiler v0.0.2", SZ_LEG, MUTED, anchor="end",
+    emit(txt(W - MARGIN, ly, f"pksProfiler v{VERSION}", SZ_LEG, MUTED, anchor="end",
              weight="600"))
     return ly + 22
 

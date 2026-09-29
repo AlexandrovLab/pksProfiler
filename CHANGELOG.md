@@ -39,6 +39,11 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 - `scripts/build_master_summary.py`, joining every stage into one row per sample.
 - Population-scale *clb* nucleotide and protein profile models; see `ref/hmm/PROVENANCE.md`.
 - Continuous integration, `CITATION.cff`, `CITATIONS.md`.
+- `tests/test_version_consistency.py` (GAMEPLAN rc1 release mechanics): fails if the
+  `nextflow.config` manifest version, `CITATION.cff`, the top CHANGELOG heading, the README
+  badge, the workflow figure, `--help` or `RUN_REPORT.txt` disagree. RUN_REPORT already carries
+  the git commit (and a dirty-tree flag). The workflow figure's legend now reads the manifest
+  (it said v0.0.2 while the manifest said 0.0.2dev).
 
 **Changed**
 - Mode-specific evidence schemas (Ludmil, 26 Sep mode memo sections 3, 4, 6):
