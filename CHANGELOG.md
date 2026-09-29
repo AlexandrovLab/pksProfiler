@@ -24,6 +24,11 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 - Continuous integration, `CITATION.cff`, `CITATIONS.md`.
 
 **Changed**
+- Mode-specific evidence schemas (Ludmil, 26 Sep mode memo sections 3, 4, 6):
+  `classify_tumor_pks_evidence.py --mode {wgs,metagenome,wes,rna}` writes `read_evidence.tsv`
+  (wgs tiered, metagenome untiered), `wes_evidence.tsv` or `rna_evidence.tsv`. Every file has a
+  `mode` column (second); `pks.master_summary.tsv` and `pks_cohort_report.tsv` gain `mode` and
+  `evidence_label`, and WES/RNA rows are shown as their own evidence, never as a genomic tier.
 - `--sample_type` values renamed (owner decision on Ludmil's 26 Sep mode memo):
   `tumor_wgs` → `wgs`, `tumor_wes` → `wes`, `tumor_rna` → `rna`; `metagenome` unchanged. The old
   values are refused before any task runs with `--sample_type tumor_wgs was renamed to wgs`.

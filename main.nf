@@ -315,6 +315,13 @@ include { krakenPrefilter; buildClbDiamondDb; diamondRescue; diamondRescueTaxono
 // allows no statements at the top level.
 def classifyPksReadEvidence_gate() { return channel.empty() }
 
+// Ludmil, 26 Sep mode memo section 6: the report-manifest kind of the per-sample evidence
+// file each sample type writes. Mirrors EVIDENCE_KIND in classify_tumor_pks_evidence.py
+// (tests/test_mode_evidence.py holds the two together).
+def evidenceKind(sample_type) {
+    return [wes: 'wes_evidence', rna: 'rna_evidence'].get(sample_type?.toString(), 'read_evidence')
+}
+
 // Ludmil, 2026-09-25 report P0-5b: cohortReport and masterSummary read their declared
 // inputs, not the published tree. The three gate channels below carry
 // tuple(sampleID, kind, file) -- sampleID empty for cohort-level files -- where `kind`
@@ -1007,9 +1014,13 @@ workflow {
                     tuple(sampleID, rawCoverage, counts, bam, bai, qc)
                 }
             classifyPksReadEvidence(read_evidence_input_ch)
+            // Ludmil, 26 Sep mode memo section 6: the manifest kind names the schema --
+            // read_evidence (wgs, metagenome), wes_evidence or rna_evidence -- so the
+            // report and master summary can never read a WES or RNA row as a WGS tier.
+            def evidence_kind = evidenceKind(params.sample_type)
             cohort_report_gate = classifyPksReadEvidence.out.evidence
                 .map { sampleID, _rawCoverage, _counts, evidenceFile ->
-                    tuple(sampleID, 'read_evidence', evidenceFile)
+                    tuple(sampleID, evidence_kind, evidenceFile)
                 }
         }
 

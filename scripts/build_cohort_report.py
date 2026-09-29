@@ -80,6 +80,40 @@ TIER_LABEL = {"extensive_island": "Extensive", "broad_island": "Broad",
               "NA": "Not aligned"}
 TIER_FILL["NA"] = "#eeeeee"
 TIER_INK["NA"] = "#4d4d4d"
+
+# Ludmil, 26 Sep mode memo sections 3, 4 and 6: WES and RNA rows carry their own evidence
+# (wes_evidence.tsv / rna_evidence.tsv) and are never a genomic tier. They get a badge value
+# of their own -- outside TIERS, so nothing tier-shaped (tile, sort rank) can absorb them --
+# and every row carries its mode. EVIDENCE_LABEL mirrors build_master_summary.py's
+# evidence_label(); tests/test_mode_evidence.py holds the two together.
+MODE_BADGES = {"wes": "wes_offtarget", "rna": "rna_expression"}
+TIER_FILL.update({"wes_offtarget": "#c7d9e8", "rna_expression": "#d5e8c7"})
+TIER_INK.update({"wes_offtarget": "#1f3b57", "rna_expression": "#28451b"})
+TIER_LABEL.update({"wes_offtarget": "WES (not tiered)", "rna_expression": "RNA (not tiered)"})
+EVIDENCE_KINDS = {"read_evidence": None, "wes_evidence": "wes", "rna_evidence": "rna"}
+# (reads, genes, breadth prefix) per evidence kind: the same three measurements under
+# each mode's own column names (classify_tumor_pks_evidence.py SCHEMAS).
+EVIDENCE_FIELDS = {"read_evidence": ("pks_reads", "clb_genes_detected", "island_breadth"),
+                   "wes_evidence": ("clb_wes_reads", "wes_clb_genes_detected", "wes_island_breadth"),
+                   "rna_evidence": ("clb_rna_reads", "rna_clb_genes_detected", "rna_expression_breadth")}
+
+
+def evidence_label(mode, read_evidence=None):
+    """What a row's evidence may be read as. Mirrors build_master_summary.evidence_label."""
+    if mode == "wgs":
+        return ("WGS evidence (not tiered: long-read)" if read_evidence == "untiered"
+                else "WGS genomic evidence tier")
+    return {"metagenome": "Metagenome read evidence (not tiered)",
+            "wes": "WES off-target DNA evidence (not tiered)",
+            "rna": "RNA expression evidence (not tiered)"}.get(mode, "NA")
+
+
+def badge_label(record):
+    """The evidence badge's text; `untiered` says which mode it is untiered for."""
+    tier = record["tier"]
+    if tier == "untiered" and record.get("mode") == "wgs":
+        return "Not tiered (WGS)"
+    return TIER_LABEL.get(tier, tier)
 AGREEMENT_FILL = {"concordant": "#4d7c5f", "discordant": "#9e2a2b",
                   "single_assembler_only": "#e09f3e", "no_contig_support": "#bdbdbd"}
 # The badge is 88px at 9px Arial; `single_assembler_only` is 21 characters and would
@@ -106,6 +140,8 @@ WIDTH = 1560
 # figure links their hrefs. main.nf tags every staged file with one of these kinds.
 SAMPLE_INPUTS = {
     "read_evidence": "read_evidence.tsv",
+    "wes_evidence": "wes_evidence.tsv",
+    "rna_evidence": "rna_evidence.tsv",
     "final_evidence": "contigs/final_evidence/final_pks_evidence.tsv",
     "mag_summary": "genomes/pks_mag_summary.tsv",
     "prophage_inventory": "community/community_prophage_inventory.tsv",
@@ -271,7 +307,7 @@ def expected_sample_ids(path):
     return {line.strip() for line in path.read_text().splitlines() if line.strip()}
 
 
-def collect(inputs, expected=None):
+def collect(inputs, expected=None, sample_type=None):
     """One record per sample, from the staged inputs `read_manifest()` returned."""
     counts = gene_counts(inputs["cohort"].get("gene_counts"))
     # Ludmil, revised report finding 5, and P0-5b: with --expected-samples the rows are
@@ -286,8 +322,22 @@ def collect(inputs, expected=None):
     records = []
     for sample in samples:
         staged = inputs["samples"].get(sample, {})
-        evidence = read_tsv(staged.get("read_evidence"))
+        # One evidence kind per sample: whichever its mode wrote. Two would mean two modes
+        # for one sample in one run, which main.nf cannot produce; refuse rather than pick.
+        kinds = [kind for kind in EVIDENCE_KINDS if staged.get(kind)]
+        if len(kinds) > 1:
+            raise SystemExit(f"[ERROR] {sample}: staged evidence of more than one mode: "
+                             f"{', '.join(kinds)}")
+        kind = kinds[0] if kinds else "read_evidence"
+        evidence = read_tsv(staged.get(kind))
         evidence = evidence[0] if evidence else {}
+        reads_field, genes_field, breadth_field = EVIDENCE_FIELDS[kind]
+        mode = (evidence.get("mode") or EVIDENCE_KINDS[kind] or sample_type or "NA") \
+            if evidence else (sample_type or "NA")
+        if kind in ("wes_evidence", "rna_evidence") and evidence:
+            tier = MODE_BADGES[EVIDENCE_KINDS[kind]]
+        else:
+            tier = evidence.get("read_evidence", "not_classified")
         # pks_targeted.nf publishes this to contigs/final_evidence/, not contigs/, which
         # the path-based reader once got wrong -- read_tsv returned nothing, `assembled`
         # went False, and the report showed no contig columns for samples that had
@@ -297,12 +347,14 @@ def collect(inputs, expected=None):
         records.append({
             "sample": sample,
             "genes": counts.get(sample, {g: 0 for g in GENES}),
-            "tier": evidence.get("read_evidence", "not_classified"),
-            "pks_reads": int(number(evidence.get("pks_reads"))),
-            "genes_detected": int(number(evidence.get("clb_genes_detected"))),
-            "breadth_1x": number(evidence.get("island_breadth_1x")),
-            "breadth_2x": number(evidence.get("island_breadth_2x")),
-            "breadth_3x": number(evidence.get("island_breadth_3x")),
+            "mode": mode,
+            "evidence_label": evidence_label(mode, tier) if evidence else "NA",
+            "tier": tier,
+            "pks_reads": int(number(evidence.get(reads_field))),
+            "genes_detected": int(number(evidence.get(genes_field))),
+            "breadth_1x": number(evidence.get(f"{breadth_field}_1x")),
+            "breadth_2x": number(evidence.get(f"{breadth_field}_2x")),
+            "breadth_3x": number(evidence.get(f"{breadth_field}_3x")),
             "assembled": bool(contigs),
             "structural": contigs.get("final_structural_evidence", ""),
             "agreement": contigs.get("assembler_agreement", ""),
@@ -380,7 +432,8 @@ def svg_matrix(records):
 
     for index, record in enumerate(records):
         y = TOP + index * ROW_H
-        tip = (f'{record["sample"]} · {TIER_LABEL.get(record["tier"], record["tier"])} '
+        tip = (f'{record["sample"]} · {record["mode"]} · '
+               f'{record["evidence_label"] if record["evidence_label"] != "NA" else badge_label(record)} '
                f'· {record["pks_reads"]} reads across {record["genes_detected"]} genes '
                f'· breadth {100 * record["breadth_1x"]:.1f}% at ≥1×, '
                f'{100 * record["breadth_2x"]:.1f}% at ≥2×, '
@@ -419,7 +472,7 @@ def svg_matrix(records):
                    f'fill="{TIER_FILL.get(tier, "#d9d9d9")}"/>'
                    f'<text x="{CLASS_X + 44}" y="{y}" class="n" text-anchor="middle" '
                    f'style="fill:{TIER_INK.get(tier, "white")}">'
-                   f'{esc(TIER_LABEL.get(tier, tier))}</text>')
+                   f'{esc(badge_label(record))}</text>')
 
         if record["assembled"]:
             best = max(record["megahit_cov"], record["metaspades_cov"])
@@ -638,17 +691,23 @@ def species_support_section(rows):
 
 def page(records, species_rows=()):
     tiers = {tier: sum(1 for r in records if r["tier"] == tier) for tier in TIERS}
-    untiered = sum(1 for r in records if r["tier"] == "untiered")
-    unclassified = sum(1 for r in records if r["tier"] not in TIER_RANK and r["tier"] != "untiered")
+    # Untiered rows are counted by what their evidence is (mode-specific label), never
+    # folded into a tier tile: a WES or RNA row is not a genomic tier (26 Sep mode memo).
+    untiered_labels = {}
+    for r in records:
+        if r["tier"] == "untiered" or r["tier"] in MODE_BADGES.values():
+            untiered_labels[r["evidence_label"]] = untiered_labels.get(r["evidence_label"], 0) + 1
+    unclassified = sum(1 for r in records if r["tier"] not in TIER_RANK and r["tier"] != "untiered"
+                       and r["tier"] not in MODE_BADGES.values())
     assembled = sum(1 for r in records if r["assembled"])
 
     tiles = "".join(
         f'<div class="tile"><div class="n">{count}</div>'
         f'<div class="l">{esc(TIER_LABEL[tier])}</div></div>'
         for tier, count in sorted(tiers.items(), key=lambda kv: -TIER_RANK[kv[0]]))
-    if untiered:
-        tiles += (f'<div class="tile"><div class="n">{untiered}</div>'
-                  f'<div class="l">{esc(TIER_LABEL["untiered"])}</div></div>')
+    for label, count in sorted(untiered_labels.items()):
+        tiles += (f'<div class="tile"><div class="n">{count}</div>'
+                  f'<div class="l">{esc(label)}</div></div>')
     if unclassified:
         tiles += (f'<div class="tile"><div class="n">{unclassified}</div>'
                   f'<div class="l">Not classified</div></div>')
@@ -708,7 +767,9 @@ def page(records, species_rows=()):
   <h2 style="font-size:15px;margin:26px 0 6px">Where these numbers come from</h2>
   <ul class="muted">
     <li><code>cohort/gene_counts/pks.gene.counts.align.txt</code> &mdash; the gene matrix</li>
-    <li><code>by_sample/&lt;sample&gt;/read_evidence.tsv</code> &mdash; tier, reads, genes, breadth</li>
+    <li><code>by_sample/&lt;sample&gt;/read_evidence.tsv</code> &mdash; tier, reads, genes, breadth (wgs; metagenome untiered)</li>
+    <li><code>by_sample/&lt;sample&gt;/wes_evidence.tsv</code> &mdash; WES off-target DNA evidence, not tiered</li>
+    <li><code>by_sample/&lt;sample&gt;/rna_evidence.tsv</code> &mdash; RNA expression evidence, not tiered; breadth is expression breadth</li>
     <li><code>by_sample/&lt;sample&gt;/contigs/final_evidence/final_pks_evidence.tsv</code> &mdash; contig columns</li>
     <li><code>by_sample/&lt;sample&gt;/genomes/pks_mag_summary.tsv</code> &mdash; genome-bin locus tier, taxonomy, completeness</li>
     <li><code>by_sample/&lt;sample&gt;/community/community_prophage_inventory.tsv</code> &mdash; prophage regions per bin</li>
@@ -753,13 +814,16 @@ def main():
                              "(Ludmil, 2026-09-25 report P0-5b)")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--table", default=None, type=Path)
+    parser.add_argument("--sample-type", default=None,
+                        help="the run's --sample_type: the mode of a row whose evidence "
+                             "file did not arrive (Ludmil, 26 Sep mode memo section 6)")
     parser.add_argument("--expected-samples", default=None, type=Path,
                          help="one sample ID per line; the report has exactly these "
                               "rows, and nothing outside the list appears")
     args = parser.parse_args()
 
     inputs = read_manifest(args.inputs_manifest)
-    records = collect(inputs, expected_sample_ids(args.expected_samples))
+    records = collect(inputs, expected_sample_ids(args.expected_samples), args.sample_type)
     if not records:
         raise SystemExit(f"[ERROR] no samples in {args.inputs_manifest}")
 
@@ -767,7 +831,7 @@ def main():
     args.output.write_text(page(records, species_support(inputs)))
 
     if args.table:
-        fields = ["sample", *GENES, "pks_reads", "genes_detected", "island_breadth_1x",
+        fields = ["sample", "mode", "evidence_label", *GENES, "pks_reads", "genes_detected", "island_breadth_1x",
                   "island_breadth_2x", "island_breadth_3x", "read_evidence",
                   "megahit_supporting_contigs", "metaspades_supporting_contigs",
                   "megahit_reference_coverage", "metaspades_reference_coverage",
@@ -777,7 +841,8 @@ def main():
             writer.writeheader()
             for record in records:
                 writer.writerow({
-                    "sample": record["sample"], **record["genes"],
+                    "sample": record["sample"], "mode": record["mode"],
+                    "evidence_label": record["evidence_label"], **record["genes"],
                     "pks_reads": record["pks_reads"],
                     "genes_detected": record["genes_detected"],
                     "island_breadth_1x": f"{record['breadth_1x']:.6f}",

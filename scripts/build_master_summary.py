@@ -41,6 +41,15 @@ QC_COLUMNS = ["input_alignment_records", "total_primary_reads", "extracted_unmap
               "reads_mapped_ihe3034_mapq40", "num_clb_genes_align", "reads_clb_genes_align",
               "num_clb_genes_hmm", "reads_clb_genes_hmm"]
 EVIDENCE_COLUMNS = ["read_evidence", "pks_reads", "clb_genes_detected", "island_breadth_1x"]
+# Ludmil, 26 Sep mode memo sections 3, 4 and 6: WES and RNA evidence keep their own
+# column names (classify_tumor_pks_evidence.py SCHEMAS) and are never folded into the WGS
+# tier columns above; `mode` and `evidence_label` say which kind of evidence a row is.
+MODE_COLUMNS = ["mode", "evidence_label"]
+WES_EVIDENCE_COLUMNS = ["clb_wes_reads", "wes_clb_genes_detected", "wes_island_breadth_1x"]
+RNA_EVIDENCE_COLUMNS = ["clb_rna_reads", "rna_clb_genes_detected", "rna_expression_breadth_1x",
+                        "rna_library_type"]
+# The mode each evidence kind implies, for a file written before `mode` was a column.
+KIND_MODE = {"wes_evidence": "wes", "rna_evidence": "rna"}
 CONTIG_COLUMNS = ["final_structural_evidence", "assembler_agreement",
                   "megahit_reference_covered_bp", "megahit_reference_coverage",
                   "megahit_supporting_contigs", "metaspades_reference_covered_bp",
@@ -67,6 +76,8 @@ TRUE = {"true", "yes", "1", "t"}
 # of these kinds; --results globs these paths for a hand run.
 PUBLISHED = {
     "read_evidence": "read_evidence.tsv",
+    "wes_evidence": "wes_evidence.tsv",
+    "rna_evidence": "rna_evidence.tsv",
     "final_evidence": "contigs/final_evidence/final_pks_evidence.tsv",
     "mag_summary": "genomes/pks_mag_summary.tsv",
     "prophage_inventory": "community/community_prophage_inventory.tsv",
@@ -152,16 +163,48 @@ def read_qc(inputs, out):
     return True
 
 
-def read_evidence(inputs, out):
+def evidence_label(mode, read_evidence=None):
+    """What a row's evidence may be read as. Mirrored in build_cohort_report.py."""
+    if mode == "wgs":
+        return ("WGS evidence (not tiered: long-read)" if read_evidence == "untiered"
+                else "WGS genomic evidence tier")
+    return {"metagenome": "Metagenome read evidence (not tiered)",
+            "wes": "WES off-target DNA evidence (not tiered)",
+            "rna": "RNA expression evidence (not tiered)"}.get(mode, "NA")
+
+
+def read_mode(inputs, out):
+    """`mode` and `evidence_label` from whichever evidence file a sample has."""
     found = False
-    for sample, path in inputs["read_evidence"]:
-        row = first(path)
-        sample = sample or row.get("sample")
-        if row and sample:
-            found = True
-            for c in EVIDENCE_COLUMNS:
-                out[sample][c] = row.get(c, "NA")
+    for kind in ("read_evidence", "wes_evidence", "rna_evidence"):
+        for sample, path in inputs[kind]:
+            row = first(path)
+            sample = sample or row.get("sample")
+            if row and sample:
+                found = True
+                mode = row.get("mode") or KIND_MODE.get(kind, "NA")
+                out[sample]["mode"] = mode
+                out[sample]["evidence_label"] = evidence_label(mode, row.get("read_evidence"))
     return found
+
+
+def read_mode_evidence(kind, columns):
+    def reader(inputs, out):
+        found = False
+        for sample, path in inputs[kind]:
+            row = first(path)
+            sample = sample or row.get("sample")
+            if row and sample:
+                found = True
+                for c in columns:
+                    out[sample][c] = row.get(c, "NA")
+        return found
+    return reader
+
+
+read_evidence = read_mode_evidence("read_evidence", EVIDENCE_COLUMNS)
+read_wes_evidence = read_mode_evidence("wes_evidence", WES_EVIDENCE_COLUMNS)
+read_rna_evidence = read_mode_evidence("rna_evidence", RNA_EVIDENCE_COLUMNS)
 
 
 def read_contigs(inputs, out):
@@ -324,6 +367,9 @@ def main():
                              "pipeline passes (Ludmil, 2026-09-25 report P0-5b)")
     source.add_argument("--results", help="a pksProfiler results directory (hand runs)")
     ap.add_argument("--output", required=True)
+    ap.add_argument("--sample-type", default=None,
+                    help="the run's --sample_type; the mode of every sample that has no "
+                         "evidence file of its own (Ludmil, 26 Sep mode memo section 6)")
     ap.add_argument("--expected-samples", default=None,
                     help="one sample ID per line; samples outside this list are "
                          "dropped even if their directory is still on disk")
@@ -335,12 +381,17 @@ def main():
     stages = [
         ("read profiling", QC_COLUMNS, read_qc),
         ("evidence tier", EVIDENCE_COLUMNS, read_evidence),
+        ("WES evidence", WES_EVIDENCE_COLUMNS, read_wes_evidence),
+        ("RNA evidence", RNA_EVIDENCE_COLUMNS, read_rna_evidence),
         ("contig reassembly", CONTIG_COLUMNS, read_contigs),
         ("draft genomes", MAG_COLUMNS, read_mags),
         ("community context", COMMUNITY_COLUMNS, read_community),
         ("strain typing", TYPING_COLUMNS, read_typing),
     ]
     columns = ["sample"]
+    # Mode first, so a table mixing modalities can never be read without it.
+    if read_mode(inputs, out) or a.sample_type:
+        columns += MODE_COLUMNS
     for name, cols, fn in stages:
         present = fn(inputs, out)
         print(f"  {name:20} {'found' if present else 'not run — columns omitted'}", file=sys.stderr)
@@ -358,6 +409,10 @@ def main():
 
     if not out:
         sys.exit(f"No per-sample results found in {a.inputs_manifest or a.results}")
+    if a.sample_type:
+        for cols in out.values():
+            cols.setdefault("mode", a.sample_type)
+            cols.setdefault("evidence_label", evidence_label(cols["mode"], cols.get("read_evidence")))
 
     os.makedirs(os.path.dirname(os.path.abspath(a.output)), exist_ok=True)
     with open(a.output, "w", newline="") as fh:

@@ -149,13 +149,15 @@ process cohortReport {
     // which put them one level below where the output declarations look: the script
     // exited 0, the report existed, and Nextflow failed the task for a missing output.
     // Ludmil, revised report finding 5: `expected_samples` is the run's sample list; the
-    // report has exactly those rows.
+    // report has exactly those rows. 26 Sep mode memo section 6: --sample-type gives every
+    // row its mode, including one whose evidence file never arrived.
     """
     set -euo pipefail
     python3 "${report_script}" \
         --inputs-manifest "${inputs_manifest}" \
         --output pks_cohort_report.html \
         --table  pks_cohort_report.tsv \
+        --sample-type "${params.sample_type}" \
         --expected-samples "${expected_samples}"
     """
 }
@@ -191,6 +193,7 @@ process masterSummary {
     python3 "${report_script}" \
         --inputs-manifest "${inputs_manifest}" \
         --output pks.master_summary.tsv \
+        --sample-type "${params.sample_type}" \
         --expected-samples "${expected_samples}"
     """
 }

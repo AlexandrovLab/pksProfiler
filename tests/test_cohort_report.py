@@ -906,6 +906,10 @@ class P0_5bWiring(unittest.TestCase):
         sys.path.insert(0, str(ROOT / "scripts"))
         import build_master_summary as summary
         tagged = set(re.findall(r"tuple\((?:sampleID|''),\s*'([a-z_]+)'", MAIN))
+        # 26 Sep mode memo: the evidence kind is chosen per sample type by evidenceKind().
+        helper = MAIN[MAIN.index("def evidenceKind"):]
+        helper = helper[:helper.index("\n}\n")]
+        tagged |= set(re.findall(r"'([a-z_]+_evidence)'", helper))
         known = (set(report.SAMPLE_INPUTS) | set(report.COHORT_INPUTS)
                  | set(report.FIGURE_INPUTS) | set(summary.PUBLISHED)
                  | set(summary.COHORT_PUBLISHED))

@@ -199,11 +199,11 @@ class MetagenomesAreNotTiered(unittest.TestCase):
 
     ROOT = Path(__file__).resolve().parents[1]
 
-    def test_the_module_passes_no_tiers_for_metagenomes_only(self):
+    def test_the_module_passes_the_sample_type_as_the_mode(self):
         targeted = (self.ROOT / "Modules/pks_targeted.nf").read_text()
-        self.assertIn("params.sample_type == 'metagenome' ? '--no-tiers' : ''", targeted)
+        self.assertIn('"--mode ${params.sample_type}"', targeted)
 
-    def test_no_tiers_writes_untiered_and_keeps_the_evidence(self):
+    def test_metagenome_mode_writes_untiered_and_keeps_the_evidence(self):
         import subprocess, sys, tempfile
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
@@ -215,10 +215,16 @@ class MetagenomesAreNotTiered(unittest.TestCase):
             base = [sys.executable, str(self.ROOT / "scripts/classify_tumor_pks_evidence.py"),
                     "--sample", "S", "--qc", str(d / "qc.tsv"), "--counts", str(d / "counts.tsv"),
                     "--depth", str(d / "depth.tsv"), "--island-length", "100", "--output", str(out)]
-            subprocess.run(base, check=True)
-            tiered = out.read_text().splitlines()[1].split("\t")
-            subprocess.run(base + ["--no-tiers"], check=True)
-            untiered = out.read_text().splitlines()[1].split("\t")
-        self.assertEqual(tiered[1], "extensive_island")
-        self.assertEqual(untiered[1], "untiered")
-        self.assertEqual(tiered[2:], untiered[2:])
+            def run(*extra):
+                subprocess.run(base + list(extra), check=True)
+                with out.open() as fh:
+                    return list(csv.DictReader(fh, delimiter="\t"))[0]
+            tiered = run("--mode", "wgs")
+            untiered = run("--mode", "metagenome")
+            no_tiers_wgs = run("--mode", "wgs", "--no-tiers")
+        self.assertEqual((tiered["mode"], tiered["read_evidence"]), ("wgs", "extensive_island"))
+        self.assertEqual((untiered["mode"], untiered["read_evidence"]), ("metagenome", "untiered"))
+        self.assertEqual((no_tiers_wgs["mode"], no_tiers_wgs["read_evidence"]), ("wgs", "untiered"))
+        for key in ("pks_reads", "clb_genes_detected", "island_breadth_1x",
+                    "island_breadth_2x", "island_breadth_3x"):
+            self.assertEqual(tiered[key], untiered[key])

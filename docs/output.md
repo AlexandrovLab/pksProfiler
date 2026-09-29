@@ -22,7 +22,9 @@ stays self-describing if you copy it somewhere else.
 
 ```text
 by_sample/<sample>/
-├── read_evidence.tsv       evidence tier, reads, genes, breadth      (step 2-3)
+├── read_evidence.tsv       evidence tier, reads, genes, breadth      (step 2-3; wgs, metagenome)
+├── wes_evidence.tsv        WES off-target DNA evidence, not tiered   (--sample_type wes)
+├── rna_evidence.tsv        RNA expression evidence, not tiered       (--sample_type rna)
 ├── counts.txt              reads per clb gene
 ├── coverage.txt            island coverage
 ├── alignment/              sorted.bam, .bai, .sam, coverage.bedgraph, alignment.qc.tsv
@@ -107,8 +109,11 @@ Column groups appear only when the stage that produces them ran:
 
 | Group | Columns |
 |---|---|
+| sample mode | `mode` (the sample type) and `evidence_label` (what the row's evidence may be read as); always second and third |
 | read profiling | `input_alignment_records`, `total_primary_reads`, `extracted_unmapped_reads`, `filter_input_reads`, `reads_after_*`, `num_clb_genes_*`, `reads_clb_genes_*` |
 | evidence tier | `read_evidence`, `pks_reads`, `clb_genes_detected`, `island_breadth_1x` |
+| WES evidence | `clb_wes_reads`, `wes_clb_genes_detected`, `wes_island_breadth_1x` |
+| RNA evidence | `clb_rna_reads`, `rna_clb_genes_detected`, `rna_expression_breadth_1x`, `rna_library_type` |
 | contig reassembly | `final_structural_evidence`, `assembler_agreement` |
 | draft genomes | `mag_bins_total`, `mag_bins_pks_positive`, `pks_mag_taxonomy`, `pks_mag_completeness`, `pks_mag_clb_genes` |
 | community context | `community_prophages_total`, `community_pks_producers`, `community_neighbours_assessed`, `community_neighbours_with_prophage`, `island_nearby_integrase`, `island_nearby_trna`, `island_in_prophage` |
@@ -123,6 +128,23 @@ the reported one has the strongest locus tier, then the most canonical-locus *cl
 binned are reported separately (`mag_unbinned_*`) and are never counted as a genome. A sample that was profiled and found negative keeps its
 row, with `NA` in the later groups.
 
+### Evidence by mode
+
+Ludmil, 26 Sep mode memo: every mode measures the same three things -- *clb*-assigned reads,
+*clb* genes with at least one read, and breadth over the canonical island at >=1x/2x/3x --
+and every mode names them for what they can mean. Each file's second column is `mode`.
+
+| Mode | File | Columns after `sample`, `mode` | Tier? | Read as |
+|---|---|---|---|---|
+| `wgs` | `read_evidence.tsv` | `read_evidence`, `pks_reads`, `clb_genes_detected`, `island_breadth_{1,2,3}x` | yes (short reads) | genomic *pks* evidence |
+| `metagenome` | `read_evidence.tsv` | same; `read_evidence` is `untiered` | no | microbial read evidence |
+| `wes` | `wes_evidence.tsv` | `clb_wes_reads`, `wes_clb_genes_detected`, `wes_island_breadth_{1,2,3}x` | no | exploratory off-target DNA evidence; a negative is not absence |
+| `rna` | `rna_evidence.tsv` | `clb_rna_reads`, `rna_clb_genes_detected`, `rna_expression_breadth_{1,2,3}x`, `rna_library_type` | no | expressed *clb* sequence; breadth is expression breadth, not island completeness; a negative is not genomic absence |
+
+The cohort report TSV (`cohort/pks_cohort_report.tsv`) keeps one set of measurement columns
+for every mode, so it carries `mode` and `evidence_label` beside them; its `read_evidence`
+column holds a tier only for `wgs` rows (`rna_expression` / `wes_offtarget` otherwise).
+
 ## Primary result files
 
 Every table carries a header row. The three tables produced by every run are specified
@@ -134,6 +156,8 @@ below; the pages under `docs/running/` describe the files each optional mode add
 | `cohort/qc/pks.qc.summary.tsv` | every run | sample |
 | `cohort/pks.master_summary.tsv` | every run | sample — every stage joined |
 | `by_sample/*/read_evidence.tsv` | `--sample_type wgs` or `metagenome` | sample |
+| `by_sample/*/wes_evidence.tsv` | `--sample_type wes` | sample |
+| `by_sample/*/rna_evidence.tsv` | `--sample_type rna` | sample |
 | `by_sample/*/contigs/final_evidence/final_pks_evidence.tsv` | targeted reassembly | sample |
 
 ### `cohort/qc/pks.qc.summary.tsv`
