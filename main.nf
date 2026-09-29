@@ -177,6 +177,12 @@ params.pks_align_bowtie2_preset    = "very-sensitive"
 params.pks_align_bowtie2_score_min = "L,-0.6,-0.6"
 params.pks_align_min_mapq          = 40
 
+// E0 (Ludmil, 25 Sep): minimap2 fragment mode during host depletion. "default" is
+// the behaviour every run so far used; "no" passes --frag=no so depletion no longer
+// depends on read order / input route. Benchmark first (validation/E0); the default
+// changes only after that decision.
+params.minimap2_frag_mode = "default"   // default | no
+
 // Output directories
 params.outdir = "${launchDir}/results"
 
@@ -739,6 +745,9 @@ workflow {
     }
     if (params.pks_align_min_mapq.toString() != "40") {
         exit 1, "--pks_align_min_mapq must stay 40: the evidence tiers and reads_mapped_ihe3034_mapq40 were calibrated at MAPQ >= 40 (A4). Recalibrate before changing it."
+    }
+    if (!(params.minimap2_frag_mode.toString() in ["default", "no"])) {
+        exit 1, "--minimap2_frag_mode must be default or no (got ${params.minimap2_frag_mode})"
     }
     // Local mode needs its own preset (-local) and score-min (G,...); neither is calibrated.
     if (params.pks_align_bowtie2_mode.toString() != "end-to-end") {

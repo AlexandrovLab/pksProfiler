@@ -18,6 +18,10 @@ process mapReads {
     tuple val(sampleID), path("${sampleID}.depletion.qc.tsv"), emit: qc
 
     script:
+    // E0 (Ludmil, 25 Sep): with one FASTQ, -ax sr treats consecutive same-named reads
+    // as a pair (fragment mode), so what is depleted depends on read order and
+    // therefore on the input route. --frag=no makes every read independent.
+    def frag_arg = params.minimap2_frag_mode.toString() == "no" ? "--frag=no" : ""
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # hg38_db ${params.dep_digest?.hg38_db}  pangenome_db ${params.dep_digest?.pangenome_db}  t2t_phix_db ${params.dep_digest?.t2t_phix_db}
@@ -40,7 +44,7 @@ process mapReads {
     awk 'END { print int(NR / 4) }' < hg38.count.fifo > hg38.count &
     HG38_COUNTER=\$!
 
-    minimap2 -2 -ax sr --secondary=no -t "${task.cpus}" \
+    minimap2 -2 -ax sr ${frag_arg} --secondary=no -t "${task.cpus}" \
         "${params.hg38_db}" \
         "${reads_fastq}" |
     samtools fastq -@ "${task.cpus}" -f 4 -F 2304 |
@@ -55,7 +59,7 @@ process mapReads {
     awk 'END { print int(NR / 4) }' < t2t.count.fifo > t2t.count &
     T2T_COUNTER=\$!
 
-    minimap2 -2 -ax sr --secondary=no -t "${task.cpus}" \
+    minimap2 -2 -ax sr ${frag_arg} --secondary=no -t "${task.cpus}" \
         "${params.t2t_phix_db}" \
         "${sampleID}.UNMAPPED.FASTP.FILTERED.hg38.fastq.gz" |
     samtools fastq -@ "${task.cpus}" -f 4 -F 2304 |
@@ -91,7 +95,7 @@ process mapReads {
         for mmi in "\${PANGENOME_INDEXES[@]}"; do
             echo "Running minimap2 on \$mmi"
 
-            minimap2 -2 -ax sr --secondary=no -t "${task.cpus}" \
+            minimap2 -2 -ax sr ${frag_arg} --secondary=no -t "${task.cpus}" \
                 "\$mmi" \
                 "${sampleID}.pangenome.current.fastq.gz" |
             samtools fastq -@ "${task.cpus}" -f 4 -F 2304 |

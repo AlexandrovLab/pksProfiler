@@ -202,7 +202,9 @@ PARAMETER_GROUPS = (
                    "pks_island_len_1based",
                    # A4: the primary alignment's similarity rule.
                    "pks_align_bowtie2_mode", "pks_align_bowtie2_preset",
-                   "pks_align_bowtie2_score_min", "pks_align_min_mapq")),
+                   "pks_align_bowtie2_score_min", "pks_align_min_mapq",
+                   # E0: host-depletion fragment mode.
+                   "minimap2_frag_mode")),
     ("EVIDENCE TIERS", tuple(f"tumor_{tier}_{field}" for tier in TIER_NAMES
                              for field, _label in TIER_FIELDS)),
     ("STAGES", ("enable_mags", "tumor_targeted_assembly",

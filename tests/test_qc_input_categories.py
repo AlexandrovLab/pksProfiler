@@ -162,3 +162,25 @@ class BowtieRuleIsExplicit(unittest.TestCase):
 
     def test_a_different_mapq_is_refused(self):
         self.assertIn('params.pks_align_min_mapq.toString() != "40"', self.MAIN)
+
+
+class FragModeIsASwitch(unittest.TestCase):
+    """E0 (25 Sep): --frag=no is available for the benchmark; the default is unchanged."""
+
+    MAP = (ROOT / "Modules/map_reads.nf").read_text()
+    MAIN = (ROOT / "main.nf").read_text()
+
+    def test_every_depletion_call_takes_the_switch(self):
+        calls = re.findall(r"minimap2 -2 -ax sr[^\n]*", self.MAP)
+        self.assertEqual(len(calls), 3)
+        for call in calls:
+            self.assertIn("${frag_arg}", call)
+
+    def test_the_default_is_the_behaviour_runs_have_used(self):
+        self.assertIn('params.minimap2_frag_mode = "default"', self.MAIN)
+        self.assertIn('"no" ? "--frag=no" : ""', self.MAP)
+
+    def test_run_report_records_it(self):
+        prov = load("finalize_provenance")
+        names = {n for _group, members in prov.PARAMETER_GROUPS for n in members}
+        self.assertIn("minimap2_frag_mode", names)
