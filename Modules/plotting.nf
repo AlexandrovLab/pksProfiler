@@ -23,9 +23,12 @@ process plotPKS {
 	sample_name="\${coverage_basename%.coverage.bedgraph}"
 	output_pdf="\${sample_name}.pks.circos.pdf"
 
+    # P1 (25 Sep): the island interval is the canonical one, converted to the
+    # bedgraph's 0-based half-open convention -- not pks_shift/pks_island_len.
+
     Rscript "${params.scripts}/plotPKS.R" ${coverage_file} "${params.pks_cytoband}" "\${output_pdf}" \
-        "${params.pks_contig}" "${params.pks_shift}" \
-        "${params.pks_shift.toString().toInteger() + params.pks_island_len.toString().toInteger()}"
+        "${params.pks_contig}" \
+        "\$(( ${params.pks_start_1based} - 1 ))" "${params.pks_end_1based}"
     """
 }
 

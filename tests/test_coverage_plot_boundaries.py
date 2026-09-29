@@ -46,8 +46,11 @@ class TheIntervalComesFromThePipeline(unittest.TestCase):
     def test_the_module_passes_contig_and_interval(self):
         invocation = PLOTTING.split("plotPKS.R", 1)[1].split('"""', 1)[0]
         self.assertIn("params.pks_contig", invocation)
-        self.assertIn("params.pks_shift", invocation)
-        self.assertIn("params.pks_island_len", invocation)
+        # P1 (25 Sep): canonical 50,768-bp interval, 0-based half-open.
+        self.assertIn("${params.pks_start_1based} - 1", invocation)
+        self.assertIn("${params.pks_end_1based}", invocation)
+        self.assertNotIn("params.pks_shift", invocation)
+        self.assertNotIn("params.pks_island_len", invocation)
 
 
 @unittest.skipUnless(shutil.which("Rscript"), "Rscript not on PATH")
@@ -61,7 +64,7 @@ class BoundaryBinsSurvive(unittest.TestCase):
             (d / "cov.bedgraph").write_text(bedgraph_text)
             result = subprocess.run(
                 ["Rscript", str(PLOT_R), str(d / "cov.bedgraph"), str(d / "cyto.txt"),
-                 str(d / "out.pdf"), "NC_017628.1", "2193827", "2244594"],
+                 str(d / "out.pdf"), "NC_017628.1", "2193826", "2244594"],
                 capture_output=True, text=True)
             for line in result.stderr.splitlines():
                 if "coverage bins in" in line:

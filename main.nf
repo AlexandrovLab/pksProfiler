@@ -161,8 +161,8 @@ params.pks_plot_region_end   = 2254594
 // first base of the island. These two values are the single authoritative
 // definition; every correctness-sensitive call site below now derives its own
 // coordinate representation (1-based samtools region, or 0-based BED/PAF start)
-// from them directly. pks_shift/pks_island_len are UNCHANGED, and still used by
-// plotting.nf's coverage-plot window, where a 1 bp offset has no numeric effect.
+// from them directly. pks_shift/pks_island_len are UNCHANGED but no longer used
+// by any interval computation (plotting.nf moved to the canonical pair, 25 Sep P1).
 params.pks_start_1based    = 2193827   // first base of the annotated island (1-based, inclusive)
 params.pks_end_1based      = 2244594   // last base of the annotated island (1-based, inclusive)
 params.pks_island_len_1based = params.pks_end_1based - params.pks_start_1based + 1   // 50768, not 50767

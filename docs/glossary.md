@@ -8,7 +8,7 @@ These come up constantly in the outputs. If you already know them, skip ahead.
 |---|---|
 | **read** | One short DNA fragment from the sequencer, typically 100–150 letters long. A sample contains hundreds of millions of them. |
 | **host depletion** | Throwing away the human reads first, so only non-human reads are searched. Most of a tumour sample is human. |
-| **breadth** | What fraction of the island's 50,767 letters has at least one read sitting on it. 20% breadth means a fifth of the island was seen. |
+| **breadth** | What fraction of the island's 50,768 letters has at least one read sitting on it. 20% breadth means a fifth of the island was seen. |
 | **assembly** | Stitching overlapping reads back into longer stretches of DNA, like reassembling a shredded page. |
 | **contig** | One stretch produced by assembly — short for *contiguous sequence*. A good assembly gives long contigs; a poor one gives many short fragments. |
 | **binning** | Sorting the contigs from a mixed sample into groups that probably came from the same organism. |

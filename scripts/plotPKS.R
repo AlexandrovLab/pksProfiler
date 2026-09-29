@@ -11,7 +11,7 @@ coverage_file <- args[1]
 cytoband_file <- args[2]
 output_pdf    <- args[3]
 contig        <- if (length(args) >= 4) args[4] else "NC_017628.1"
-island_start  <- if (length(args) >= 5) as.numeric(args[5]) else 2193827
+island_start  <- if (length(args) >= 5) as.numeric(args[5]) else 2193826
 island_end    <- if (length(args) >= 6) as.numeric(args[6]) else 2244594
 
 

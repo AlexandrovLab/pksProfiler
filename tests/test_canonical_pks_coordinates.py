@@ -90,7 +90,8 @@ class EveryCorrectnessSensitiveCallSiteUsesTheCanonicalValues(unittest.TestCase)
         # migrated to the same canonical params, not to an arithmetic-free form.
         for name, code in (("pksProfiler_align.nf", code_only(ALIGN)),
                            ("pks_targeted.nf", code_only(TARGETED)),
-                           ("pks_mag.nf", code_only(MAG))):
+                           ("pks_mag.nf", code_only(MAG)),
+                           ("plotting.nf", code_only((ROOT / "Modules" / "plotting.nf").read_text()))):
             with self.subTest(module=name):
                 self.assertNotIn("params.pks_shift.toString().toInteger() + params.pks_island_len",
                                  code, f"{name} still derives a bound from pks_shift+pks_island_len")

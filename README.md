@@ -165,7 +165,7 @@ the highest tier it satisfies.
 | `localized_indeterminate` | ≥1, but fails one of the above | | | no |
 | `negative` | 0 | — | — | no |
 
-*Breadth* is the fraction of the island's 50,767 bp covered by at least one read. Every threshold
+*Breadth* is the fraction of the island's 50,768 bp covered by at least one read. Every threshold
 is a parameter, e.g. `--tumor_broad_island_min_pks_reads 50`.
 
 > **These tiers rank how strong the evidence is. They are not a validated positive/negative test.**
