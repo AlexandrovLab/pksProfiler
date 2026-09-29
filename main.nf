@@ -30,7 +30,7 @@ params.bracken_read_length = null // Must match a read length supported by the s
 // classification, contig analysis and MAG/taxonomy lanes silently never ran,
 // with no error and a gene-count table that looked like a normal, if evidence-
 // free, result. His own first preference: no default: required, and explicit.
-params.sample_type = null     // required: metagenome | wgs  (wes / rna: lanes not built yet)
+params.sample_type = null     // required: metagenome | wgs | wes  (rna: lane not built yet)
 // Owner decision on Ludmil's 26 Sep mode memo: the tumor_ prefix is dropped -- a WGS,
 // WES or RNA library is not always a tumour (matched normals run the same lane). The
 // old names fail before any task runs, naming the new one; see renamed_sample_types.
@@ -370,8 +370,8 @@ workflow {
 
         Common:
           --input_data_type   auto | bam | cram | fastq            (default: auto)
-          --sample_type       metagenome | wgs                     (required, no default;
-                              wes / rna are refused until their lanes exist;
+          --sample_type       metagenome | wgs | wes               (required, no default;
+                              wes is evidence-only; rna is refused until its lane exists;
                               tumor_wgs/tumor_wes/tumor_rna were renamed wgs/wes/rna)
           --profiling_method  bowtie2 | hmm | both                 (default: bowtie2)
           --outdir            results directory                    (default: ./results)
@@ -538,7 +538,7 @@ workflow {
     // Ludmil, revised report finding 9: fail loudly before any task runs, rather
     // than accept "auto" and silently resolve it to nothing.
     if (!params.sample_type) {
-        exit 1, "Missing required parameter: --sample_type. Supported: metagenome, wgs"
+        exit 1, "Missing required parameter: --sample_type. Supported: metagenome, wgs, wes"
     }
     // Owner decision on Ludmil's 26 Sep mode memo: renamed, not aliased. An alias would
     // let an old command line run under a name the results no longer carry.
@@ -818,11 +818,11 @@ workflow {
     // branch. wes and rna (then tumor_wes/tumor_rna) used to pass this check and match no branch,
     // so they ran generic profiling with no mode-specific handling. Refused, loudly,
     // until the WES (evidence-only) and RNA (splice-aware depletion) lanes exist.
-    def planned_sample_types = ["wes", "rna"]
+    def planned_sample_types = ["rna"]
     if (params.sample_type in planned_sample_types) {
-        exit 1, "--sample_type ${params.sample_type} is not supported in this release: its dedicated lane (WES evidence-only / RNA splice-aware depletion) is not built yet. Use metagenome or wgs."
+        exit 1, "--sample_type ${params.sample_type} is not supported in this release: its dedicated lane (RNA splice-aware depletion) is not built yet. Use metagenome, wgs or wes."
     }
-    def valid_sample_types = ["metagenome", "wgs"]
+    def valid_sample_types = ["metagenome", "wgs", "wes"]
     if (!(params.sample_type in valid_sample_types)) {
         exit 1, "Unknown --sample_type: ${params.sample_type}. Supported: ${valid_sample_types.join(', ')}"
     }
@@ -831,6 +831,15 @@ workflow {
     }
     if (params.sample_type == "wgs" && params.profiling_method == "hmm") {
         exit 1, "--sample_type wgs requires --profiling_method bowtie2 or both for read-level clb screening"
+    }
+    // Ludmil, 26 Sep mode memo section 3: WES is evidence-only, and its evidence file is
+    // written from the alignment lane, so an HMM-only WES run would produce none.
+    if (params.sample_type == "wes" && params.profiling_method == "hmm") {
+        exit 1, "--sample_type wes requires --profiling_method bowtie2 or both: wes_evidence.tsv comes from the alignment lane"
+    }
+    // No WGS tiers and no targeted assembly outside wgs; the default-on flag is inert there.
+    if (params.sample_type == "wes" && tumor_targeted_assembly_b) {
+        log.info "--tumor_targeted_assembly does not apply to --sample_type ${params.sample_type} (evidence-only lane); no assembly will run"
     }
     if (params.sample_type == "wgs" && tumor_targeted_assembly_b) {
         if (!file(params.pks_reference_fasta).exists()) {
@@ -996,7 +1005,11 @@ workflow {
             ALIGN_OUT.qc.map { _sampleID, qc_file -> qc_file }
         )
 
-        // ---------- v0.0.2: read-level pks evidence (tier for tumour WGS only) ----------
+        // ---------- v0.0.2: read-level pks evidence (tier for WGS only) ----------
+        // WES (Ludmil, 26 Sep mode memo section 3) is a lane of its own: standard
+        // depletion and profiling, then wes_evidence.tsv (--mode wes) -- no tier, no
+        // targeted assembly, no MAGs. Its duplicate-rate and capture/off-target QC is a
+        // documented TODO (docs/running/wes_rna.md), not silently the WGS QC.
         // The evidence -- pks reads, clb genes, island breadth -- is computed for tumour
         // and metagenome alike. The tier is tumour WGS only (Ludmil, 26 Sep mode memo): the
         // thresholds were derived from TCGA tumour breadth distributions and are not a
@@ -1007,7 +1020,7 @@ workflow {
         // still unpublished and report every sample as not_classified. Since P0-5b the
         // file itself is staged into the report, not read back from the published tree.
         // Empty when the lane that writes it did not run.
-        if (params.sample_type in ["wgs", "metagenome"]) {
+        if (params.sample_type in ["wgs", "metagenome", "wes"]) {
             read_evidence_input_ch = ALIGN_OUT.profile
                 .join(ALIGN_OUT.qc, by: 0)
                 .map { sampleID, rawCoverage, bedgraph, counts, bam, bai, qc ->

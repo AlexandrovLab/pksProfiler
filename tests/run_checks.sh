@@ -140,6 +140,10 @@ check_validation \
     tumor-hmm-only \
     '--sample_type wgs requires --profiling_method bowtie2 or both' \
     --sample_type wgs --profiling_method hmm
+check_validation \
+    wes-hmm-only \
+    '--sample_type wes requires --profiling_method bowtie2 or both' \
+    --sample_type wes --profiling_method hmm
 
 echo
 echo "Building the workflow graph for every flag combination"

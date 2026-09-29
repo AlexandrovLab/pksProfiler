@@ -30,8 +30,8 @@ results/by_sample/<sample>/read_evidence.tsv
 One row, with the tier plus the three numbers behind it:
 
 ```text
-sample      read_evidence      pks_reads  clb_genes_detected  island_breadth_1x
-TUMOR_01    extensive_island   1497       15                  0.731800
+sample      mode  read_evidence      pks_reads  clb_genes_detected  island_breadth_1x
+TUMOR_01    wgs   extensive_island   1497       15                  0.731800
 ```
 
 Because you set `--sample_type wgs`, samples that clear the gate also go straight into

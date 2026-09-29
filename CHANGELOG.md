@@ -6,6 +6,9 @@ Extends the immutable v0.0.1 release with island reassembly, genome-resolved ana
 strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 
 **Added**
+- WES lane, `--sample_type wes` (Ludmil, 26 Sep mode memo section 3): standard depletion and
+  profiling, `wes_evidence.tsv`, no tier, no targeted assembly, bowtie2/both only. Duplicate-rate
+  and capture/off-target QC are a documented TODO (`docs/running/wes_rna.md`).
 - Sample-type routing: `--sample_type metagenome | wgs | wes | rna` (required, no default).
 - Evidence tiers from read count, *clb* gene count and island breadth together, replacing a
   two-tier scheme whose lower boundary had been rejected during threshold analysis.

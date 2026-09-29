@@ -127,6 +127,13 @@ if need "tumour, everything on" "$KRAKEN" "$GENOMAD"; then
               --genomad_db "$GENOMAD"
 fi
 
+# Ludmil, 26 Sep mode memo section 3: WES evidence-only lane. The targeted-assembly flag
+# is on by default and must be inert here, not wired.
+construct "wes, alignment only"           --sample_type wes --profiling_method bowtie2
+construct "wes, both methods"             --sample_type wes --profiling_method both
+construct "wes, assembly flag inert"      --sample_type wes --profiling_method bowtie2 \
+                                          --tumor_targeted_assembly true
+
 construct "metagenome, profiling only"    --sample_type metagenome --profiling_method bowtie2
 construct "metagenome, HMM only"          --sample_type metagenome --profiling_method hmm
 construct "metagenome, both methods"      --sample_type metagenome --profiling_method both

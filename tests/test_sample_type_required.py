@@ -39,7 +39,7 @@ class SampleTypeHasNoDefault(unittest.TestCase):
         self.assertIsNotNone(m, "valid_sample_types list not found")
         values = eval(m.group(1))
         self.assertNotIn("auto", values)
-        self.assertEqual(set(values), {"metagenome", "wgs"})
+        self.assertEqual(set(values), {"metagenome", "wgs", "wes"})
 
     def test_modes_without_a_lane_are_refused_not_accepted(self):
         # 26 Sep mode memo: every accepted value maps to a real branch. The only
@@ -103,7 +103,7 @@ class MissingSampleTypeFailsBeforeAnyTaskRuns(unittest.TestCase):
     def test_the_error_message_names_every_supported_value(self):
         self.assertIn(
             "Missing required parameter: --sample_type. Supported: "
-            "metagenome, wgs",
+            "metagenome, wgs, wes",
             MAIN)
 
 

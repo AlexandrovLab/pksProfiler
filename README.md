@@ -132,6 +132,7 @@ Each row adds flags to the command above. Nothing is replaced.
 | To also get | Add | Details |
 |---|---|---|
 | island reassembly, two assemblers | `--sample_type wgs` | [assembly](docs/running/assembly.md) |
+| exome evidence (off-target DNA, not tiered) | `--sample_type wes` | [WES and RNA](docs/running/wes_rna.md) |
 | which organism carries it | `--sample_type metagenome --enable_mags true` plus `--gtdbtk_db --checkm2_db --genomad_db` | [MAGs](docs/running/mags.md) |
 | community and neighbour context | automatic with `--enable_mags` | [community context](docs/running/community_context.md) |
 | strain type and phylogroup | automatic; disable with `--enable_strain_typing false` | [strain typing](docs/running/strain_typing.md) |
