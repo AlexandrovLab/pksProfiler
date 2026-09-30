@@ -288,6 +288,21 @@ class ReportStructure(unittest.TestCase):
         self.assertIn("evidence tiers       not applied: long-read WGS", report)
         self.assertRegex(report, r"read_type\s+ont")
 
+    def test_divergence_qc_is_described_as_divergence_only(self):
+        # Ludmil, 25 Sep A5: NM is divergence from IHE3034, not specificity.
+        for method, expected in (("bowtie2", True), ("both", True), ("hmm", False)):
+            record = json.loads(json.dumps(LAUNCH_RECORD))
+            record["invocation"]["params"] = {"sample": "sheet.csv", "sample_type": "wgs",
+                                              "profiling_method": method}
+            (self.runs / "provenance" / "SESSION-A.json").write_text(json.dumps(record) + "\n")
+            self.finalise()
+            report = self.history()
+            with self.subTest(method=method):
+                self.assertEqual("divergence QC      NM / alignment columns" in report, expected)
+                if expected:
+                    self.assertIn("divergence from IHE3034", report)
+                    self.assertIn("Not specificity or organism", report)
+
     def test_a_failed_task_says_where_its_stderr_is(self):
         record = json.loads(json.dumps(LAUNCH_RECORD))
         record["invocation"]["work_dir"] = "/scratch/pks/work"

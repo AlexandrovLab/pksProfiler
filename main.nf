@@ -1203,6 +1203,11 @@ workflow {
         QC_FRAGMENTS = QC_FRAGMENTS.mix(
             ALIGN_OUT.qc.map { _sampleID, qc_file -> qc_file }
         )
+        // Ludmil, 25 Sep A5: divergence from IHE3034 of the clb-supporting reads, its own
+        // fragment so the cohort QC table gets the columns without touching the counts.
+        QC_FRAGMENTS = QC_FRAGMENTS.mix(
+            ALIGN_OUT.divergence.map { _sampleID, qc_file, _by_gene -> qc_file }
+        )
 
         // ---------- v0.0.2: read-level pks evidence (tier for WGS only) ----------
         // WES (Ludmil, 26 Sep mode memo section 3) is a lane of its own: standard

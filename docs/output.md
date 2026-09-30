@@ -27,7 +27,9 @@ by_sample/<sample>/
 ├── rna_evidence.tsv        RNA expression evidence, not tiered       (--sample_type rna)
 ├── counts.txt              reads per clb gene
 ├── coverage.txt            island coverage
-├── alignment/              sorted.bam, .bai, .sam, coverage.bedgraph, alignment.qc.tsv
+├── alignment/              sorted.bam, .bai, coverage.bedgraph, alignment.qc.tsv,
+│                           ihe3034_divergence.qc.tsv, ihe3034_divergence_by_gene.tsv
+│                           (A5: divergence from IHE3034 of the clb-assigned reads; QC only)
 │                           coverage.bedgraph is **raw per-bin depth** over reads that
 │                           aligned to the island reference at MAPQ >= 40. It is not a
 │                           library-normalised abundance and is not comparable between
@@ -238,10 +240,26 @@ warning.
 | `reads_after_pangenome` | surviving optional pangenome depletion; `NA` unless `--pangenome_db` |
 | `num_clb_genes_align` | *clb* genes with at least one assigned read, alignment profiling (0–19) |
 | `reads_clb_genes_align` | reads assigned to *clb* genes, alignment profiling |
+| `divergence_ihe3034_reads` | reads the divergence QC measured: primary alignments at MAPQ ≥ 40 that featureCounts' largest-overlap rule assigns to one *clb* gene (A5). 0 when none; the columns below are then `NA` |
+| `nm_ihe3034_median` | median edit distance (`NM`) of those reads to IHE3034 |
+| `divergence_ihe3034_median`, `_q1`, `_q3` | median and quartiles of divergence from IHE3034, `NM` / alignment columns (M/=/X + I + D); 0 is identical to IHE3034 |
+| `divergence_ihe3034_frac_gt_2pct`, `_frac_gt_5pct` | fraction of those reads more than 2% / 5% divergent from IHE3034 |
+| `clb_read_length_median`, `_q1`, `_q3`, `_min`, `_max` | length of those reads, clipped bases included |
 | `num_clb_genes_hmm` | as above, HMM profiling; `NA` unless `--profiling_method hmm` or `both` |
 | `reads_clb_genes_hmm` | as above, HMM profiling |
 | `status` | `complete`, `incomplete` (sample ran partially), or `no_qc_produced` (sample entered the run but emitted no QC) |
 | `terminal_state` | how the sample ended; exactly one value per sample, below |
+
+**Reading the divergence columns (Ludmil, 25 Sep A5).** They describe how far the
+clb-supporting reads sit from one reference, IHE3034, and nothing more. MAPQ ≥ 40 means a read
+placed confidently on IHE3034, not that no other microbe would take it, so a low divergence is
+not evidence of uniqueness, organism identity or carrier identity, and a high one is not
+evidence against the call. Specificity is the competitive-mapping analysis
+(`Modules/pks_specificity.nf`, run standalone), stated relative to the panel it tested. Soft-clipped bases are outside
+the alignment, so a local-mode alignment can understate divergence; long reads carry their
+sequencing error in `NM`. `by_sample/<sample>/alignment/ihe3034_divergence_by_gene.tsv` gives
+reads, median `NM` and median divergence per *clb* gene. Computing them changes no count, tier
+or call.
 
 A sample that failed mid-run still gets a row. The table is built from whatever
 fragments exist, so one sample hitting a time cap no longer costs the cohort its QC —

@@ -21,6 +21,9 @@ process pksProfiler_align {
 	      path("${sampleID}.sorted.bam.bai"),
           emit: profile
     tuple val(sampleID), path("${sampleID}.alignment.qc.tsv"), emit: qc
+    // Ludmil, 25 Sep A5: divergence from IHE3034 of the clb-supporting reads. QC only.
+    tuple val(sampleID), path("${sampleID}.ihe3034_divergence.qc.tsv"),
+          path("${sampleID}.ihe3034_divergence_by_gene.tsv"), emit: divergence
 
     script:
     def bedtools_cov = "${sampleID}.coverage.txt"
@@ -29,6 +32,8 @@ process pksProfiler_align {
     def bam          = "${sampleID}.sorted.bam"
 	def bai          = "${sampleID}.sorted.bam.bai"
     def qc           = "${sampleID}.alignment.qc.tsv"
+    def divergence_qc    = "${sampleID}.ihe3034_divergence.qc.tsv"
+    def divergence_genes = "${sampleID}.ihe3034_divergence_by_gene.tsv"
     // Owner decision, 29 Sep: long reads (--read_type ont|hifi) are profiled with
     // minimap2 -ax map-ont/map-hifi against the IHE3034 genome FASTA (the sequence the
     // Bowtie2 index was built from), with the same MAPQ filter; featureCounts gets -L.
@@ -122,6 +127,17 @@ process pksProfiler_align {
     printf "%s\treads_mapped_ihe3034_mapq40\t%s\n" "${sampleID}" "\$MAPPED_READS" >> "${qc}"
     printf "%s\treads_clb_genes_align\t%s\n" "${sampleID}" "\$CLB_READS" >> "${qc}"
     printf "%s\tnum_clb_genes_align\t%s\n" "${sampleID}" "\$CLB_GENES_DETECTED" >> "${qc}"
+
+    # Ludmil, 25 Sep A5: NM and NM / alignment columns of the reads featureCounts assigned
+    # to a clb gene -- divergence FROM IHE3034, and nothing more. MAPQ >= 40 on this one
+    # reference is not uniqueness across microbes, and a low divergence is not organism
+    # identity; specificity is the competitive-mapping lane (pks_specificity.nf). This
+    # reads the BAM only: no count, tier or call below depends on it.
+    samtools view "${bam}" \
+      | python "${params.scripts}/ihe3034_divergence_qc.py" \
+            --sample "${sampleID}" --annotation clb_genes.gff \
+            --min-mapq ${params.pks_align_min_mapq} \
+            --qc-out "${divergence_qc}" --genes-out "${divergence_genes}"
 
     if [[ "\$MAPPED_READS" -eq 0 ]]; then
         echo "No confidently mapped reads for ${sampleID}; recording zero clb counts."

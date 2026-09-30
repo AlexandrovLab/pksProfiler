@@ -391,6 +391,15 @@ def render(record):
     if params:
         lines.append("")
         lines.append(f"  profiling aligner  {profiling_aligner(params)}")
+        if params.get("profiling_method") != "hmm":
+            # Ludmil, 25 Sep A5: say what the divergence columns are before anyone reads
+            # them as more.
+            lines.append("  divergence QC      NM / alignment columns of the clb-assigned reads: "
+                         "divergence from IHE3034")
+            lines.append("                     only (alignment/ihe3034_divergence.qc.tsv). Not "
+                         "specificity or organism")
+            lines.append("                     identity; specificity is the competitive-mapping "
+                         "lane, relative to its panel.")
     interval = island_interval(params)
     long_read = long_read_type(params)
     if interval or params.get("sample_type") == "wgs":

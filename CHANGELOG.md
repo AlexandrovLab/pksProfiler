@@ -76,6 +76,14 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 - `process.beforeScript` puts the conda base first on PATH so each task's activated env wins
   over tools earlier on the launching shell's PATH (a user minimap2 2.24 had been shadowing
   the pinned 2.31 in every host-depletion pass on TSCC).
+- Divergence-from-IHE3034 QC (Ludmil, 25 Sep A5): `pksProfiler_align` runs
+  `scripts/ihe3034_divergence_qc.py` on the counts BAM and publishes
+  `alignment/ihe3034_divergence.qc.tsv` (a QC fragment) and `alignment/ihe3034_divergence_by_gene.tsv`.
+  Reads measured are the primary MAPQ >= 40 alignments featureCounts assigns to a clb gene;
+  divergence is NM / alignment columns. `pks.qc.summary.tsv` gains `divergence_ihe3034_reads`,
+  `nm_ihe3034_median`, `divergence_ihe3034_median/_q1/_q3`, `divergence_ihe3034_frac_gt_2pct/_5pct`
+  and `clb_read_length_median/_q1/_q3/_min/_max`, and RUN_REPORT describes them. QC only: no
+  count, tier or call changes, and it is not a specificity or identity measure.
 
 **Changed**
 - **Extraction from bwa mem alignments also takes low-score mapped reads** (Ludmil, 25 Sep E1):

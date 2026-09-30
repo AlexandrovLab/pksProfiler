@@ -11,6 +11,7 @@ counts all mean a bug, not a missing sample.
 
 import argparse
 import csv
+import math
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -26,6 +27,25 @@ from pathlib import Path
 #
 # Each of these is now written by exactly one stage, under its own name, and is absent
 # rather than substituted when that stage did not run.
+# A5: written by ihe3034_divergence_qc.py. The read count is an integer like every other
+# count; the rest are decimals, and NA when no read was measured.
+DIVERGENCE_COUNT = "divergence_ihe3034_reads"
+# metric -> upper bound (None: any non-negative value)
+DIVERGENCE_DECIMALS = {
+    "nm_ihe3034_median": None,
+    "divergence_ihe3034_median": 1.0,
+    "divergence_ihe3034_q1": 1.0,
+    "divergence_ihe3034_q3": 1.0,
+    "divergence_ihe3034_frac_gt_2pct": 1.0,
+    "divergence_ihe3034_frac_gt_5pct": 1.0,
+    "clb_read_length_median": None,
+    "clb_read_length_q1": None,
+    "clb_read_length_q3": None,
+    "clb_read_length_min": None,
+    "clb_read_length_max": None,
+}
+DIVERGENCE_COLUMNS = [DIVERGENCE_COUNT, *DIVERGENCE_DECIMALS]
+
 OUTPUT_COLUMNS = [
     "Sample",
     "input_alignment_records",   # from the index: records, secondary/supplementary included
@@ -74,6 +94,11 @@ OUTPUT_COLUMNS = [
     # still used below to bound the clb count -- just not shown in the cohort table.
     "num_clb_genes_align",
     "reads_clb_genes_align",
+    # Ludmil, 25 Sep A5: divergence FROM IHE3034 of the reads behind reads_clb_genes_align
+    # (ihe3034_divergence_qc.py). A QC distribution, not a call and not a specificity
+    # measure: a read near 0 is close to this one reference, which says nothing about
+    # what else it would also match. Specificity is the competitive-mapping lane.
+    *DIVERGENCE_COLUMNS,
     "num_clb_genes_hmm",
     "reads_clb_genes_hmm",
     # F07: reads whose best hit tied across two clb models and were therefore counted
@@ -187,6 +212,45 @@ def parse_args():
     return args
 
 
+def decimal_metric(metric, text, path):
+    """A5 decimals: finite, non-negative, and within the metric's bound."""
+    try:
+        value = float(text)
+    except ValueError:
+        raise ValueError(f"Malformed {metric} in {path}: {text!r}") from None
+    bound = DIVERGENCE_DECIMALS[metric]
+    if not math.isfinite(value) or value < 0 or (bound is not None and value > bound):
+        raise ValueError(f"Out-of-range {metric} in {path}: {text!r}")
+    return value
+
+
+def format_decimal(value):
+    return str(int(value)) if float(value).is_integer() else f"{value:.6f}"
+
+
+def check_divergence(sample, mapped):
+    """A5: the divergence fragment must describe a subset of the reads it sits beside,
+    and its own quantiles must be ordered."""
+    measured = mapped.get(DIVERGENCE_COUNT)
+    ceiling = mapped.get("reads_mapped_ihe3034_mapq40")
+    if measured is not None and ceiling is not None and measured > ceiling:
+        raise ValueError(f"Impossible QC counts for {sample}: {DIVERGENCE_COUNT} ({measured}) "
+                         f"exceeds reads_mapped_ihe3034_mapq40 ({ceiling})")
+    decimals = [m for m in DIVERGENCE_DECIMALS if mapped.get(m) is not None]
+    if decimals and not measured:
+        raise ValueError(f"Impossible QC values for {sample}: {', '.join(decimals)} "
+                         f"reported with {DIVERGENCE_COUNT}={measured}")
+    for chain in (("divergence_ihe3034_q1", "divergence_ihe3034_median", "divergence_ihe3034_q3"),
+                  ("divergence_ihe3034_frac_gt_5pct", "divergence_ihe3034_frac_gt_2pct"),
+                  ("clb_read_length_min", "clb_read_length_q1", "clb_read_length_median",
+                   "clb_read_length_q3", "clb_read_length_max")):
+        present = [(m, mapped[m]) for m in chain if mapped.get(m) is not None]
+        for (low_name, low), (high_name, high) in zip(present, present[1:]):
+            if low > high:
+                raise ValueError(f"Impossible QC values for {sample}: {low_name} ({low}) "
+                                 f"exceeds {high_name} ({high})")
+
+
 def load_fragments(paths):
     metrics = defaultdict(dict)
 
@@ -214,10 +278,15 @@ def load_fragments(paths):
                         raise ValueError(
                             f"Unknown {metric} in {path}: {value_text!r}. "
                             f"Expected one of {', '.join(sorted(TEXT_METRICS[metric]))}")
+                elif metric in DIVERGENCE_DECIMALS:
+                    value = decimal_metric(metric, value_text, path)
                 elif not value_text.isdigit():
                     raise ValueError(f"Malformed QC row in {path}: {row}")
 
-                value = value_text if metric in TEXT_METRICS else int(value_text)
+                if metric in TEXT_METRICS:
+                    value = value_text
+                elif metric not in DIVERGENCE_DECIMALS:
+                    value = int(value_text)
                 previous = metrics[sample].get(metric)
                 if previous is not None and previous != value:
                     raise ValueError(
@@ -256,7 +325,7 @@ def output_row(sample, values):
     }
     for column in OUTPUT_COLUMNS:
         if column.startswith(("input_mapped_", "input_unmapped_", "prefilter_",
-                              "diamond_", "candidate_")):
+                              "diamond_", "candidate_")) or column in DIVERGENCE_COLUMNS:
             mapped[column] = values.get(column)
 
     missing = [column for column in REQUIRED if mapped[column] is None]
@@ -341,10 +410,16 @@ def output_row(sample, values):
             raise ValueError(f"Impossible QC counts for {sample}: {rescued} "
                              f"({mapped[rescued]}) exceeds {pool} ({mapped[pool]})")
 
+    check_divergence(sample, mapped)
+
     for field in ("num_clb_genes_align", "num_clb_genes_hmm"):
         genes_detected = mapped[field]
         if genes_detected is not None and not 0 <= genes_detected <= 19:
             raise ValueError(f"Invalid {field} for {sample}: {genes_detected}")
+
+    for column in DIVERGENCE_DECIMALS:
+        if mapped[column] is not None:
+            mapped[column] = format_decimal(mapped[column])
 
     return {
         column: ("NA" if mapped.get(column) is None else mapped[column])

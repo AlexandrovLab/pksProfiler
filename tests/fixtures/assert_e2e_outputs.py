@@ -315,6 +315,26 @@ def main():
                   total == pos_reads, f"got {total}")
         else:
             check("positive sample's counts.txt exists", False)
+
+        # ---------- A5: divergence from IHE3034 of the clb-assigned reads ----------
+        for sample, expected in ((pos, pos_reads), (neg, 0)):
+            div_path = results / "by_sample" / sample / "alignment" / "ihe3034_divergence.qc.tsv"
+            genes_path = div_path.with_name("ihe3034_divergence_by_gene.tsv")
+            check(f"{sample} alignment/ihe3034_divergence.qc.tsv exists", div_path.exists())
+            check(f"{sample} alignment/ihe3034_divergence_by_gene.tsv exists", genes_path.exists())
+            if not div_path.exists():
+                continue
+            metrics = {row["Metric"]: row["Value"] for row in read_tsv(div_path)}
+            check(f"{sample} divergence_ihe3034_reads == reads featureCounts assigned ({expected})",
+                  metrics.get("divergence_ihe3034_reads") == str(expected),
+                  f"got {metrics.get('divergence_ihe3034_reads')!r}")
+            if expected:
+                median = float(metrics.get("divergence_ihe3034_median", "nan"))
+                check(f"{sample} divergence_ihe3034_median is a fraction in [0, 1]",
+                      0 <= median <= 1, f"got {median}")
+            else:
+                check(f"{sample} writes no divergence quantiles without reads",
+                      set(metrics) == {"divergence_ihe3034_reads"}, f"got {sorted(metrics)}")
     else:
         # ---------- pksProfilerHMM: hmm_counts.tsv + hmm.qc.tsv ----------
         # Same fixture reads as the bowtie2 lane above (see check_e2e_execution.sh),
