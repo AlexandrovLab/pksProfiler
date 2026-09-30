@@ -1,0 +1,54 @@
+# V8a LOCUS-DETECTION SPECIFICITY decoy panel (Ludmil, 25 Sep report, section 4 V8a).
+#
+# "Challenge pks-supporting reads against pks-negative Enterobacterales, close
+#  homologous NRPS/PKS sequences, broad gut/oral backgrounds, GRCh38, and UniVec.
+#  This asks whether the sequence really belongs to the pks/clb locus."
+#
+# Every member here is meant to be pks/clb NEGATIVE. scripts/build_specificity_panels.py
+# screens each downloaded genome against the canonical IHE3034 island and refuses to
+# place a member in the decoy panel if its island coverage is at or above
+# --max-decoy-island-coverage; a member that fails the screen is written to
+# v8a_pks_screen.tsv with status=rejected_pks_positive and left out of the panel, because
+# a pks-carrying "decoy" would absorb genuine pks reads and turn a specificity check into
+# a coin flip. It is not silently dropped: the screen table is part of the panel.
+#
+# GRCh38 and UniVec are not accessions here. GRCh38 is passed as a local FASTA
+# (--grch38), because the copy that matters is the one the cohort was aligned against and
+# it is already on disk; UniVec is fetched from NCBI by --univec. Both are recorded in
+# v8a_panel_members.tsv exactly like the accession-driven members.
+#
+# columns: key<TAB>accession<TAB>category<TAB>expected_organism<TAB>rationale
+key	accession	category	expected_organism	rationale
+ecoli_k12_mg1655	GCF_000005845.2	enterobacterales_pks_negative	Escherichia coli str. K-12 substr. MG1655	Reference E. coli, phylogroup A, no pks island: the nearest whole-genome neighbour of IHE3034 that must not absorb clb reads.
+ecoli_o157h7_sakai	GCF_000008865.2	enterobacterales_pks_negative	Escherichia coli O157:H7 str. Sakai	Phylogroup E EHEC; large accessory genome and many prophages, pks-negative.
+shigella_flexneri_2a	GCF_000006925.2	enterobacterales_pks_negative	Shigella flexneri 2a str. 301	E. coli by ANI; the strictest same-species-level decoy after K-12.
+salmonella_typhimurium_lt2	GCF_000006945.2	enterobacterales_pks_negative	Salmonella enterica serovar Typhimurium str. LT2	Enterobacterales outside Escherichia; common gut/clinical background.
+citrobacter_freundii_msb1	GCF_904859905.1	enterobacterales_pks_negative	Citrobacter freundii	Citrobacter genus control against the pks+ C. koseri in the V8b carrier panel: genus alone must not confirm the locus.
+enterobacter_cloacae_atcc13047	GCF_000025565.1	enterobacterales_pks_negative	Enterobacter cloacae subsp. cloacae ATCC 13047	Enterobacter genus control against the pks+ Enterobacter/K. aerogenes candidates in V8b.
+proteus_mirabilis_hi4320	GCF_000069965.1	enterobacterales_pks_negative	Proteus mirabilis HI4320	Morganellaceae; NRPS-bearing Enterobacterales further from E. coli.
+serratia_marcescens_db11	GCF_000513215.1	enterobacterales_pks_negative	Serratia marcescens subsp. marcescens Db11	Yersiniaceae; carries its own NRPS/PKS secondary metabolism (prodigiosin).
+yersinia_enterocolitica_8081	GCF_000009345.1	enterobacterales_pks_negative	Yersinia enterocolitica subsp. enterocolitica 8081	Carries the yersiniabactin HMWP1/HMWP2 NRPS-PKS megasynthases, the classic domain-level look-alike of clbB/clbC/clbJ/clbK.
+bacillus_subtilis_168	GCF_000009045.1	nrps_pks_homolog_genome	Bacillus subtilis subsp. subtilis str. 168	pksX/bacillaene: the textbook trans-AT PKS, the same architecture clbB-clbO uses. A read that is really a megasynthase-domain read should be competitive here.
+pseudomonas_protegens_pf5	GCF_000012265.1	nrps_pks_homolog_genome	Pseudomonas protegens Pf-5	Multiple trans-AT PKS/NRPS clusters (pyoluteorin, orfamide, pederin-like) in one genome.
+photorhabdus_laumondii_tto1	GCF_000196155.1	nrps_pks_homolog_genome	Photorhabdus laumondii subsp. laumondii TTO1	Enterobacterales with an exceptionally NRPS/PKS-rich genome: homologous domains on a closely related genomic background.
+streptomyces_coelicolor_a32	GCF_000203835.1	nrps_pks_homolog_genome	Streptomyces coelicolor A3(2)	More than twenty PKS/NRPS clusters; the densest single-genome source of ketosynthase and adenylation domains.
+pseudomonas_aeruginosa_pao1	GCF_000006765.1	nrps_pks_homolog_genome	Pseudomonas aeruginosa PAO1	Pyoverdine/pyochelin NRPS; common clinical and sequencing background.
+bacteroides_fragilis_ych46	GCF_000009925.1	gut_background	Bacteroides fragilis YCH46	Abundant gut anaerobe; carried over from the phase-1 panel.
+bacteroides_theta_vpi5482	GCF_000011065.1	gut_background	Bacteroides thetaiotaomicron VPI-5482	Type-strain gut Bacteroides, distinct from B. fragilis.
+faecalibacterium_prausnitzii_m212	GCF_000154385.1	gut_background	Faecalibacterium prausnitzii M21/2	Most abundant gut Firmicute; carried over from the phase-1 panel.
+akkermansia_muciniphila	GCF_000020225.1	gut_background	Akkermansia muciniphila ATCC BAA-835	Mucin-degrading Verrucomicrobia; carried over from the phase-1 panel.
+bifidobacterium_longum_ncc2705	GCF_000007525.1	gut_background	Bifidobacterium longum NCC2705	Actinobacterial gut background, high GC.
+enterococcus_faecalis_v583	GCF_000007785.1	gut_background	Enterococcus faecalis V583	Gut/clinical Firmicute frequently co-detected with CRC samples.
+clostridioides_difficile_630	GCF_000009205.2	gut_background	Clostridioides difficile 630	Low-GC Clostridia, a very different composition from the island.
+mediterraneibacter_gnavus_atcc29149	GCF_009831375.1	gut_background	Mediterraneibacter (Ruminococcus) gnavus ATCC 29149	Gut Lachnospiraceae; makes its own NRPS-derived metabolite.
+agathobacter_rectalis_vpi0990	GCF_022453685.1	gut_background	Agathobacter (Eubacterium) rectalis VPI 0990	Dominant butyrate producer in colonic samples.
+segatella_copri_dsm18205	GCF_020735445.1	gut_background	Segatella (Prevotella) copri DSM 18205	Enterotype-defining gut Bacteroidetes.
+fusobacterium_nucleatum_atcc25586	GCF_000007325.1	oral_background	Fusobacterium nucleatum subsp. nucleatum ATCC 25586	Oral/gut organism with its own CRC association: the most biologically loaded decoy for this cohort.
+porphyromonas_gingivalis_atcc33277	GCF_000010505.1	oral_background	Porphyromonas gingivalis ATCC 33277	Oral pathogen; carried over from the phase-1 panel.
+streptococcus_mutans_ua159	GCF_000007465.2	oral_background	Streptococcus mutans UA159	Oral Streptococcus; carried over from the phase-1 panel.
+streptococcus_mitis_e651	GCF_018603625.2	oral_background	Streptococcus mitis E651	Mitis-group Streptococcus, the commonest oral contaminant genus in tumour sequencing.
+veillonella_parvula_dsm2008	GCF_000024945.1	oral_background	Veillonella parvula DSM 2008	Oral/gut Negativicutes.
+prevotella_intermedia_atcc25611	GCF_001953955.1	oral_background	Prevotella intermedia ATCC 25611	Oral Bacteroidetes.
+parvimonas_micra_nctc11808	GCF_900637905.1	oral_background	Parvimonas micra NCTC11808	Oral anaerobe repeatedly reported in CRC tumour tissue.
+aggregatibacter_actinomycetemcomitans_4s	GCF_023518055.1	oral_background	Aggregatibacter actinomycetemcomitans 4S	Oral Pasteurellaceae (Gammaproteobacteria), between the oral and Enterobacterales arms.
+streptococcus_gallolyticus_fdaargos755	GCF_013267695.1	gut_background	Streptococcus gallolyticus FDAARGOS_755	The other classic CRC-associated organism; must not be mistaken for a pks carrier.

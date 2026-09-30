@@ -1,0 +1,39 @@
+# V8b CARRIER-ATTRIBUTION panel (Ludmil, 25 Sep report, section 4 V8b).
+#
+# "Separately compare genuine pks reads against alternative pks-positive carriers/strains
+#  (pks+ E. coli, Klebsiella, Citrobacter, Enterobacter, etc.). This asks which organism
+#  is the likely carrier and should not be conflated with locus-detection specificity."
+#
+# Every member here is meant to be pks/clb POSITIVE. This is the opposite screen to
+# v8a_locus_decoy_panel.tsv: scripts/build_specificity_panels.py aligns the canonical
+# IHE3034 island against each downloaded genome and keeps a candidate only if island
+# coverage is at or above --min-carrier-island-coverage. Candidates that fail are written
+# to v8b_pks_screen.tsv with status=rejected_not_pks_positive and left out, because a
+# pks-negative "carrier" can never win a read and would only inflate the panel.
+#
+# The rows are CANDIDATES, not assertions. Which strains carry the island is exactly what
+# the screen decides, from the sequence, on the day the panel is built -- not from this
+# file and not from a citation. Carriers are named by strain, never collapsed to genus,
+# so an attribution can say "this read fits K. pneumoniae SGH10's island as well as
+# IHE3034's" rather than the much weaker "it is Klebsiella". As it happens the screen
+# rejected NTUH-K2044, the strain most often named as THE pks+ Klebsiella: its assembly
+# carries none of the island. That is the whole reason the screen exists.
+#
+# columns: key<TAB>accession<TAB>genus_group<TAB>expected_organism<TAB>rationale
+key	accession	genus_group	expected_organism	rationale
+ecoli_ihe3034	GCF_000025745.1	escherichia	Escherichia coli IHE3034	The pipeline's own reference. In this panel it is one carrier among several, not the answer: every other member competes with it on equal terms.
+ecoli_nissle_1917	GCF_000714595.1	escherichia	Escherichia coli Nissle 1917	B2 probiotic strain; the most widely sequenced non-IHE3034 pks+ E. coli.
+ecoli_uti89	GCF_000013265.1	escherichia	Escherichia coli UTI89	B2 uropathogenic strain from the same clonal background as IHE3034.
+ecoli_536	GCF_000013305.1	escherichia	Escherichia coli 536	B2 uropathogen; a second independent B2 island copy.
+ecoli_abu83972	GCF_000148365.1	escherichia	Escherichia coli ABU 83972	B2 asymptomatic-bacteriuria strain; tests how far within-B2 island divergence goes.
+ecoli_cft073	GCF_000007445.1	escherichia	Escherichia coli CFT073	B2 uropathogen included as a candidate precisely because its pks status is the kind of thing that should be decided by the screen, not assumed.
+klebsiella_pneumoniae_ntuhk2044	GCF_000009885.1	klebsiella	Klebsiella pneumoniae subsp. pneumoniae NTUH-K2044	Hypervirulent K1 ICEKp10 reference strain, kept as a candidate because "hypervirulent K1" is often treated as a synonym for clb+; the screen is what decides.
+klebsiella_pneumoniae_sgh10	GCF_002813595.1	klebsiella	Klebsiella pneumoniae SGH10	Hypervirulent K1 ICEKp10 genome; clbB of this assembly is in the NCBI identical-protein group of IHE3034 ClbB.
+klebsiella_pneumoniae_kpnih33	GCF_000775375.1	klebsiella	Klebsiella pneumoniae subsp. pneumoniae KPNIH33	Complete-genome clinical K. pneumoniae whose clbB is in the same NCBI identical-protein group as IHE3034 ClbB (WP_001518711.1).
+klebsiella_pneumoniae_1158	GCF_000814805.1	klebsiella	Klebsiella pneumoniae subsp. pneumoniae 1158	Second independent complete-genome K. pneumoniae from that same identical-protein group: two Kp strains, not one, so an attribution to Kp is not an attribution to one assembly.
+klebsiella_aerogenes_ea1509e	GCF_000334515.1	klebsiella	Klebsiella aerogenes EA1509E	Complete-genome K. aerogenes (formerly Enterobacter aerogenes) from the IHE3034 ClbB identical-protein group: the genus the island was first reported in, with an assembly that actually carries it.
+klebsiella_aerogenes_kctc2190	GCF_000215745.1	klebsiella	Klebsiella aerogenes KCTC 2190	The K. aerogenes type strain, which sits in the phase-1 DECOY panel. Kept here as a candidate so the screen settles, on sequence, which panel it belongs in.
+citrobacter_koseri_atccbaa895	GCF_000018045.1	citrobacter	Citrobacter koseri ATCC BAA-895	Citrobacter koseri is one of the original reported pks-island carriers.
+citrobacter_koseri_fdaargos287	GCF_002208985.1	citrobacter	Citrobacter koseri FDAARGOS_287	Second complete-genome C. koseri, so Citrobacter attribution does not rest on a single assembly.
+enterobacter_hormaechei_ny5291	GCF_050883695.1	enterobacter	Enterobacter hormaechei subsp. xiangfangensis NY5291	Complete-genome Enterobacter whose clbB is in the IHE3034 ClbB identical-protein group: the Enterobacter arm Ludmil names.
+enterobacter_hormaechei_fdaargos1433	GCF_019048245.1	enterobacter	Enterobacter hormaechei	A second Enterobacter candidate with no clb evidence, kept so the panel records a screened Enterobacter negative alongside the positive one.
