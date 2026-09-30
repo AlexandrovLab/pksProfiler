@@ -187,8 +187,10 @@ class FragModeIsASwitch(unittest.TestCase):
                 body = body[:body.index("\n    }\n")]
                 self.assertIn("fragArg(rt, fragMode)", body)
 
-    def test_the_default_is_the_behaviour_runs_have_used(self):
-        self.assertIn('params.minimap2_frag_mode = "default"', self.MAIN)
+    def test_the_default_is_frag_no_since_rc1(self):
+        # E0 decision (29 Sep): route-invariant depletion by default; "default" stays
+        # selectable for reproducing v0.0.1.
+        self.assertIn('params.minimap2_frag_mode = "no"', self.MAIN)
         # --frag only concerns short paired reads, so long reads never get it.
         self.assertIn("(!isLong(readType) && fragMode?.toString() == 'no') ? '--frag=no' : ''", self.PLAN)
 

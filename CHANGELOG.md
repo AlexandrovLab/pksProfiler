@@ -74,6 +74,11 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
   the pinned 2.31 in every host-depletion pass on TSCC).
 
 **Changed**
+- **Host depletion defaults to `--frag=no`** (`--minimap2_frag_mode no`; E0, owner decision 29 Sep):
+  every short read is judged on its own, so depletion no longer depends on read order / input route.
+  On all 100 TCGA CRC positives the old default kept a route-dependent read set in 46 samples and
+  `--frag=no` in none; no pks read count or tier changed in any of 200 runs. `--minimap2_frag_mode default`
+  reproduces v0.0.1.
 - Mode-specific evidence schemas (Ludmil, 26 Sep mode memo sections 3, 4, 6):
   `classify_tumor_pks_evidence.py --mode {wgs,metagenome,wes,rna}` writes `read_evidence.tsv`
   (wgs tiered, metagenome untiered), `wes_evidence.tsv` or `rna_evidence.tsv`. Every file has a

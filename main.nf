@@ -204,11 +204,14 @@ params.pks_align_bowtie2_preset    = "very-sensitive"
 params.pks_align_bowtie2_score_min = "L,-0.6,-0.6"
 params.pks_align_min_mapq          = 40
 
-// E0 (Ludmil, 25 Sep): minimap2 fragment mode during host depletion. "default" is
-// the behaviour every run so far used; "no" passes --frag=no so depletion no longer
-// depends on read order / input route. Benchmark first (validation/E0); the default
-// changes only after that decision.
-params.minimap2_frag_mode = "default"   // default | no
+// E0 (Ludmil, 25 Sep): minimap2 fragment mode during host depletion. "no" passes
+// --frag=no so each short read is judged on its own and depletion no longer depends on
+// read order / input route; "default" is minimap2's fragment mode, the v0.0.1 behaviour.
+// Default is "no" since rc1 (owner decision, 29 Sep), on the E0 benchmark: across all 100
+// TCGA CRC positives the default setting kept a route-dependent read set in 46 samples
+// and --frag=no in none, while no pks read count or tier changed in any of 200 runs, and
+// a 10-sample full-pipeline comparison changed nothing (validation/E0).
+params.minimap2_frag_mode = "no"   // no | default
 
 // Output directories
 params.outdir = "${launchDir}/results"
