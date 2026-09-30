@@ -73,7 +73,10 @@ class Schemas(unittest.TestCase):
         self.assertEqual(classify.SCHEMAS["rna"],
                          ["sample", "mode", "clb_rna_reads", "rna_clb_genes_detected",
                           "rna_expression_breadth_1x", "rna_expression_breadth_2x",
-                          "rna_expression_breadth_3x", "rna_library_type"])
+                          "rna_expression_breadth_3x", "rna_library_type",
+                          # memo section 4 RNA QC (docs/running/wes_rna.md)
+                          "clb_transcripts_detected", "rna_residual_human_fraction",
+                          "rna_residual_checked_reads"])
 
     def test_wes_schema(self):
         self.assertEqual(classify.SCHEMAS["wes"],

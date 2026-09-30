@@ -202,6 +202,8 @@ def check_references(config, report):
     report.require_path(section, f"--{t2t_param}", config.get(t2t_param))
     if str(config.get("sample_type")) == "rna" and config.get("rna_junctions_bed"):
         report.require_path(section, "--rna_junctions_bed", config.get("rna_junctions_bed"))
+    if str(config.get("sample_type")) == "wes" and config.get("wes_capture_bed"):
+        report.require_path(section, "--wes_capture_bed", config.get("wes_capture_bed"))
     if config.get("pangenome_db"):
         # map_reads.nf accepts either one .mmi file or a directory of them
         # (find ... -name '*.mmi'); kind="file" here used to reject every

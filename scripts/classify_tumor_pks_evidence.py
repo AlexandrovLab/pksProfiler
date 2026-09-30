@@ -23,8 +23,20 @@ DNA or for RNA. --mode picks the schema; every file carries `mode`:
     wes         wes_evidence.tsv   sample, mode, clb_wes_reads, wes_clb_genes_detected,
                                    wes_island_breadth_{1,2,3}x          -- never tiered
     rna         rna_evidence.tsv   sample, mode, clb_rna_reads, rna_clb_genes_detected,
-                                   rna_expression_breadth_{1,2,3}x, rna_library_type
-                                                                        -- never tiered
+                                   rna_expression_breadth_{1,2,3}x, rna_library_type,
+                                   clb_transcripts_detected, rna_residual_human_fraction,
+                                   rna_residual_checked_reads           -- never tiered
+
+RNA QC (memo section 4; docs/running/wes_rna.md):
+
+    clb_transcripts_detected     clb genes (clbA-clbS) with >= --rna-transcript-min-reads
+                                 (default 3) featureCounts-assigned RNA reads. Gene-level:
+                                 the IHE3034 annotation defines no operon or transcription
+                                 unit, so each gene is its own unit. rna_clb_genes_detected
+                                 is the same count at >= 1 read.
+    rna_residual_human_fraction  rna_residual_human_reads / rna_residual_checked_reads from
+                                 --residual-human-qc (rna_residual_human.py); NA without it
+                                 or when nothing was left to check.
 
 The measurements are the same three in every mode (clb-assigned reads, clb genes with >=1
 read, island breadth at >=1/2/3x); only what they may be read as differs. RNA gene breadth
@@ -55,7 +67,9 @@ SCHEMAS = {
             "wes_island_breadth_1x", "wes_island_breadth_2x", "wes_island_breadth_3x"],
     "rna": ["sample", "mode", "clb_rna_reads", "rna_clb_genes_detected",
             "rna_expression_breadth_1x", "rna_expression_breadth_2x",
-            "rna_expression_breadth_3x", "rna_library_type"],
+            "rna_expression_breadth_3x", "rna_library_type",
+            "clb_transcripts_detected", "rna_residual_human_fraction",
+            "rna_residual_checked_reads"],
 }
 # The file each mode writes, as main.nf's report manifest kind and the published name.
 EVIDENCE_KIND = {"wgs": "read_evidence", "metagenome": "read_evidence",
@@ -65,14 +79,27 @@ def qc_metrics(path):
     with Path(path).open() as handle:
         return {row["Metric"]: row["Value"] for row in csv.DictReader(handle, delimiter="\t")}
 
-def detected_genes(path):
+def detected_genes(path, min_reads=1):
+    """clb genes with >= min_reads assigned reads in a featureCounts table."""
     detected = 0
     with Path(path).open() as handle:
         for line in handle:
             if line.startswith("#") or line.startswith("Geneid"): continue
             fields = line.rstrip().split("\t")
-            if fields and fields[0] in GENES and float(fields[-1] or 0) >= 1: detected += 1
+            if fields and fields[0] in GENES and float(fields[-1] or 0) >= min_reads: detected += 1
     return detected
+
+
+def residual_human(path):
+    """(fraction text, checked reads) from rnaResidualHuman's fragment; NA when absent."""
+    if not path:
+        return "NA", "NA"
+    metrics = qc_metrics(path)
+    checked = int(metrics["rna_residual_checked_reads"])
+    human = int(metrics["rna_residual_human_reads"])
+    if human > checked:
+        raise SystemExit(f"{path}: {human} residual-human reads exceed {checked} checked")
+    return (f"{human / checked:.6f}" if checked else "NA"), checked
 
 def breadths(path, expected_length):
     covered = [0, 0, 0]; observed = 0
@@ -116,6 +143,10 @@ def main():
     p.add_argument("--no-tiers", action="store_true")
     p.add_argument("--rna-library-type", choices=RNA_LIBRARY_TYPES, default="unknown",
                    help="recorded in rna_evidence.tsv; --mode rna only")
+    p.add_argument("--rna-transcript-min-reads", type=int, default=3,
+                   help="RNA reads a clb gene needs to count in clb_transcripts_detected")
+    p.add_argument("--residual-human-qc", default=None,
+                   help="rnaResidualHuman's QC fragment (rna_residual_human.py); --mode rna")
     p.add_argument("--depletion-qc", default=None,
                    help="mapReads' depletion QC fragment; the metagenome reads-per-million "
                         "denominator (reads_after_pangenome, else reads_after_t2t_phix)")
@@ -136,12 +167,18 @@ def main():
     metrics = qc_metrics(a.qc)
     reads = int(float(metrics.get("reads_clb_genes_align", 0))); genes = detected_genes(a.counts)
     b1, b2, b3 = breadths(a.depth, a.island_length)
+    if a.rna_transcript_min_reads < 1:
+        raise SystemExit("--rna-transcript-min-reads must be at least 1")
     if a.mode == "metagenome" and not a.depletion_qc:
         raise SystemExit("--mode metagenome needs --depletion-qc for pks_reads_per_million")
     depleted = depleted_reads(a.depletion_qc) if a.depletion_qc else None
     row = evidence_row(a.mode, a.sample, reads, genes, (b1, b2, b3), thresholds,
                        no_tiers=a.no_tiers, rna_library_type=a.rna_library_type,
-                       depleted=depleted)
+                       depleted=depleted,
+                       transcripts=(detected_genes(a.counts, a.rna_transcript_min_reads)
+                                    if a.mode == "rna" else "NA"),
+                       residual=(residual_human(a.residual_human_qc)
+                                 if a.mode == "rna" else ("NA", "NA")))
 
     with Path(a.output).open("w", newline="") as handle:
         writer = csv.DictWriter(handle, SCHEMAS[a.mode], delimiter="\t"); writer.writeheader()
@@ -185,7 +222,8 @@ def evidence_outcome(row):
 
 
 def evidence_row(mode, sample, reads, genes, breadth, thresholds, no_tiers=False,
-                 rna_library_type="unknown", depleted=None):
+                 rna_library_type="unknown", depleted=None, transcripts="NA",
+                 residual=("NA", "NA")):
     """One output row in `mode`'s schema. Only wgs (without no_tiers) is ever tiered."""
     b1, b2, b3 = (f"{value:.6f}" for value in breadth)
     if mode in ("wgs", "metagenome"):
@@ -202,9 +240,14 @@ def evidence_row(mode, sample, reads, genes, breadth, thresholds, no_tiers=False
         return dict(sample=sample, mode=mode, clb_wes_reads=reads, wes_clb_genes_detected=genes,
                     wes_island_breadth_1x=b1, wes_island_breadth_2x=b2, wes_island_breadth_3x=b3)
     if mode == "rna":
+        # transcripts: clb genes at >= --rna-transcript-min-reads; residual: (fraction,
+        # checked reads) from residual_human(). NA when not supplied.
         return dict(sample=sample, mode=mode, clb_rna_reads=reads, rna_clb_genes_detected=genes,
                     rna_expression_breadth_1x=b1, rna_expression_breadth_2x=b2,
-                    rna_expression_breadth_3x=b3, rna_library_type=rna_library_type)
+                    rna_expression_breadth_3x=b3, rna_library_type=rna_library_type,
+                    clb_transcripts_detected=transcripts,
+                    rna_residual_human_fraction=residual[0],
+                    rna_residual_checked_reads=residual[1])
     raise ValueError(f"unknown mode {mode!r}; expected one of {', '.join(MODES)}")
 
 if __name__ == "__main__": main()

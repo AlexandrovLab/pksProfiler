@@ -25,8 +25,11 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
   assembly, no MAGs. Presets per mode live in `lib/HostDepletion.groovy`, executed by
   `tests/check_depletion_plan.sh`.
 - WES lane, `--sample_type wes` (Ludmil, 26 Sep mode memo section 3): standard depletion and
-  profiling, `wes_evidence.tsv`, no tier, no targeted assembly, bowtie2/both only. Duplicate-rate
-  and capture/off-target QC are a documented TODO (`docs/running/wes_rna.md`).
+  profiling, `wes_evidence.tsv`, no tier, no targeted assembly, bowtie2/both only. WES QC columns:
+  input duplicate fraction (submitter's 0x400), on/off-target fraction with `--wes_capture_bed`
+  (digest in provenance), pks-island duplicate fraction by position collapse. RNA adds
+  `clb_transcripts_detected` (`--rna_transcript_min_reads`, default 3) and a residual-human
+  fraction on a capped sample of the final non-host reads (`docs/running/wes_rna.md`).
 - Sample-type routing: `--sample_type metagenome | wgs | wes | rna` (required, no default).
 - Evidence tiers from read count, *clb* gene count and island breadth together, replacing a
   two-tier scheme whose lower boundary had been rejected during threshold analysis.

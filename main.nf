@@ -42,6 +42,21 @@ params.sample_type = null     // required: metagenome | wgs | wes | rna
 params.rna_splice_db     = null        // required for rna: minimap2 index built with `-x splice:sr` from GRCh38, or a FASTA
 params.rna_junctions_bed = null        // optional: BED12 of annotated junctions, passed to minimap2 -j
 params.rna_library_type  = "unknown"   // polyA | total | unknown; recorded in rna_evidence.tsv and RUN_REPORT
+// RNA QC (memo section 4; definitions in docs/running/wes_rna.md). clb_transcripts_detected
+// counts clb genes with >= rna_transcript_min_reads RNA reads. The residual-human check
+// realigns a capped sample of the final host-depleted reads to rna_splice_db with the human
+// pass's preset plus rna_residual_human_args (short reads only) and reports the fraction
+// that maps; it measures, it removes nothing.
+params.rna_transcript_min_reads        = 3
+params.rna_residual_human_sample_reads = 200000
+params.rna_residual_human_args         = "-n 2 -m 20 -s 30"
+
+// ---------------- WES QC (Ludmil, 26 Sep mode memo section 3) ----------------
+// Optional capture-target BED (the kit's targets, same contig names as the input
+// alignment). With it, wesInputQC reports the fraction of primary mapped input records
+// overlapping the targets; without it the QC column reads capture_bed_not_provided.
+// Its content digest is recorded in the provenance record (dependencies.wes_capture_bed).
+params.wes_capture_bed   = null
 
 // ---------------- Long reads (owner decision, 29 Sep) ----------------
 // short | ont | hifi. Long reads are accepted for wgs and rna only. For ont/hifi: fastplong
@@ -336,6 +351,7 @@ params.dep_digest = [
     hg38_db             : Provenance.data(params.hg38_db),
     rna_splice_db       : Provenance.data(params.rna_splice_db),
     rna_junctions_bed   : Provenance.code(params.rna_junctions_bed),
+    wes_capture_bed     : Provenance.code(params.wes_capture_bed),
     hg38_db_long        : Provenance.data(params.hg38_db_long),
     t2t_phix_db_long    : Provenance.data(params.t2t_phix_db_long),
     rna_splice_db_long  : Provenance.data(params.rna_splice_db_long),
@@ -363,6 +379,7 @@ include { plotBrackenTaxa as plotPKSTaxa } from './Modules/plot_bracken_taxa.nf'
 include { plotBrackenTaxa as plotCommunityTaxa } from './Modules/plot_bracken_taxa.nf'
 include { classifyPksReadEvidence; targetedPksAssembly } from './Modules/pks_targeted.nf'
 include { pksMAG } from './Modules/pks_mag.nf'
+include { wesInputQC; wesPksDuplicates; rnaResidualHuman } from './Modules/mode_qc.nf'
 include { krakenPrefilter; buildClbDiamondDb; diamondRescue; diamondRescueTaxonomy; mergePksCandidates; sampleBracken } from './Modules/pks_prefilter.nf'
 
 // An empty channel, named for what it gates. A local `def` inside the branch that
@@ -437,6 +454,14 @@ workflow {
           --rna_splice_db     minimap2 index built with -x splice:sr (or FASTA); required
           --rna_junctions_bed BED12 of annotated junctions for minimap2 -j (optional)
           --rna_library_type  polyA | total | unknown                (default: unknown)
+          --rna_transcript_min_reads  RNA reads for a clb gene to count in
+                              clb_transcripts_detected                  (default: 3)
+          --rna_residual_human_sample_reads  cap on the residual-human check sample
+                                                                        (default: 200000)
+
+        WES (--sample_type wes):
+          --wes_capture_bed   capture-target BED; enables the on/off-target fraction
+                              (alignment input only; digest recorded in provenance)
 
         Long reads (--read_type ont | hifi; wgs and rna only):
           --read_type         short | ont | hifi                     (default: short)
@@ -574,6 +599,7 @@ workflow {
         hg38_db                  : params.hg38_db,
         rna_splice_db            : params.rna_splice_db,
         rna_junctions_bed        : params.rna_junctions_bed,
+        wes_capture_bed          : params.wes_capture_bed,
         read_type                : params.read_type,
         hg38_db_long             : params.hg38_db_long,
         t2t_phix_db_long         : params.t2t_phix_db_long,
@@ -837,6 +863,14 @@ workflow {
                 " = ${m.extracted_reads} reads extracted)"
         }
 
+        // Ludmil, 26 Sep mode memo section 3: WES duplicate rate (the submitter's 0x400
+        // marking) and, with --wes_capture_bed, the capture on/off-target fraction, from
+        // the input alignment's primary mapped records. Mode-aware: wes only.
+        if (params.sample_type == "wes") {
+            wesInputQC(sample_sheet)
+            QC_FRAGMENTS = QC_FRAGMENTS.mix(wesInputQC.out.qc.map { _sampleID, qc_file -> qc_file })
+        }
+
         // E3 (Ludmil, 25 Sep): per-input header provenance, joined into one cohort
         // table and a counts-only summary that RUN_REPORT.txt reads.
         EXTRACT_OUT.provenance
@@ -892,6 +926,16 @@ workflow {
     QC_FRAGMENTS = QC_FRAGMENTS.mix(
         MAP_OUT.qc.map { _sampleID, qc_file -> qc_file }
     )
+
+    // Ludmil, 26 Sep mode memo section 4: residual-human reads after every depletion pass
+    // (docs/running/wes_rna.md). Measured on a capped sample; MAPPED_READS is unchanged.
+    // Its fragment feeds pks.qc.summary.tsv and rna_evidence.tsv.
+    def rna_residual_qc = channel.empty()
+    if (params.sample_type == "rna") {
+        rnaResidualHuman(MAPPED_READS)
+        rna_residual_qc = rnaResidualHuman.out.qc
+        QC_FRAGMENTS = QC_FRAGMENTS.mix(rnaResidualHuman.out.qc.map { _sampleID, qc_file -> qc_file })
+    }
 
     // Gate for the MAG, community/prophage and strain-typing lanes. Both
     // masterSummary and cohortReport stage it as declared inputs (P0-5b; see
@@ -997,6 +1041,19 @@ workflow {
     }
     if (params.sample_type != "rna" && (params.rna_splice_db || params.rna_junctions_bed)) {
         log.warn "--rna_splice_db / --rna_junctions_bed apply to --sample_type rna only; ignored for ${params.sample_type}"
+    }
+    // Memo sections 3 and 4: the mode QC parameters.
+    [rna_transcript_min_reads: params.rna_transcript_min_reads,
+     rna_residual_human_sample_reads: params.rna_residual_human_sample_reads].each { name, value ->
+        if (!(value.toString() ==~ /^[0-9]+$/) || value.toString().toInteger() < 1) {
+            exit 1, "--${name} must be a positive integer (got ${value})"
+        }
+    }
+    if (params.wes_capture_bed && params.sample_type != "wes") {
+        log.warn "--wes_capture_bed applies to --sample_type wes only; ignored for ${params.sample_type}"
+    }
+    if (params.wes_capture_bed && params.sample_type == "wes" && !alignment_input) {
+        log.warn "--wes_capture_bed needs alignment input (the on-target fraction is counted on the input alignment); FASTQ input reports no capture QC"
     }
     // No WGS tiers and no targeted assembly outside wgs; the default-on flag is inert there.
     if (params.sample_type in ["wes", "rna"] && tumor_targeted_assembly_b) {
@@ -1210,11 +1267,20 @@ workflow {
             ALIGN_OUT.divergence.map { _sampleID, qc_file, _by_gene -> qc_file }
         )
 
+        // Memo section 3: WES duplicate behaviour among the pks-supporting reads, by
+        // position collapse on the profiling BAM (the input's flags do not survive
+        // extraction). Separate from the library-level rate wesInputQC reports.
+        if (params.sample_type == "wes") {
+            wesPksDuplicates(ALIGN_OUT.profile.map { sampleID, _cov, _bedgraph, _counts, bam, bai ->
+                tuple(sampleID, bam, bai) })
+            QC_FRAGMENTS = QC_FRAGMENTS.mix(wesPksDuplicates.out.qc.map { _sampleID, qc_file -> qc_file })
+        }
+
         // ---------- v0.0.2: read-level pks evidence (tier for WGS only) ----------
         // WES (Ludmil, 26 Sep mode memo section 3) is a lane of its own: standard
         // depletion and profiling, then wes_evidence.tsv (--mode wes) -- no tier, no
-        // targeted assembly, no MAGs. Its duplicate-rate and capture/off-target QC is a
-        // documented TODO (docs/running/wes_rna.md), not silently the WGS QC.
+        // targeted assembly, no MAGs. Its duplicate-rate and capture/off-target QC come
+        // from wesInputQC and wesPksDuplicates (Modules/mode_qc.nf), WES-only QC columns.
         // RNA (section 4) likewise: splice-aware depletion upstream, then rna_evidence.tsv
         // (--mode rna, with --rna_library_type) -- expression evidence, never a tier.
         // The evidence -- pks reads, clb genes, island breadth -- is computed for tumour
@@ -1227,6 +1293,10 @@ workflow {
         // still unpublished and report every sample as not_classified. Since P0-5b the
         // file itself is staged into the report, not read back from the published tree.
         // Empty when the lane that writes it did not run.
+        // Memo section 4: rna_evidence.tsv carries the residual-human fraction, so the RNA
+        // lane waits for its check; every other mode passes an empty mode_qc ([]).
+        def evidence_mode_qc = params.sample_type == "rna" ? rna_residual_qc
+            : ALIGN_OUT.qc.map { sampleID, _qc -> tuple(sampleID, []) }
         if (params.sample_type in ["wgs", "metagenome", "wes", "rna"]) {
             // MAP_OUT.qc: the host-depleted read count, the denominator of the metagenome
             // pks_reads_per_million (26 Sep mode memo section 5). Host depletion, not the
@@ -1234,8 +1304,9 @@ workflow {
             read_evidence_input_ch = ALIGN_OUT.profile
                 .join(ALIGN_OUT.qc, by: 0)
                 .join(MAP_OUT.qc, by: 0)
-                .map { sampleID, rawCoverage, bedgraph, counts, bam, bai, qc, depletionQc ->
-                    tuple(sampleID, rawCoverage, counts, bam, bai, qc, depletionQc)
+                .join(evidence_mode_qc, by: 0)
+                .map { sampleID, rawCoverage, bedgraph, counts, bam, bai, qc, depletionQc, modeQc ->
+                    tuple(sampleID, rawCoverage, counts, bam, bai, qc, depletionQc, modeQc)
                 }
             classifyPksReadEvidence(read_evidence_input_ch)
             QC_FRAGMENTS = QC_FRAGMENTS.mix(
@@ -1445,11 +1516,16 @@ workflow {
     // GAMEPLAN rc1: every expected sample ends in exactly one terminal_state. The stages
     // this run should have produced a QC fragment for, in pipeline order;
     // build_qc_summary.py names the first one a sample is missing (failed_at_<stage>).
+    // Memo sections 3 and 4: the wes_* and rna_* stages are the mode QC; build_qc_summary.py
+    // adds the WES or RNA QC columns only when one of them is expected.
     def qc_stages = alignment_input ? ['extraction'] : []
+    if (params.sample_type == "wes" && alignment_input) qc_stages << 'wes_input_qc'
     qc_stages += ['read_qc', 'host_depletion']
+    if (params.sample_type == "rna") qc_stages << 'rna_residual_human'
     if (prefilter_mode == "balanced") qc_stages += ['prefilter', 'diamond_rescue', 'candidate_merge']
     if (do_align) qc_stages << 'alignment_profiling'
     if (do_hmm) qc_stages << 'hmm_profiling'
+    if (params.sample_type == "wes" && do_align) qc_stages << 'wes_pks_duplicates'
     if (do_align) qc_stages << 'evidence'
     if (do_align && pks_taxa_b) qc_stages << 'taxonomy'
 

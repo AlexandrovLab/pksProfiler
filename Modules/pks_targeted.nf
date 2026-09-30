@@ -8,7 +8,8 @@ process classifyPksReadEvidence {
     conda "${params.pks_align_env}"
     input:
     // depletion_qc: mapReads' fragment, the metagenome reads-per-million denominator.
-    tuple val(sampleID), path(raw_coverage), path(counts), path(bam), path(bai), path(qc), path(depletion_qc)
+    // mode_qc: rnaResidualHuman's fragment for --sample_type rna (memo section 4), else [].
+    tuple val(sampleID), path(raw_coverage), path(counts), path(bam), path(bai), path(qc), path(depletion_qc), path(mode_qc, stageAs: 'mode_qc/*')
     output:
     // Ludmil, 26 Sep mode memo: one schema per mode, and a file name that says which --
     // read_evidence.tsv (wgs, metagenome), wes_evidence.tsv, rna_evidence.tsv. The prefix
@@ -21,7 +22,9 @@ process classifyPksReadEvidence {
     script:
     def evidence_file = "${sampleID}.${params.sample_type.toString() in ['wes', 'rna'] ? params.sample_type : 'read'}_evidence.tsv"
     def mode_args = "--mode ${params.sample_type}" +
-        (params.sample_type.toString() == 'rna' ? " --rna-library-type ${params.rna_library_type}" : '') +
+        (params.sample_type.toString() == 'rna' ? " --rna-library-type ${params.rna_library_type}" +
+            " --rna-transcript-min-reads ${params.rna_transcript_min_reads}" : '') +
+        (mode_qc ? " --residual-human-qc ${mode_qc}" : '') +
         // Long-read WGS: evidence only. The tiers were calibrated on short-read Bowtie2.
         (params.sample_type.toString() == 'wgs' && HostDepletion.isLong(params.read_type) ? ' --no-tiers' : '')
     """

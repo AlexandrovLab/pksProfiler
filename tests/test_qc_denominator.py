@@ -45,12 +45,23 @@ def emitted_metrics():
     # classify_tumor_pks_evidence.py --qc-fragment.
     classify = (ROOT / "scripts/classify_tumor_pks_evidence.py").read_text()
     names.update(re.findall(r'\{a\.sample\}\\t(\w+)\\t', classify))
+    # Ludmil, 26 Sep mode memo sections 3 and 4: the WES / RNA QC fragments come from
+    # these helpers (Modules/mode_qc.nf), each listing the metrics it writes.
+    for helper in ("wes_input_qc", "pks_duplicate_rate", "rna_residual_human"):
+        spec = importlib.util.spec_from_file_location(helper, ROOT / f"scripts/{helper}.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        names.update(module.METRICS)
     return names
 
 
 def consumed_metrics():
     """Metric names the summary reads out of the fragments."""
-    return set(re.findall(r'values\.get\("(\w+)"', QC_SUMMARY_SOURCE))
+    names = set(re.findall(r'values\.get\("(\w+)"', QC_SUMMARY_SOURCE))
+    # mode_qc_values() reads its metrics through bounded("<part>", "<whole>").
+    for pair in re.findall(r'bounded\("(\w+)", "(\w+)"\)', QC_SUMMARY_SOURCE):
+        names.update(pair)
+    return names
 
 
 class MetricsExist(unittest.TestCase):

@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BASE_CONFIG = (ROOT / "conf/base.config").read_text()
 
 MODULE_NAMES = ["pks_targeted.nf", "pks_mag.nf", "pks_prefilter.nf", "pks_taxa.nf",
-                "pks_typing.nf", "plotting.nf"]
+                "pks_typing.nf", "plotting.nf", "mode_qc.nf"]
 MODULES = {name: (ROOT / "Modules" / name).read_text() for name in MODULE_NAMES}
 
 SAMPLE_STAGE_PROCESSES = {
@@ -56,6 +56,8 @@ SAMPLE_STAGE_PROCESSES = {
                          "mergePksCandidates", "sampleBracken"],
     "pks_taxa.nf": ["extractPksIslandReads", "Bracken"],
     "pks_typing.nf": ["mlstTypeAssembly", "assignStrainType", "strainTypeSummary"],
+    # Ludmil, 26 Sep mode memo sections 3 and 4: per-sample WES / RNA QC.
+    "mode_qc.nf": ["wesInputQC", "wesPksDuplicates", "rnaResidualHuman"],
 }
 
 # Cohort reducers (summarize across every sample) and the one shared per-run

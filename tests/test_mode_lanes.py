@@ -84,10 +84,15 @@ class WesLane(unittest.TestCase):
     def test_the_default_on_assembly_flag_is_inert_not_refused_for_wes(self):
         self.assertIn("--tumor_targeted_assembly does not apply to --sample_type", MAIN)
 
-    def test_wes_qc_todo_is_documented(self):
+    def test_wes_and_rna_qc_are_documented(self):
+        # The memo section 3/4 QC TODOs are implemented (Modules/mode_qc.nf); the doc now
+        # defines each column instead of listing them as open.
         doc = (ROOT / "docs/running/wes_rna.md").read_text()
-        self.assertIn("TODO", doc)
-        self.assertIn("duplicate", doc)
+        self.assertNotIn("TODO", doc)
+        for column in ("wes_input_duplicate_fraction", "wes_capture_off_target_fraction",
+                       "capture_bed_not_provided", "wes_pks_island_duplicate_fraction",
+                       "clb_transcripts_detected", "rna_residual_human_fraction"):
+            self.assertIn(column, doc)
 
 
 MAP = (ROOT / "Modules/map_reads.nf").read_text()

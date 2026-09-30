@@ -116,19 +116,46 @@ OUTPUT_COLUMNS = [
     "terminal_state",
 ]
 
+# Ludmil, 26 Sep mode memo sections 3 and 4: mode-specific QC columns. They are added to
+# the table (just before `status`) only when the run expects the mode's QC stage, so a WGS
+# or metagenome table is unchanged. Definitions: docs/running/wes_rna.md.
+#
+# WES. The input alignment's own duplicate marking and capture overlap (wes_input_qc.py),
+# and duplicates among the pks-island reads by position collapse (pks_duplicate_rate.py).
+# The two rates are different quantities and are never combined.
+WES_QC_COLUMNS = [
+    "wes_input_primary_mapped",           # primary mapped records in the input alignment
+    "wes_input_duplicate_fraction",       # of those, flagged 0x400 by the submitter
+    "wes_capture_on_target_fraction",     # of those, overlapping --wes_capture_bed
+    "wes_capture_off_target_fraction",    # 1 - on-target; capture_bed_not_provided without a BED
+    "wes_pks_island_reads",               # primary island reads in the profiling BAM (MAPQ >= 40)
+    "wes_pks_island_duplicate_fraction",  # of those, same (contig, strand, unclipped 5') as another
+]
+# RNA. A capped sample of the final host-depleted reads realigned to the splice index
+# under relaxed floors (rna_residual_human.py); the fraction that still maps.
+RNA_QC_COLUMNS = [
+    "rna_residual_checked_reads",
+    "rna_residual_human_reads",
+    "rna_residual_human_fraction",
+]
+CAPTURE_NOT_PROVIDED = "capture_bed_not_provided"
+
 # Pipeline stages in execution order, and the QC metrics whose presence shows the stage
 # finished for a sample. A failed sample is failed_at_<the first expected stage it is
 # missing>: stages downstream of a failure never run, so the first gap is the failure.
 # alignment_profiling and hmm_profiling run side by side; alignment is listed first.
 STAGE_METRICS = {
     "extraction": ("extracted_unmapped_reads",),
+    "wes_input_qc": ("wes_input_primary_mapped", "wes_capture_status"),
     "read_qc": ("filter_input_reads", "reads_after_fastp"),
     "host_depletion": ("reads_after_hg38", "reads_after_t2t_phix"),
+    "rna_residual_human": ("rna_residual_checked_reads", "rna_residual_human_reads"),
     "prefilter": ("prefilter_input_reads",),
     "diamond_rescue": ("diamond_input_reads",),
     "candidate_merge": ("candidate_total_reads",),
     "alignment_profiling": ("reads_clb_genes_align", "num_clb_genes_align"),
     "hmm_profiling": ("reads_clb_genes_hmm", "num_clb_genes_hmm"),
+    "wes_pks_duplicates": ("wes_pks_island_reads", "wes_pks_island_duplicates"),
     "evidence": ("evidence_outcome",),
     "taxonomy": ("taxonomy_status",),
 }
@@ -164,7 +191,69 @@ TEXT_METRICS = {
     # E1: scripts/header_provenance.py LOW_SCORE_STATES.
     "extract_low_score_mode": {"on_auto_bwa_mem", "off_auto_not_bwa_mem",
                                "on_requested", "off_requested"},
+    "wes_capture_status": {"capture_bed_provided", CAPTURE_NOT_PROVIDED},
 }
+
+
+def fraction(part, whole):
+    return "NA" if part is None or not whole else f"{part / whole:.6f}"
+
+
+def mode_qc_values(sample, values):
+    """The WES and RNA QC columns for one sample, with their consistency checks."""
+    def bounded(part_name, whole_name):
+        part, whole = values.get(part_name), values.get(whole_name)
+        if part is not None and whole is not None and part > whole:
+            raise ValueError(f"Impossible QC counts for {sample}: {part_name} ({part}) "
+                             f"exceeds {whole_name} ({whole})")
+        return part, whole
+
+    out = {}
+    duplicates, mapped = bounded("wes_input_primary_duplicates", "wes_input_primary_mapped")
+    on_target, _ = bounded("wes_capture_on_target", "wes_input_primary_mapped")
+    out["wes_input_primary_mapped"] = mapped
+    out["wes_input_duplicate_fraction"] = fraction(duplicates, mapped)
+    status = values.get("wes_capture_status")
+    if status == CAPTURE_NOT_PROVIDED:
+        out["wes_capture_on_target_fraction"] = CAPTURE_NOT_PROVIDED
+        out["wes_capture_off_target_fraction"] = CAPTURE_NOT_PROVIDED
+    else:
+        on = fraction(on_target, mapped)
+        out["wes_capture_on_target_fraction"] = on
+        out["wes_capture_off_target_fraction"] = "NA" if on == "NA" else f"{1 - float(on):.6f}"
+    pks_duplicates, pks_reads = bounded("wes_pks_island_duplicates", "wes_pks_island_reads")
+    out["wes_pks_island_reads"] = pks_reads
+    out["wes_pks_island_duplicate_fraction"] = fraction(pks_duplicates, pks_reads)
+
+    human, checked = bounded("rna_residual_human_reads", "rna_residual_checked_reads")
+    bounded("rna_residual_checked_reads", "rna_residual_input_reads")
+    # The check samples the final host-depleted reads, so its population is exactly
+    # that count: after the pangenome passes when they ran, else after T2T + phiX.
+    final = values.get("reads_after_pangenome", values.get("reads_after_t2t_phix"))
+    drawn = values.get("rna_residual_input_reads")
+    if drawn is not None and final is not None and drawn != final:
+        raise ValueError(f"Impossible QC counts for {sample}: rna_residual_input_reads ({drawn}) "
+                         f"is not the final host-depleted count ({final})")
+    out["rna_residual_checked_reads"] = checked
+    out["rna_residual_human_reads"] = human
+    out["rna_residual_human_fraction"] = fraction(human, checked)
+    return out
+
+
+def mode_qc_columns(stages):
+    """The mode QC columns this run's table carries, from its expected stages."""
+    columns = []
+    if any(stage in stages for stage in ("wes_input_qc", "wes_pks_duplicates")):
+        columns += WES_QC_COLUMNS
+    if "rna_residual_human" in stages:
+        columns += RNA_QC_COLUMNS
+    return columns
+
+
+def table_columns(stages):
+    """OUTPUT_COLUMNS with the run's mode QC columns just before `status`."""
+    at = OUTPUT_COLUMNS.index("status")
+    return OUTPUT_COLUMNS[:at] + mode_qc_columns(stages) + OUTPUT_COLUMNS[at:]
 
 
 def read_list_file(path):
@@ -421,9 +510,10 @@ def output_row(sample, values):
         if mapped[column] is not None:
             mapped[column] = format_decimal(mapped[column])
 
+    mapped.update(mode_qc_values(sample, values))
     return {
         column: ("NA" if mapped.get(column) is None else mapped[column])
-        for column in OUTPUT_COLUMNS
+        for column in OUTPUT_COLUMNS + WES_QC_COLUMNS + RNA_QC_COLUMNS
     }
 
 
@@ -481,17 +571,18 @@ def write_summary(metrics, output_path, expected=(), stages=None, excluded=None)
     if stages is None:
         stages = infer_stages(metrics)
     samples = sorted(set(metrics) | set(expected) | set(excluded))
+    columns = table_columns(stages)
     with output_path.open("w", newline="") as handle:
         # extrasaction: the row carries metrics the table does not show, such as
         # reads_mapped_ihe3034_mapq40, which is still used for the monotonic check above.
-        writer = csv.DictWriter(handle, fieldnames=OUTPUT_COLUMNS, delimiter="\t",
+        writer = csv.DictWriter(handle, fieldnames=columns, delimiter="\t",
                                 extrasaction="ignore")
         writer.writeheader()
         for sample in samples:
             if sample in metrics:
                 row = output_row(sample, metrics[sample])
             else:
-                row = {column: "NA" for column in OUTPUT_COLUMNS}
+                row = {column: "NA" for column in columns}
                 row["Sample"] = sample
                 row["status"] = "no_qc_produced"
             row["terminal_state"] = terminal_state(metrics.get(sample, {}), stages,

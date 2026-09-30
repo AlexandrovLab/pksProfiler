@@ -360,6 +360,9 @@ def collect(inputs, expected=None, sample_type=None):
             "breadth_1x": number(evidence.get(f"{breadth_field}_1x")),
             "breadth_2x": number(evidence.get(f"{breadth_field}_2x")),
             "breadth_3x": number(evidence.get(f"{breadth_field}_3x")),
+            # Memo section 4 RNA QC (rna_evidence.tsv); NA for every other mode.
+            "clb_transcripts": evidence.get("clb_transcripts_detected") or "NA",
+            "residual_human": evidence.get("rna_residual_human_fraction") or "NA",
             "assembled": bool(contigs),
             "structural": contigs.get("final_structural_evidence", ""),
             "agreement": contigs.get("assembler_agreement", ""),
@@ -461,7 +464,10 @@ def svg_matrix(records):
                f'· {record["pks_reads"]} reads across {record["genes_detected"]} genes '
                f'· breadth {100 * record["breadth_1x"]:.1f}% at ≥1×, '
                f'{100 * record["breadth_2x"]:.1f}% at ≥2×, '
-               f'{100 * record["breadth_3x"]:.1f}% at ≥3×')
+               f'{100 * record["breadth_3x"]:.1f}% at ≥3×'
+               + (f' · {record["clb_transcripts"]} clb transcripts detected'
+                  f' · residual human {record["residual_human"]}'
+                  if record["mode"] == "rna" else ''))
         # <title> as well as data-tip. JupyterLab and other HTML viewers render files
         # in a sandboxed iframe with JavaScript disabled, and a hover that only works
         # in a full browser is a hover that does not work.
@@ -799,7 +805,7 @@ def page(records, species_rows=()):
     <li><code>cohort/gene_counts/pks.gene.counts.align.txt</code> &mdash; the gene matrix</li>
     <li><code>by_sample/&lt;sample&gt;/read_evidence.tsv</code> &mdash; tier, reads, genes, breadth (wgs; metagenome untiered)</li>
     <li><code>by_sample/&lt;sample&gt;/wes_evidence.tsv</code> &mdash; WES off-target DNA evidence, not tiered</li>
-    <li><code>by_sample/&lt;sample&gt;/rna_evidence.tsv</code> &mdash; RNA expression evidence, not tiered; breadth is expression breadth</li>
+    <li><code>by_sample/&lt;sample&gt;/rna_evidence.tsv</code> &mdash; RNA expression evidence, not tiered; breadth is expression breadth; also <code>clb_transcripts_detected</code> (clb genes with at least <code>--rna_transcript_min_reads</code> RNA reads) and the residual-human fraction after depletion</li>
     <li><code>by_sample/&lt;sample&gt;/contigs/final_evidence/final_pks_evidence.tsv</code> &mdash; contig columns</li>
     <li><code>by_sample/&lt;sample&gt;/genomes/pks_mag_summary.tsv</code> &mdash; genome-bin locus tier, taxonomy, completeness</li>
     <li><code>by_sample/&lt;sample&gt;/community/community_prophage_inventory.tsv</code> &mdash; prophage regions per bin</li>
@@ -867,6 +873,10 @@ def main():
                   "megahit_supporting_contigs", "metaspades_supporting_contigs",
                   "megahit_reference_coverage", "metaspades_reference_coverage",
                   "assembler_agreement", "final_structural_evidence"]
+        # Memo section 4: the RNA QC columns, only in a table with RNA rows.
+        has_rna = any(record["mode"] == "rna" for record in records)
+        if has_rna:
+            fields += ["clb_transcripts_detected", "rna_residual_human_fraction"]
         with args.table.open("w", newline="") as handle:
             writer = csv.DictWriter(handle, fields, delimiter="\t")
             writer.writeheader()
@@ -887,6 +897,8 @@ def main():
                     "metaspades_reference_coverage": f"{record['metaspades_cov']:.6f}",
                     "assembler_agreement": record["agreement"],
                     "final_structural_evidence": record["structural"],
+                    **({"clb_transcripts_detected": record["clb_transcripts"],
+                        "rna_residual_human_fraction": record["residual_human"]} if has_rna else {}),
                 })
 
     print(f"[cohort report] {len(records)} samples -> {args.output}")

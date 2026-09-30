@@ -222,7 +222,10 @@ PARAMETER_GROUPS = (
     ("STAGES", ("enable_mags", "tumor_targeted_assembly",
                 "diamond_rescue", "pks_community_taxa",
                 "enable_strain_typing", "pks_taxa")),
-    ("DATABASES", ("hg38_db", "rna_splice_db", "rna_junctions_bed",
+    # Ludmil, 26 Sep mode memo sections 3 and 4: the WES / RNA QC definitions.
+    ("MODE QC", ("rna_transcript_min_reads", "rna_residual_human_sample_reads",
+                 "rna_residual_human_args")),
+    ("DATABASES", ("hg38_db", "rna_splice_db", "rna_junctions_bed", "wes_capture_bed",
                    "hg38_db_long", "rna_splice_db_long", "t2t_phix_db_long",
                    "t2t_phix_db", "pangenome_db", "kraken_db", "genomad_db",
                    "gtdbtk_db", "checkm2_db", "bracken_read_length")),

@@ -33,6 +33,7 @@ from pathlib import Path
 from collections import defaultdict
 
 from mag_utils import POSITIVE_LOCUS_TIERS
+from build_qc_summary import WES_QC_COLUMNS
 
 # Column groups, in the order they appear. Each group is skipped entirely when the stage
 # that produces it left no files behind.
@@ -53,7 +54,9 @@ MODE_COLUMNS = ["mode", "evidence_label"]
 TERMINAL_COLUMNS = ["terminal_state"]
 WES_EVIDENCE_COLUMNS = ["clb_wes_reads", "wes_clb_genes_detected", "wes_island_breadth_1x"]
 RNA_EVIDENCE_COLUMNS = ["clb_rna_reads", "rna_clb_genes_detected", "rna_expression_breadth_1x",
-                        "rna_library_type"]
+                        "rna_library_type",
+                        # memo section 4 RNA QC: clb genes at >= N reads, residual human
+                        "clb_transcripts_detected", "rna_residual_human_fraction"]
 # The mode each evidence kind implies, for a file written before `mode` was a column.
 KIND_MODE = {"wes_evidence": "wes", "rna_evidence": "rna"}
 CONTIG_COLUMNS = ["final_structural_evidence", "assembler_agreement",
@@ -171,6 +174,19 @@ def read_qc(inputs, out):
                 for c in QC_COLUMNS + TERMINAL_COLUMNS:
                     out[sample][c] = row.get(c, "NA")
     return True
+
+
+def read_wes_qc(inputs, out):
+    """Memo section 3: the WES QC columns, present only when the QC table carries them."""
+    found = False
+    for _, path in inputs["qc_summary"]:
+        for row in rows(path):
+            sample = row.get("Sample")
+            if sample and WES_QC_COLUMNS[0] in row:
+                found = True
+                for c in WES_QC_COLUMNS:
+                    out[sample][c] = row.get(c, "NA")
+    return found
 
 
 def has_terminal_state(inputs):
@@ -394,6 +410,7 @@ def main():
     out = defaultdict(dict)
     stages = [
         ("read profiling", QC_COLUMNS, read_qc),
+        ("WES QC", WES_QC_COLUMNS, read_wes_qc),
         ("evidence tier", EVIDENCE_COLUMNS, read_evidence),
         ("WES evidence", WES_EVIDENCE_COLUMNS, read_wes_evidence),
         ("RNA evidence", RNA_EVIDENCE_COLUMNS, read_rna_evidence),

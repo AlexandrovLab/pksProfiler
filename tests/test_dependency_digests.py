@@ -29,6 +29,8 @@ TRACKED = {
     "genomad_db": "genomad_db", "gtdbtk_db": "gtdbtk_db", "checkm2_db": "checkm2_db",
     # Ludmil, 26 Sep mode memo section 4: the RNA lane's human-depletion references.
     "rna_splice_db": "rna_splice_db", "rna_junctions_bed": "rna_junctions_bed",
+    # Ludmil, 26 Sep mode memo section 3: the WES capture-target BED.
+    "wes_capture_bed": "wes_capture_bed",
     # Owner decision, 29 Sep: the long-read indexes.
     "hg38_db_long": "hg38_db_long", "t2t_phix_db_long": "t2t_phix_db_long",
     "rna_splice_db_long": "rna_splice_db_long",
