@@ -37,13 +37,27 @@ class ModeExecutionCoverage(unittest.TestCase):
         self.assertNotIn("-preview", self.code)
 
     def test_every_mode_and_long_read_lane_is_run(self):
-        self.assertIn('MODES=${MODES:-"wgs wes rna metagenome wgs_ont rna_ont"}', self.script)
+        self.assertIn('MODES=${MODES:-"wgs wgs_assembly wes rna metagenome wgs_ont rna_ont"}', self.script)
         for mode, flags in (("wgs", "--sample_type wgs"), ("wes", "--sample_type wes"),
                             ("rna", "--sample_type rna"), ("metagenome", "--sample_type metagenome"),
                             ("wgs_ont", "--sample_type wgs --read_type ont"),
                             ("rna_ont", "--sample_type rna --read_type ont")):
             with self.subTest(mode=mode):
                 self.assertIn(f"run_mode {mode} {flags}", self.code)
+
+    def test_targeted_recruitment_runs_for_real(self):
+        # Ludmil, 25 Sep A1/A2: an extensive_island sample with flank-only, boundary and
+        # chimeric pairs runs recruitment + both assemblers for real.
+        self.assertIn("run_mode wgs_assembly --sample_type wgs --profiling_method bowtie2", self.code)
+        self.assertIn("recruitment_R1.fastq.gz", self.code)
+        generator = GENERATOR.read_text()
+        for needle in ("sim_recruit_flank_", "sim_recruit_boundary_left", "sim_recruit_boundary_right",
+                       "sim_recruit_chimera_"):
+            self.assertIn(needle, generator)
+        for needle in ("island_supporting_fragments", "fragments_flank_only", "fragments_boundary_spanning",
+                       "reads_rejected_low_query_coverage", "recruitment Bowtie2 has no -k 1",
+                       "assembly_input_diagnostic"):
+            self.assertIn(needle, self.assertions)
 
     def test_rna_uses_a_real_splice_index_and_junctions(self):
         self.assertIn('-x splice:sr -d "$fixtures/human_splice_sr.mmi"', self.code)

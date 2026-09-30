@@ -6,7 +6,7 @@ outputs appeared, what was intentionally disabled (no tier outside short-read wg
 targeted assembly outside it, no MAGs), the depletion preset the host pass really used,
 and the terminal state the QC summary gives the sample.
 
-    assert_mode_outputs.py --mode wgs|wes|rna|metagenome|wgs_ont|rna_ont \
+    assert_mode_outputs.py --mode wgs|wgs_assembly|wes|rna|metagenome|wgs_ont|rna_ont \
         --results DIR --work-dir DIR --sample S --fixtures DIR/mode_fixtures.json [--log F]
 """
 import argparse
@@ -44,6 +44,7 @@ def host_commands(work_dir):
 EXPECT = {
     #  mode       evidence file         tier/label field       expected terminal state
     "wgs":        ("read_evidence.tsv", "multi_gene",          "completed_positive"),
+    "wgs_assembly": ("read_evidence.tsv", "extensive_island",  "completed_positive"),
     "wes":        ("wes_evidence.tsv",  None,                  "completed_untiered"),
     "rna":        ("rna_evidence.tsv",  None,                  "completed_untiered"),
     "metagenome": ("read_evidence.tsv", "untiered",            "completed_untiered"),
@@ -53,6 +54,51 @@ EXPECT = {
 EVIDENCE_FILES = ("read_evidence.tsv", "wes_evidence.tsv", "rna_evidence.tsv")
 READS_FIELD = {"read_evidence.tsv": "pks_reads", "wes_evidence.tsv": "clb_wes_reads",
                "rna_evidence.tsv": "clb_rna_reads"}
+
+
+def metrics(path):
+    with path.open(newline="") as fh:
+        return {r["metric"]: r["value"] for r in csv.DictReader(fh, delimiter="\t")}
+
+
+def check_targeted_recruitment(sdir, work_dir, fx):
+    """Ludmil, 25 Sep A1/A2: recruitment ran with the new rule and reports its classes.
+
+    The fixture's extensive-island pairs are all island-internal; its flank pairs are
+    flank-only; each boundary pair's best mate crosses a boundary; the chimeric pairs
+    (60 bp island + 90 bp random per mate) are rejected on query coverage."""
+    r = fx["recruitment"]
+    internal, boundary, flank = (r["island_internal_fragments"], r["boundary_spanning_fragments"],
+                                 r["flank_only_fragments"])
+    supporting = internal + boundary
+    stats_path = sdir / "contigs/recruitment/pks_recruitment.tsv"
+    check("pks_recruitment.tsv exists", stats_path.exists())
+    stats = metrics(stats_path) if stats_path.exists() else {}
+    for name, want in (("fragments_island_internal", internal), ("fragments_boundary_spanning", boundary),
+                       ("fragments_flank_only", flank), ("fragments_rejected", r["rejected_fragments"]),
+                       ("island_supporting_fragments", supporting),
+                       ("recruited_fragment_ids", supporting + flank),
+                       ("paired_fragments", supporting + flank),
+                       ("reads_rejected", r["rejected_reads"]),
+                       ("reads_rejected_low_query_coverage", r["rejected_reads"]),
+                       ("min_mapq", "20"), ("min_query_coverage", "0.8"),
+                       ("boundary_tolerance_bp", "10"), ("island_start_in_reference", "5001"),
+                       ("island_end_in_reference", "55768"), ("reference_length", "60768")):
+        check(f"recruitment {name} == {want}", stats.get(name) == str(want), f"got {stats.get(name)!r}")
+    recruit_cmds = [p.read_text(errors="replace") for p in work_dir.glob("*/*/.command.sh")
+                    if "recover_recruited_mates.py" in p.read_text(errors="replace")
+                    and "--sam" in p.read_text(errors="replace")]
+    check("found the rendered recruitment command", len(recruit_cmds) == 1, f"{len(recruit_cmds)} found")
+    check("recruitment Bowtie2 has no -k 1", bool(recruit_cmds) and all(" -k 1 " not in c for c in recruit_cmds))
+    final_path = sdir / "contigs/final_evidence/final_pks_evidence.tsv"
+    check("final_pks_evidence.tsv exists", final_path.exists())
+    final = one_row(final_path) if final_path.exists() else {}
+    for name, want in (("island_supporting_fragments", supporting),
+                       ("boundary_spanning_fragments", boundary), ("flank_only_fragments", flank)):
+        check(f"final evidence {name} == {want}", final.get(name) == str(want), f"got {final.get(name)!r}")
+    check("assembly_input_diagnostic reads island support",
+          final.get("assembly_input_diagnostic") in ("island_fragments_no_contig", "island_contigs_recovered"),
+          f"got {final.get('assembly_input_diagnostic')!r}")
 
 
 def main():
@@ -82,16 +128,20 @@ def main():
     if tier is not None:
         check(f"read_evidence is {tier}", ev.get("read_evidence") == tier, f"got {ev.get('read_evidence')!r}")
 
-    reads = {"wgs": fx["short_positive_reads"], "wes": fx["short_positive_reads"],
+    reads = {"wgs": fx["short_positive_reads"], "wgs_assembly": None, "wes": fx["short_positive_reads"],
              "metagenome": fx["short_positive_reads"], "rna": fx["rna_short_pks_reads"],
              "wgs_ont": fx["long_pks_reads"], "rna_ont": fx["long_pks_reads"]}[mode]
     got = ev.get(READS_FIELD[evidence_file])
-    check(f"{READS_FIELD[evidence_file]} == {reads}", got == str(reads), f"got {got!r}")
+    if reads is not None:   # wgs_assembly: the tier is the point, not the exact count
+        check(f"{READS_FIELD[evidence_file]} == {reads}", got == str(reads), f"got {got!r}")
 
     # ---- disabled on purpose ----
     # wgs: the positive fixture is multi_gene, below --tumor_contig_tiers, so it is not
-    # assembled either; every other mode never assembles.
-    check("no targeted assembly (contigs/ absent)", not (sdir / "contigs").exists())
+    # assembled either; every other mode never assembles. wgs_assembly widens the tiers.
+    if mode == "wgs_assembly":
+        check_targeted_recruitment(sdir, a.work_dir, fx)
+    else:
+        check("no targeted assembly (contigs/ absent)", not (sdir / "contigs").exists())
     check("no MAG lane (genomes/ absent)", not (sdir / "genomes").exists())
     if mode == "metagenome":
         depleted = ev.get("host_depleted_reads")
@@ -108,6 +158,7 @@ def main():
     check(f"terminal_state {terminal}", qc.get("terminal_state") == terminal, f"got {qc.get('terminal_state')!r}")
     host_in, host_out = {
         "wgs": (fx["short_positive_reads"], fx["short_positive_reads"]),
+        "wgs_assembly": (fx["recruitment"]["input_reads"], fx["recruitment"]["input_reads"]),
         "wes": (fx["short_positive_reads"], fx["short_positive_reads"]),
         "metagenome": (fx["short_positive_reads"], fx["short_positive_reads"]),
         "rna": (fx["rna_short_input"], fx["rna_short_pks_reads"]),
@@ -120,7 +171,7 @@ def main():
           qc.get("reads_after_hg38") == str(host_out), f"got {qc.get('reads_after_hg38')!r}")
     commands = host_commands(a.work_dir)
     check("found the rendered host-depletion command", len(commands) >= 1, f"{len(commands)} found")
-    human_preset = {"wgs": "-ax sr ", "wes": "-ax sr ", "metagenome": "-ax sr ",
+    human_preset = {"wgs": "-ax sr ", "wgs_assembly": "-ax sr ", "wes": "-ax sr ", "metagenome": "-ax sr ",
                     "rna": "-ax splice:sr ", "wgs_ont": "-ax map-ont ", "rna_ont": "-ax splice "}[mode]
     check(f"human pass used minimap2 {human_preset.strip()}", any(human_preset in c for c in commands))
     if mode in ("rna", "rna_ont"):
@@ -131,6 +182,12 @@ def main():
 
     # ---- master summary carries the mode ----
     master = rows_by(a.results / "cohort/pks.master_summary.tsv", "sample").get(sample, {})
+    if mode == "wgs_assembly":
+        r = fx["recruitment"]
+        fragments = str(r["island_internal_fragments"] + r["boundary_spanning_fragments"])
+        check(f"master summary island_supporting_fragments == {fragments}",
+              master.get("island_supporting_fragments") == fragments,
+              f"got {master.get('island_supporting_fragments')!r}")
     check(f"master summary mode is {expected_mode}", master.get("mode") == expected_mode,
           f"got {master.get('mode')!r}")
     check("master summary terminal_state matches", master.get("terminal_state") == terminal,

@@ -127,6 +127,24 @@ check_validation \
     --checkm2_db "$test_dir/placeholder-checkm2-db"
 echo "All checks passed"
 
+echo "Checking targeted-recruitment rule validation (Ludmil, 25 Sep A1/A2)"
+check_validation \
+    recruit-query-coverage \
+    '--recruit_min_query_coverage must be a fraction in (0,1]' \
+    --sample_type wgs --recruit_min_query_coverage 1.5
+check_validation \
+    recruit-mapq \
+    '--recruit_min_mapq must be a non-negative integer' \
+    --sample_type wgs --recruit_min_mapq high
+check_validation \
+    recruit-tolerance \
+    '--recruit_boundary_tolerance_bp must be less than half of --pks_recruit_min_aligned' \
+    --sample_type wgs --recruit_boundary_tolerance_bp 30
+check_validation \
+    recruit-flank-mismatch \
+    'recruitment classes would be misplaced' \
+    --sample_type wgs --pks_recruit_flank_bp 4000
+
 echo "Checking tumour contig tier validation"
 check_validation \
     unknown-tier \

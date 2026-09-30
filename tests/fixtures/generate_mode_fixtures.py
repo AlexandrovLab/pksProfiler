@@ -149,6 +149,50 @@ def main():
                 fh.write(f"@{name}\n{seq}\n+\n{'5' * len(seq)}\n")
 
     write_long(out / "wgs_ont.fastq.gz", pks_long + human_long)
+
+    # Targeted recruitment (Ludmil, 25 Sep A1/A2), for the wgs_assembly run: the extensive
+    # e2e fixture (assemblable, extensive_island) plus pairs built to land in each
+    # recruitment class against the island+flank reference:
+    #   flank-only   3 pairs, 300 bp windows entirely in the 5 kb flanks
+    #   boundary     2 pairs whose inner mate crosses an island boundary by 75-150 bp and
+    #                whose other mate lies in the flank
+    #   chimeric     2 pairs, every mate 60 bp of island + 90 bp random: the 150 bp read
+    #                with a 60 bp internal local match that must be rejected
+    island_first, island_last = 2193827, 2244594      # 1-based, params.pks_start/end_1based
+
+    def seg(start_1based, n):
+        return genome[start_1based - 1:start_1based - 1 + n]
+
+    def mates(stem):
+        out_pairs = []
+        for mate in ("R1", "R2"):
+            with gzip.open(out / f"{stem}_{mate}.fastq.gz", "rt") as fh:
+                lines = fh.read().splitlines()
+            out_pairs.append([(lines[i][1:], lines[i + 1]) for i in range(0, len(lines), 4)])
+        return out_pairs
+
+    rec1, rec2 = mates("extensive")
+    island_fragments = len(rec1)
+
+    def add(name, fragment):
+        rec1.append((name, fragment[:e2e.READ_LEN]))
+        rec2.append((name, e2e.revcomp(fragment[e2e.READ_LEN:])))
+
+    flank_windows = (island_first - 4000, island_first - 2500, island_last + 1500)
+    for i, start in enumerate(flank_windows):
+        add(f"sim_recruit_flank_{i}", seg(start, 300))
+    # left: R1 in the flank, R2 = island_first-75 .. island_first+74 (75/75)
+    add("sim_recruit_boundary_left", seg(island_first - 225, 300))
+    # right: R1 = island_last-74 .. island_last+75 (75/75), R2 in the flank
+    add("sim_recruit_boundary_right", seg(island_last - 74, 300))
+    for i, start in enumerate((2210001, 2225001)):
+        rec1.append((f"sim_recruit_chimera_{i}", seg(start, 60) + e2e.random_seq(rng, 90)))
+        rec2.append((f"sim_recruit_chimera_{i}", e2e.random_seq(rng, 90) + seg(start + 200, 60)))
+    e2e.write_fastq_gz(out / "recruitment_R1.fastq.gz", rec1)
+    e2e.write_fastq_gz(out / "recruitment_R2.fastq.gz", rec2)
+    recruitment = {"input_reads": 2 * len(rec1), "island_internal_fragments": island_fragments,
+                   "boundary_spanning_fragments": 2, "flank_only_fragments": len(flank_windows),
+                   "rejected_fragments": 2, "rejected_reads": 4}
     write_long(out / "rna_ont.fastq.gz", pks_long + spliced_long)
 
     expected = {
@@ -163,6 +207,7 @@ def main():
         "rna_ont_spliced_reads": len(spliced_long),
         "exons_0based_half_open": exons,
         "slice": slice_name,
+        "recruitment": recruitment,
     }
     (out / "mode_fixtures.json").write_text(json.dumps(expected, indent=2) + "\n")
     print(json.dumps(expected))

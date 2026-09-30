@@ -7,6 +7,10 @@
 # (tests/fixtures/generate_mode_fixtures.py):
 #
 #   wgs         paired pks reads, bowtie2; read_evidence tiered (multi_gene), completed_positive
+#   wgs_assembly  extensive_island reads plus flank-only, boundary-spanning and chimeric
+#               (60 bp island + 90 bp random) pairs; targeted recruitment (Bowtie2
+#               best-alignment, MAPQ + query-coverage + boundary rule) and MEGAHIT/metaSPAdes
+#               run for real, and every recruitment class is counted (Ludmil, 25 Sep A1/A2)
 #   wes         same reads; wes_evidence.tsv only, no tier, no assembly
 #   rna         pks reads + reads across an exon-exon junction on a GRCh38 slice; human pass
 #               minimap2 -ax splice:sr -j <junction BED> against a splice:sr index built here;
@@ -32,7 +36,7 @@ set -uo pipefail
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 CONDA_CACHE_DIR=${CONDA_CACHE_DIR:-/tscc/lustre/restricted/alexandrov-ddn/users/amabbasi/pksProfiler/conda_cache}
 GRCH38=${GRCH38:-/tscc/projects/ps-lalexandrov/shared/Reference_Genomes/GRCh38.d1.vd1/GRCh38.d1.vd1.fa}
-MODES=${MODES:-"wgs wes rna metagenome wgs_ont rna_ont"}
+MODES=${MODES:-"wgs wgs_assembly wes rna metagenome wgs_ont rna_ont"}
 
 for tool in nextflow python3; do
     if ! command -v "$tool" >/dev/null 2>&1; then
@@ -110,6 +114,8 @@ run_mode() {
     local started=$SECONDS
     case "$mode" in
         wgs|wes|metagenome) paired_sheet "$sample" > "$work/$mode.csv" ;;
+        wgs_assembly) printf 'patient,fastq1,fastq2\n%s,%s,%s\n' "$sample" \
+                          "$fixtures/recruitment_R1.fastq.gz" "$fixtures/recruitment_R2.fastq.gz" > "$work/$mode.csv" ;;
         rna)     single_sheet "$sample" "$fixtures/rna_short.fastq.gz" > "$work/$mode.csv" ;;
         wgs_ont) single_sheet "$sample" "$fixtures/wgs_ont.fastq.gz" > "$work/$mode.csv" ;;
         rna_ont) single_sheet "$sample" "$fixtures/rna_ont.fastq.gz" > "$work/$mode.csv" ;;
@@ -144,6 +150,8 @@ run_mode() {
 for mode in $MODES; do
     case "$mode" in
         wgs)        run_mode wgs --sample_type wgs --profiling_method bowtie2 \
+                        --hg38_db "$fixtures/hg38.mmi" --t2t_phix_db "$fixtures/t2t.mmi" ;;
+        wgs_assembly) run_mode wgs_assembly --sample_type wgs --profiling_method bowtie2 \
                         --hg38_db "$fixtures/hg38.mmi" --t2t_phix_db "$fixtures/t2t.mmi" ;;
         wes)        run_mode wes --sample_type wes --profiling_method bowtie2 \
                         --hg38_db "$fixtures/hg38.mmi" --t2t_phix_db "$fixtures/t2t.mmi" ;;
