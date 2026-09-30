@@ -1,12 +1,18 @@
-"""Structural coverage for Modules/pks_specificity.nf, the optional read-level pks
-specificity check (competitive remapping against a true+decoy reference panel).
+"""Structural coverage for Modules/pks_specificity.nf, the V8a LOCUS-DETECTION
+SPECIFICITY lane (competitive remapping against a true + pks-negative-decoy panel).
 
-This module is deliberately NOT included from main.nf (see the module's own header
-comment for the reasoning): the reference panel it depends on -- true-only, decoy-
-only and concatenated minimap2 indices, plus the contig lists that tell Arm B which
-side of the concatenated index each contig belongs to -- is Phase 2 work that has not
-happened yet. Wiring it into the default pipeline entry point now would add new
-required-param failure surface to main.nf for a feature nobody can run.
+Ludmil, 25 Sep report section 4 V8a: "Challenge pks-supporting reads against pks-negative
+Enterobacterales, close homologous NRPS/PKS sequences, broad gut/oral backgrounds,
+GRCh38, and UniVec. This asks whether the sequence really belongs to the pks/clb locus."
+
+The sister lane -- V8b carrier attribution, Modules/pks_carrier.nf -- answers a different
+question against a pks-POSITIVE panel, and the report says the two must not be conflated.
+tests/test_v8_lane_separation.py holds their vocabularies apart; this file covers V8a's
+own wiring.
+
+The lane is now included from main.nf and invoked under --pks_locus_specificity (off by
+default), because its panel exists: scripts/build_specificity_panels.py --panel v8a builds
+it from ref/specificity_panels/v8a_locus_decoy_panel.tsv.
 
 Static, source-level checks here (the `code_only()` pattern every other test_*.py in
 this repo uses for .nf files) are complemented by a real, live construction proof: this
@@ -53,13 +59,15 @@ class RequiredParamsFailClearlyNotSilently(unittest.TestCase):
     """Every Phase 2 dependency must be named in an actionable error, not left to
     surface as a bare Groovy null-pointer several processes downstream."""
 
+    # Arm A is optional, so pks_specificity_arm_a_target_clade is NOT in this list: it
+    # is required only when --pks_specificity_arm_a_dir is given, which is checked
+    # separately in ArmAIsOptional below.
     REQUIRED_PARAMS = (
         "pks_specificity_true_index",
         "pks_specificity_decoy_index",
         "pks_specificity_concatenated_index",
         "pks_specificity_true_contigs",
         "pks_specificity_decoy_contigs",
-        "pks_specificity_arm_a_target_clade",
         "pks_specificity_island_length",
     )
 
@@ -72,15 +80,16 @@ class RequiredParamsFailClearlyNotSilently(unittest.TestCase):
         for name in self.REQUIRED_PARAMS:
             self.assertIn(f"!params.{name}", CODE, f"{name} has no missing-param guard")
 
-    def test_validation_function_exits_nonzero_with_phase_context(self):
-        self.assertIn("def pksSpecificityValidateParams()", CODE)
+    def test_validation_function_names_the_builder_that_produces_the_panel(self):
+        self.assertIn("def pksLocusSpecificityValidateParams()", CODE)
         self.assertIn("exit 1,", CODE)
-        self.assertIn("Phase 2", MODULE)
+        # An error that names only the missing flag leaves the reader nowhere to go.
+        self.assertIn("build_specificity_panels.py --panel v8a", MODULE)
 
     def test_validation_runs_before_any_process_in_the_workflow(self):
-        workflow_body = MODULE.split("workflow pksSpecificityCheck {", 1)[1]
+        workflow_body = MODULE.split("workflow pksLocusSpecificity {", 1)[1]
         main_block = workflow_body.split("main:", 1)[1]
-        validation_pos = main_block.index("pksSpecificityValidateParams()")
+        validation_pos = main_block.index("pksLocusSpecificityValidateParams()")
         first_process_pos = main_block.index("alignConcatenatedIndex(")
         self.assertLess(validation_pos, first_process_pos)
 
@@ -157,16 +166,93 @@ class ProcessWiring(unittest.TestCase):
         self.assertIn("--arm-a-target-clade", MODULE)
 
     def test_b1_and_b2_both_run_on_the_same_supporting_reads_channel(self):
-        workflow_body = MODULE.split("workflow pksSpecificityCheck {", 1)[1]
+        workflow_body = MODULE.split("workflow pksLocusSpecificity {", 1)[1]
         self.assertIn("alignConcatenatedIndex(supporting_reads)", workflow_body)
         self.assertIn("alignSeparateIndices(supporting_reads)", workflow_body)
 
     def test_decision_process_joins_all_four_required_inputs(self):
-        workflow_body = MODULE.split("workflow pksSpecificityCheck {", 1)[1]
-        decision_wiring = workflow_body.split("computeSpecificityVerdict(", 1)[0]
+        workflow_body = MODULE.split("workflow pksLocusSpecificity {", 1)[1]
+        decision_wiring = workflow_body.split("computeLocusSpecificityVerdict(", 1)[0]
         self.assertIn(".join(read_gene_assignment", decision_wiring)
         self.assertIn(".join(arm_a_results", decision_wiring)
         self.assertIn(".join(scoreCompetitiveRealignment.out.arm_b", decision_wiring)
+
+
+class ArmAIsOptional(unittest.TestCase):
+    """Arm A needs a KrakenUniq database over the panel's taxon set, which a V8a panel
+    build does not produce. Refusing to run the lane without it would make the whole
+    check unavailable; running it and silently reporting a two-arm verdict would be
+    worse. The lane runs Arm B alone and records arms_used."""
+
+    def test_the_arm_a_directory_param_defaults_to_null(self):
+        self.assertRegex(MODULE, r"params\.pks_specificity_arm_a_dir\s*=\s*null")
+
+    def test_the_target_clade_is_required_only_alongside_an_arm_a_directory(self):
+        self.assertIn("if (params.pks_specificity_arm_a_dir && !params.pks_specificity_arm_a_target_clade)",
+                       CODE)
+
+    def test_the_placeholder_file_exists_and_names_the_arm_a_schema(self):
+        placeholder = ROOT / "ref/specificity_panels/NO_ARM_A.tsv"
+        self.assertTrue(placeholder.is_file())
+        header = [line for line in placeholder.read_text().splitlines()
+                   if line and not line.startswith("#")]
+        self.assertEqual(header, ["read_id\tassigned_clade\tconfidence\tunique_kmer_count"])
+
+    def test_the_verdict_process_switches_on_the_placeholder_name(self):
+        self.assertIn("arm_a_tsv.name == 'NO_ARM_A.tsv'", MODULE)
+
+    def test_the_decision_script_accepts_a_run_without_arm_a(self):
+        decision = (ROOT / "scripts/specificity_decision.py").read_text()
+        self.assertIn('p.add_argument("--arm-a", default=None', decision)
+        self.assertIn('arms_used = "arm_b_only" if arm_a_rows is None else "arm_a_and_arm_b"',
+                       decision)
+
+
+class OutputsAreNamedForTheQuestionTheyAnswer(unittest.TestCase):
+    """Ludmil's V8a/V8b split is only real if the files say which one they are."""
+
+    def test_the_verdict_files_are_locus_specificity_named(self):
+        self.assertIn("locus_specificity_summary.tsv", MODULE)
+        self.assertIn("locus_specificity_per_read.tsv", MODULE)
+
+    def test_everything_publishes_under_one_locus_specificity_directory(self):
+        self.assertIn('/locus_specificity"', MODULE)
+        self.assertNotIn("specificity_check", MODULE)
+
+    def test_the_summary_carries_the_check_name_and_which_arms_ran(self):
+        decision = (ROOT / "scripts/specificity_decision.py").read_text()
+        self.assertIn('"check": "locus_specificity"', decision)
+        self.assertIn('"sample", "check", "verdict", "arms_used"', decision)
+
+
+class WiredIntoMainAsAnOptionalLane(unittest.TestCase):
+    MAIN = (ROOT / "main.nf").read_text()
+
+    def test_main_includes_the_workflow(self):
+        self.assertIn("include { pksLocusSpecificity } from './Modules/pks_specificity.nf'",
+                       self.MAIN)
+
+    def test_the_flag_is_off_by_default(self):
+        self.assertRegex(self.MAIN, r"params\.pks_locus_specificity\s*=\s*false")
+
+    def test_the_flag_is_tested_through_a_normalized_boolean_local(self):
+        self.assertIn("def pks_locus_specificity_b     = params.pks_locus_specificity.toString().toBoolean()",
+                       self.MAIN)
+        self.assertIn("if (do_align && pks_locus_specificity_b)", self.MAIN)
+
+    def test_the_verdict_reaches_the_cohort_report_and_master_summary(self):
+        self.assertIn("tuple(sampleID, 'locus_specificity', summary)", self.MAIN)
+        report = (ROOT / "scripts/build_cohort_report.py").read_text()
+        summary = (ROOT / "scripts/build_master_summary.py").read_text()
+        for text in (report, summary):
+            self.assertIn('"locus_specificity": "locus_specificity/locus_specificity_summary.tsv"',
+                           text)
+
+    def test_the_panel_index_is_a_tracked_dependency(self):
+        # F15: rebuilding the panel in place must invalidate the tasks that aligned to it.
+        self.assertIn("pks_specificity_panel : Provenance.data(params.pks_specificity_concatenated_index)",
+                       self.MAIN)
+        self.assertIn("${params.dep_digest?.pks_specificity_panel}", MODULE)
 
 
 class SampleStageLabelConvention(unittest.TestCase):
@@ -198,6 +284,11 @@ class StandaloneEntryPoint(unittest.TestCase):
         entry = MODULE.rsplit("workflow {", 1)[1]
         for column in ("reads_fastq", "read_evidence", "read_gene_assignment", "arm_a_tsv"):
             self.assertIn(f"row.{column}", entry)
+
+    def test_a_row_without_arm_a_falls_back_to_the_placeholder(self):
+        entry = MODULE.rsplit("workflow {", 1)[1]
+        self.assertIn("row.arm_a_tsv ? file(row.arm_a_tsv", entry)
+        self.assertIn("pksSpecificityNoArmA()", entry)
 
     def test_scripts_and_conda_envs_default_from_moduleDir_not_projectDir(self):
         # moduleDir is THIS file's directory regardless of which script Nextflow was

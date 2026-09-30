@@ -81,6 +81,16 @@ COMMUNITY_COLUMNS = ["community_prophages_total", "community_pks_producers",
                      "community_neighbours_assessed", "community_neighbours_with_prophage",
                      "island_nearby_integrase", "island_nearby_trna", "island_in_prophage"]
 TYPING_COLUMNS = ["typing_status", "ST", "clonal_complex", "phylogroup"]
+# Ludmil, 25 Sep report section 4. V8a asks whether the sequence belongs to the pks/clb
+# locus (challenged against pks-NEGATIVE decoys); V8b asks which pks-POSITIVE organism
+# carries it. The report says they "should not be conflated", so they are two column
+# groups with disjoint names and disjoint vocabularies, and a run may have either, both
+# or neither. `locus_specificity_arms` records whether Arm A ran, because SURVIVES from
+# one arm and SURVIVES from two are not the same claim.
+V8A_COLUMNS = ["locus_specificity", "locus_specificity_arms", "locus_specificity_retention",
+               "locus_specificity_recomputed_tier", "locus_specificity_flagged_absorbers"]
+V8B_COLUMNS = ["carrier_attribution", "carrier_top", "carrier_top_organism",
+               "carrier_top_fraction", "carrier_top_genus", "carrier_runner_up"]
 
 TRUE = {"true", "yes", "1", "t"}
 
@@ -100,6 +110,10 @@ PUBLISHED = {
     # kept so a hand run over an older tree still reads it.
     "contig_mobility": "community/contig_pks_mobility.tsv",
     "strain_types": "strain/strain_types.tsv",
+    # Ludmil V8a and V8b: two different questions, two kinds, two column groups. Never
+    # merged into one "specificity" column -- see V8A_COLUMNS/V8B_COLUMNS below.
+    "locus_specificity": "locus_specificity/locus_specificity_summary.tsv",
+    "carrier_attribution": "carrier_attribution/carrier_attribution.tsv",
 }
 COHORT_PUBLISHED = {"qc_summary": "cohort/qc/pks.qc.summary.tsv"}
 
@@ -230,6 +244,43 @@ def read_mode_evidence(kind, columns):
                     out[sample][c] = row.get(c, "NA")
         return found
     return reader
+
+
+def read_locus_specificity(inputs, out):
+    """V8a only. `verdict` is the locus-detection call; nothing here names an organism."""
+    found = False
+    for sample, path in inputs["locus_specificity"]:
+        row = first(path)
+        sample = sample or (row.get("sample") if row else None)
+        if not (row and sample):
+            continue
+        found = True
+        out[sample]["locus_specificity"] = row.get("verdict", "NA")
+        out[sample]["locus_specificity_arms"] = row.get("arms_used", "NA")
+        out[sample]["locus_specificity_retention"] = row.get("retention", "NA")
+        out[sample]["locus_specificity_recomputed_tier"] = row.get("recomputed_tier", "NA")
+        out[sample]["locus_specificity_flagged_absorbers"] = row.get("flagged_absorbers", "")
+    return found
+
+
+def read_carrier_attribution(inputs, out):
+    """V8b only. Strain and genus are both carried: a strain-level carrier printed
+    without its genus-level context invites exactly the over-reading V8b guards against
+    (Ludmil, same report: a divergence metric is not proof of carrier identity)."""
+    found = False
+    for sample, path in inputs["carrier_attribution"]:
+        row = first(path)
+        sample = sample or (row.get("sample") if row else None)
+        if not (row and sample):
+            continue
+        found = True
+        out[sample]["carrier_attribution"] = row.get("carrier_attribution", "NA")
+        out[sample]["carrier_top"] = row.get("top_carrier", "NA")
+        out[sample]["carrier_top_organism"] = row.get("top_carrier_organism", "NA")
+        out[sample]["carrier_top_fraction"] = row.get("top_carrier_fraction", "NA")
+        out[sample]["carrier_top_genus"] = row.get("top_genus", "NA")
+        out[sample]["carrier_runner_up"] = row.get("runner_up_carrier", "NA")
+    return found
 
 
 read_evidence = read_mode_evidence("read_evidence", EVIDENCE_COLUMNS)
@@ -418,6 +469,8 @@ def main():
         ("draft genomes", MAG_COLUMNS, read_mags),
         ("community context", COMMUNITY_COLUMNS, read_community),
         ("strain typing", TYPING_COLUMNS, read_typing),
+        ("V8a locus specificity", V8A_COLUMNS, read_locus_specificity),
+        ("V8b carrier attribution", V8B_COLUMNS, read_carrier_attribution),
     ]
     columns = ["sample"]
     # Mode first, so a table mixing modalities can never be read without it.

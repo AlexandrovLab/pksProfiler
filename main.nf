@@ -120,6 +120,39 @@ params.tumor_contig_tiers = "broad_island,extensive_island"
 params.tumor_targeted_assembly   = true    // recruit + MEGAHIT/metaSPAdes on eligible tumours
 params.enable_mags               = false   // MAG reconstruction; metagenome sample_type only
 
+// ---------------- V8a / V8b: two separate optional post-detection checks ----------------
+// Ludmil, 25 Sep report, section 4, asks two questions and says explicitly that they must
+// not be conflated, so they are two lanes with two panels, two scripts and two
+// vocabularies:
+//
+//   --pks_locus_specificity    V8a, Modules/pks_specificity.nf. Does a pks-supporting
+//                              read really belong to the pks/clb locus? Challenged
+//                              against a pks-NEGATIVE panel (Enterobacterales, NRPS/PKS
+//                              homolog clusters, gut/oral backgrounds, GRCh38, UniVec).
+//   --pks_carrier_attribution  V8b, Modules/pks_carrier.nf. Which organism carries the
+//                              island? Compared against a pks-POSITIVE carrier panel
+//                              (pks+ E. coli beyond IHE3034, pks+ Klebsiella,
+//                              Citrobacter, Enterobacter).
+//
+// Both are off by default, both need a panel built by scripts/build_specificity_panels.py
+// (accessions and rationale in ref/specificity_panels/), and both run on the island reads
+// the alignment lane already retained -- never a re-run of primary detection. Each lane
+// validates its own panel parameters in its own module.
+params.pks_locus_specificity    = false
+params.pks_carrier_attribution  = false
+// The two panel indices are declared here as well as in their modules, because
+// params.dep_digest below is built before the include statements and must be able to
+// fingerprint them (F15). A script-level default never overrides a value given on the
+// command line or in a config, so the module's own declaration stays the documentation.
+params.pks_specificity_concatenated_index = null
+params.pks_carrier_panel_index            = null
+// The file staged when the V8a lane runs without Arm A. Declared as a param rather than
+// built inline in the workflow body: on Nextflow 24.10.0 -- the floor nextflow.config
+// declares and CI pins -- `def x = file("${projectDir}/...")` inside the workflow fails to
+// compile with "Variable `projectDir` already defined in the process scope"
+// (tests/test_nextflow_2410_compat.py documents that quirk and its two earlier victims).
+params.pks_specificity_no_arm_a = "${projectDir}/ref/specificity_panels/NO_ARM_A.tsv"
+
 params.pks_recruit_min_aligned  = 60
 params.pks_recruit_min_identity = 0.90
 // Ludmil, 25 Sep A1/A2: recruitment specificity and classes (recover_recruited_mates.py).
@@ -362,6 +395,11 @@ params.dep_digest = [
     pks_reference_fasta : Provenance.data(params.pks_reference_fasta),
     cram_reference      : Provenance.data(params.cram_reference),
     kraken_db           : Provenance.data(params.kraken_db),
+    // V8a/V8b panels: large minimap2 indices, so name/size/mtime of the top level, the
+    // same treatment every other index gets. Rebuilding a panel in place must invalidate
+    // the lane that aligned against it.
+    pks_specificity_panel : Provenance.data(params.pks_specificity_concatenated_index),
+    pks_carrier_panel     : Provenance.data(params.pks_carrier_panel_index),
     genomad_db          : Provenance.data(params.genomad_db),
     gtdbtk_db           : Provenance.data(params.gtdbtk_db),
     checkm2_db          : Provenance.data(params.checkm2_db),
@@ -381,6 +419,10 @@ include { classifyPksReadEvidence; targetedPksAssembly } from './Modules/pks_tar
 include { pksMAG } from './Modules/pks_mag.nf'
 include { wesInputQC; wesPksDuplicates; rnaResidualHuman } from './Modules/mode_qc.nf'
 include { krakenPrefilter; buildClbDiamondDb; diamondRescue; diamondRescueTaxonomy; mergePksCandidates; sampleBracken } from './Modules/pks_prefilter.nf'
+// V8a and V8b: two optional lanes, imported unconditionally (an import runs nothing) and
+// invoked only under their own flags. Each module validates its own panel parameters.
+include { pksLocusSpecificity } from './Modules/pks_specificity.nf'
+include { pksCarrierAttribution } from './Modules/pks_carrier.nf'
 
 // An empty channel, named for what it gates. A local `def` inside the branch that
 // fills it would not be visible where cohortReport is invoked, and Nextflow's parser
@@ -479,6 +521,18 @@ workflow {
           --prefilter_mode         auto | off | balanced           (default: auto)
           --pks_taxa               taxonomy of island reads; needs --kraken_db
 
+        Two separate optional checks on the retained island reads (Ludmil V8a/V8b; both
+        off, both need a panel from scripts/build_specificity_panels.py):
+          --pks_locus_specificity    V8a: does the read belong to the pks/clb locus?
+                                     Challenged against a pks-NEGATIVE decoy panel.
+                                     Needs --pks_specificity_concatenated_index,
+                                     --pks_specificity_true_index/--pks_specificity_decoy_index,
+                                     --pks_specificity_true_contigs/--pks_specificity_decoy_contigs,
+                                     --pks_specificity_island_length. wgs/metagenome only.
+          --pks_carrier_attribution  V8b: which pks-POSITIVE organism carries it?
+                                     Needs --pks_carrier_panel_index and --pks_carrier_map.
+        The two answer different questions and are never reported as one number.
+
         Evidence tiers are descriptive strata, not a validated presence/absence test.
         See README.md and docs/ for the full parameter list and interpretation limits.
         """.stripIndent()
@@ -498,6 +552,10 @@ workflow {
     // local; this one was still tested as params.pks_taxa directly at five call sites,
     // so a CLI --pks_taxa false built the same workflow as --pks_taxa true.
     def pks_taxa_b                  = params.pks_taxa.toString().toBoolean()
+    // V8a and V8b, resolved the same way: `--pks_locus_specificity false` on the command
+    // line arrives as the String "false", which is truthy in Groovy.
+    def pks_locus_specificity_b     = params.pks_locus_specificity.toString().toBoolean()
+    def pks_carrier_attribution_b   = params.pks_carrier_attribution.toString().toBoolean()
 
     // Long reads and targeted assembly (rc1 pass, item 1). Recruitment and assembly are
     // Bowtie2 + MEGAHIT/metaSPAdes, short-read tools, and long-read WGS is untiered, so
@@ -622,6 +680,15 @@ workflow {
         checkm2_db               : params.checkm2_db,
         pks_taxa                 : pks_taxa_b,
         pks_community_taxa       : pks_community_taxa_b,
+        // V8a / V8b: which optional check ran, and against which panel. Both belong in
+        // the run report: a locus-specificity or carrier-attribution column in a cohort
+        // table means nothing without the panel it was computed against.
+        pks_locus_specificity    : pks_locus_specificity_b,
+        pks_carrier_attribution  : pks_carrier_attribution_b,
+        pks_specificity_concatenated_index : params.pks_specificity_concatenated_index,
+        pks_specificity_arm_a_dir          : params.pks_specificity_arm_a_dir,
+        pks_carrier_panel_index            : params.pks_carrier_panel_index,
+        pks_carrier_map                    : params.pks_carrier_map,
         enable_mags              : enable_mags_b,
         tumor_targeted_assembly  : tumor_targeted_assembly_b,
         enable_strain_typing     : enable_strain_typing_b,
@@ -693,6 +760,23 @@ workflow {
 
     if (pks_taxa_b && !params.kraken_db) {
         exit 1, "Taxonomic profiling requires: --kraken_db"
+    }
+
+    // V8a / V8b. Both lanes consume the pks-island reads the alignment lane retains, so
+    // neither can run without alignment profiling. V8a additionally recomputes the
+    // sample's own tier from the surviving reads, which is the WGS/metagenome
+    // read_evidence.tsv schema (pks_reads, clb_genes_detected, island_breadth_*); WES and
+    // RNA write different columns (Ludmil, 26 Sep mode memo sections 3 and 4), so the
+    // lane is refused there rather than reading a WES row as if it were a WGS one.
+    if ((pks_locus_specificity_b || pks_carrier_attribution_b)
+        && !(params.profiling_method in ["bowtie2", "both"])) {
+        exit 1, "--pks_locus_specificity / --pks_carrier_attribution need alignment profiling. Use --profiling_method bowtie2 or both."
+    }
+    if (pks_locus_specificity_b && !(params.sample_type in ["wgs", "metagenome"])) {
+        exit 1, "--pks_locus_specificity is supported for --sample_type wgs and metagenome only (got ${params.sample_type}): it recomputes the read-evidence tier from surviving reads, and wes/rna write a different evidence schema"
+    }
+    if (long_reads && (pks_locus_specificity_b || pks_carrier_attribution_b)) {
+        exit 1, "--pks_locus_specificity / --pks_carrier_attribution are not supported with --read_type ${read_type}: both panels are indexed and aligned with minimap2 -x sr, a short-read preset"
     }
 	if (pks_taxa_b && !params.bracken_read_length) {
 	    exit 1, "Taxonomic profiling requires: --bracken_read_length"
@@ -1385,8 +1469,12 @@ workflow {
             plotPKS.out.map { sampleID, plot -> tuple(sampleID, 'figure_circos', plot) })
     }
 
-	// ---------- STEP 3b: Optional PKS-island taxa profiling (align only) ----------
-    if (do_align && pks_taxa_b) {
+	// ---------- STEP 3b: Optional lanes on the retained pks-island reads (align only) ----------
+    // extractPksIslandReads is the one producer of the per-sample island read set and its
+    // read-to-gene table, and a Nextflow process can be invoked only once, so the three
+    // lanes that consume it -- taxonomy (--pks_taxa), V8a locus specificity and V8b
+    // carrier attribution -- share this single invocation instead of each calling it.
+    if (do_align && (pks_taxa_b || pks_locus_specificity_b || pks_carrier_attribution_b)) {
         PKS_ALIGN_OUT
 			.map { sampleID, _covtxt, _bedgraph, _counts, bam, bai ->
 			    tuple(sampleID, bam, bai)
@@ -1395,7 +1483,45 @@ workflow {
 
         extractPksIslandReads(PKS_BAM_FOR_TAXA)
             .set { PKS_ISLAND_FASTQ }
+    }
 
+    // ---------- STEP 3c: V8a locus-detection specificity (optional) ----------
+    // Ludmil V8a: does the read really belong to the pks/clb locus? Challenged against a
+    // pks-NEGATIVE panel. Never a carrier statement -- that is V8b below.
+    if (do_align && pks_locus_specificity_b) {
+        v8a_reads_ch = PKS_ISLAND_FASTQ.map { sampleID, fastq, _geneTsv -> tuple(sampleID, fastq) }
+        v8a_genes_ch = PKS_ISLAND_FASTQ.map { sampleID, _fastq, geneTsv -> tuple(sampleID, geneTsv) }
+        v8a_evidence_ch = classifyPksReadEvidence.out.evidence
+            .map { sampleID, _rawCoverage, _counts, evidenceFile -> tuple(sampleID, evidenceFile) }
+        // Arm A is optional. With --pks_specificity_arm_a_dir the per-sample KrakenUniq
+        // reclassification is picked up by name; without it a named placeholder is staged
+        // and the lane records arms_used=arm_b_only rather than implying a check it never ran.
+        arm_a_placeholder = file(params.pks_specificity_no_arm_a, checkIfExists: true)
+        v8a_arm_a_ch = v8a_reads_ch.map { sampleID, _fastq ->
+            tuple(sampleID, params.pks_specificity_arm_a_dir
+                ? file("${params.pks_specificity_arm_a_dir}/${sampleID}.arm_a.tsv", checkIfExists: true)
+                : arm_a_placeholder)
+        }
+        pksLocusSpecificity(v8a_reads_ch, v8a_evidence_ch, v8a_genes_ch, v8a_arm_a_ch)
+        // The cohort report and the master summary both read the per-sample verdict, so
+        // it is staged like every other declared report input (P0-5b), under its own kind.
+        optional_lane_gate = optional_lane_gate.mix(
+            pksLocusSpecificity.out.verdict.map { sampleID, summary, _perRead ->
+                tuple(sampleID, 'locus_specificity', summary) })
+    }
+
+    // ---------- STEP 3d: V8b carrier attribution (optional) ----------
+    // Ludmil V8b: which pks-POSITIVE organism carries the island? A separate panel, a
+    // separate script and a separate vocabulary; never folded into the V8a verdict.
+    if (do_align && pks_carrier_attribution_b) {
+        pksCarrierAttribution(PKS_ISLAND_FASTQ.map { sampleID, fastq, _geneTsv -> tuple(sampleID, fastq) })
+        optional_lane_gate = optional_lane_gate.mix(
+            pksCarrierAttribution.out.attribution.map { sampleID, summary, _perRead ->
+                tuple(sampleID, 'carrier_attribution', summary) })
+    }
+
+	// ---------- STEP 3e: Optional PKS-island taxa profiling (align only) ----------
+    if (do_align && pks_taxa_b) {
 		// Bracken emits two channels since F10 added the QC fragment, so the reports
 		// channel is addressed by name. `Bracken(...).set { ... }` captured the
 		// multi-channel object instead, and the next `.map` on it failed at parse time --

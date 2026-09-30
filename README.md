@@ -34,6 +34,8 @@ decisions; dashed outlines are optional or conditional.</sub>
 | **What is around the carrier?** | metagenome | prophages, and the DNA-damage-response genes in every neighbouring organism | automatic with `--enable_mags` |
 | **What strain is the carrier?** | assembled output | sequence type, clonal complex, phylogroup | automatic |
 | **What else is in the sample?** | any | read-level taxonomic support: Kraken/Bracken species abundances, not carrier attribution | `--pks_taxa true` |
+| **Does the read really belong to the pks locus?** | any | each supporting read re-challenged against a pks-negative panel (Enterobacterales, NRPS/PKS homolog clusters, gut/oral backgrounds, GRCh38, UniVec) | `--pks_locus_specificity true` |
+| **Which pks-positive organism is carrying it?** | any | the same reads compared against pks+ *E. coli*, *Klebsiella*, *Citrobacter* and *Enterobacter* carriers, strain and genus reported together | `--pks_carrier_attribution true` |
 
 Flags, extra databases and the caveats for each are in the [documentation](#documentation).
 
@@ -158,6 +160,7 @@ Each row adds flags to the command above. Nothing is replaced.
 | community and neighbour context | automatic with `--enable_mags` | [community context](docs/running/community_context.md) |
 | strain type and phylogroup | automatic; disable with `--enable_strain_typing false` | [strain typing](docs/running/strain_typing.md) |
 | read-level taxonomic support (species abundances) | `--pks_taxa true` or `--pks_community_taxa true`, plus `--kraken_db --bracken_read_length` | [taxonomy](docs/running/taxonomy.md) |
+| a specificity check on the supporting reads, or a carrier attribution — two different questions, never one number | `--pks_locus_specificity true` and/or `--pks_carrier_attribution true`, plus a panel from `scripts/build_specificity_panels.py` | [specificity and carrier attribution](docs/running/specificity.md) |
 | profile-model search instead of alignment | `--profiling_method hmm` or `both` | [HMM modes](docs/running/hmm.md) |
 | faster profiling on metagenomes | `--prefilter_mode balanced --kraken_db <dir>` | [prefilter](docs/prefilter.md) |
 

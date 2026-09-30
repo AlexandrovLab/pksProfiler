@@ -146,6 +146,12 @@ SAMPLE_INPUTS = {
     "mag_summary": "genomes/pks_mag_summary.tsv",
     "prophage_inventory": "community/community_prophage_inventory.tsv",
     "diamond_rescue": "prefilter/diamond_rescue_taxonomy.tsv",
+    # Ludmil, 25 Sep report section 4: V8a (does this read belong to the pks/clb locus,
+    # against pks-NEGATIVE decoys) and V8b (which pks-POSITIVE organism carries it) are
+    # two separate optional checks that the report says must not be conflated. Two kinds,
+    # two sections, two vocabularies -- never one merged "specificity" column.
+    "locus_specificity": "locus_specificity/locus_specificity_summary.tsv",
+    "carrier_attribution": "carrier_attribution/carrier_attribution.tsv",
 }
 COHORT_INPUTS = {
     "gene_counts": "cohort/gene_counts/pks.gene.counts.align.txt",
@@ -385,6 +391,10 @@ def collect(inputs, expected=None, sample_type=None):
             "bins": mag_bins(staged.get("mag_summary"), staged.get("prophage_inventory")),
             "unbinned": mag_unbinned(staged.get("mag_summary")),
             "diamond_rescue": diamond_rescue_reads(staged.get("diamond_rescue")),
+            # V8a and V8b, kept as two independent dicts on the record so no display
+            # path can accidentally read one as the other.
+            "locus_specificity": (read_tsv(staged.get("locus_specificity")) or [{}])[0],
+            "carrier_attribution": (read_tsv(staged.get("carrier_attribution")) or [{}])[0],
         })
 
     records.sort(key=lambda r: (TIER_RANK.get(r["tier"], -1), r["genes_detected"],
@@ -725,6 +735,68 @@ def species_support_section(rows):
   <thead>{header}</thead><tbody>{body}</tbody></table></div>"""
 
 
+def locus_specificity_section(records):
+    """V8a. Ludmil: "This asks whether the sequence really belongs to the pks/clb locus."
+    Nothing in this table names a carrier organism."""
+    rows = [r for r in records if r["locus_specificity"]]
+    if not rows:
+        return ""
+    body = "".join(
+        f'<tr><td>{esc(r["sample"])}</td>'
+        f'<td>{esc(r["locus_specificity"].get("verdict", "NA"))}</td>'
+        f'<td>{esc(r["locus_specificity"].get("arms_used", "NA"))}</td>'
+        f'<td>{esc(r["locus_specificity"].get("n_survive", "NA"))} / '
+        f'{esc(r["locus_specificity"].get("n_supporting", "NA"))}</td>'
+        f'<td>{esc(r["locus_specificity"].get("retention", "NA"))}</td>'
+        f'<td>{esc(r["locus_specificity"].get("original_tier", "NA"))} &rarr; '
+        f'{esc(r["locus_specificity"].get("recomputed_tier", "NA"))}</td>'
+        f'<td>{esc(r["locus_specificity"].get("flagged_absorbers", "") or "-")}</td></tr>'
+        for r in rows)
+    return f"""
+  <h2 style="font-size:15px;margin:26px 0 6px">V8a &middot; locus-detection specificity
+  (--pks_locus_specificity)</h2>
+  <p class="muted">Does a pks-supporting read really belong to the pks/clb locus? Each
+  read was re-challenged against a pks-<strong>negative</strong> decoy panel
+  (Enterobacterales, homologous NRPS/PKS clusters, gut/oral backgrounds, GRCh38, UniVec).
+  This says nothing about which organism carries the island &mdash; that is V8b below, and
+  the two are not the same question.</p>
+  <div class="scroll table-scroll"><table class="detail">
+  <thead><tr><th>Sample</th><th>Verdict</th><th>Arms</th><th>Surviving / supporting reads</th>
+  <th>Retention</th><th>Tier (original &rarr; recomputed)</th><th>Flagged absorbers</th></tr></thead>
+  <tbody>{body}</tbody></table></div>"""
+
+
+def carrier_attribution_section(records):
+    """V8b. Ludmil: "This asks which organism is the likely carrier and should not be
+    conflated with locus-detection specificity." Strain and genus are shown together,
+    because a strain-level carrier alone reads as far more certain than it is."""
+    rows = [r for r in records if r["carrier_attribution"]]
+    if not rows:
+        return ""
+    body = "".join(
+        f'<tr><td>{esc(r["sample"])}</td>'
+        f'<td>{esc(r["carrier_attribution"].get("carrier_attribution", "NA"))}</td>'
+        f'<td>{esc(r["carrier_attribution"].get("top_carrier_organism", "NA"))}</td>'
+        f'<td>{esc(r["carrier_attribution"].get("top_carrier_fraction", "NA"))}</td>'
+        f'<td>{esc(r["carrier_attribution"].get("top_genus", "NA"))}</td>'
+        f'<td>{esc(r["carrier_attribution"].get("runner_up_carrier", "") or "-")}</td>'
+        f'<td>{esc(r["carrier_attribution"].get("n_attributed", "NA"))} / '
+        f'{esc(r["carrier_attribution"].get("n_reads", "NA"))}</td></tr>'
+        for r in rows)
+    return f"""
+  <h2 style="font-size:15px;margin:26px 0 6px">V8b &middot; carrier attribution
+  (--pks_carrier_attribution)</h2>
+  <p class="muted">Given that the reads do belong to the locus, which pks-<strong>positive
+  </strong> organism most likely carries it? Every member of this panel carries the island,
+  so a read fitting another carrier better than IHE3034 is evidence about the organism, not
+  against the locus. Alignment-score margins are divergence metrics, not proof of carrier
+  identity: read the genus column alongside the strain column.</p>
+  <div class="scroll table-scroll"><table class="detail">
+  <thead><tr><th>Sample</th><th>Attribution</th><th>Top carrier</th><th>Top carrier share</th>
+  <th>Top genus</th><th>Runner-up</th><th>Attributed / reads</th></tr></thead>
+  <tbody>{body}</tbody></table></div>"""
+
+
 def page(records, species_rows=()):
     tiers = {tier: sum(1 for r in records if r["tier"] == tier) for tier in TIERS}
     # Untiered rows are counted by what their evidence is (mode-specific label), never
@@ -799,6 +871,8 @@ def page(records, species_rows=()):
   <div class="scroll">{svg_matrix(records)}</div>
   {figure_panels(records)}
   {detail_panels(records)}
+  {locus_specificity_section(records)}
+  {carrier_attribution_section(records)}
   {species_support_section(species_rows)}
   <h2 style="font-size:15px;margin:26px 0 6px">Where these numbers come from</h2>
   <ul class="muted">
@@ -810,6 +884,8 @@ def page(records, species_rows=()):
     <li><code>by_sample/&lt;sample&gt;/genomes/pks_mag_summary.tsv</code> &mdash; genome-bin locus tier, taxonomy, completeness</li>
     <li><code>by_sample/&lt;sample&gt;/community/community_prophage_inventory.tsv</code> &mdash; prophage regions per bin</li>
     <li><code>by_sample/&lt;sample&gt;/prefilter/diamond_rescue_taxonomy.tsv</code> &mdash; DIAMOND-rescued reads by read-level taxon</li>
+    <li><code>by_sample/&lt;sample&gt;/locus_specificity/locus_specificity_summary.tsv</code> &mdash; V8a: does the read belong to the pks/clb locus (pks-negative decoy panel)</li>
+    <li><code>by_sample/&lt;sample&gt;/carrier_attribution/carrier_attribution.tsv</code> &mdash; V8b: which pks-positive organism carries it (carrier panel)</li>
     <li><code>cohort/taxonomy/pks.clb_species_support.tsv</code> &mdash; cohort-wide read-level species &times; clb-gene support (--pks_taxa)</li>
     <li><code>RUN_REPORT.txt</code> &mdash; the code, parameters and references behind them</li>
     <li><code>by_sample/&lt;sample&gt;/figures/</code> &mdash; what the Figures links open;

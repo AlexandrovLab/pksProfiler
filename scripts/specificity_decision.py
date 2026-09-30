@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-"""Decision rule for the read-level pks competitive-remapping specificity check.
+"""V8a decision rule: LOCUS-DETECTION SPECIFICITY for the read-level pks call.
+
+Ludmil, 25 Sep report, section 4, V8a: "Challenge pks-supporting reads against
+pks-negative Enterobacterales, close homologous NRPS/PKS sequences, broad gut/oral
+backgrounds, GRCh38, and UniVec. This asks whether the sequence really belongs to the
+pks/clb locus." Every member of the panel behind this decision is pks-NEGATIVE.
+
+The sister question -- which pks-positive organism carries the island -- is V8b, and the
+report says the two "should not be conflated". It has its own script
+(scripts/carrier_attribution.py), its own pks-POSITIVE panel and its own vocabulary
+(CARRIER_ATTRIBUTED / CARRIER_GENUS_ONLY / CARRIER_AMBIGUOUS / CARRIER_UNDETERMINED).
+Nothing here reads or reports carrier identity, and nothing there reports specificity.
 
 Combines Arm A (KrakenUniq reclassification against a true+decoy panel) and Arm B
 (competitive_realign_score.py's dual-index alignment-score-margin verdict) with the
@@ -208,17 +219,22 @@ def tier_drop(original_tier, recomputed_tier):
 
 
 def decide(sample, read_evidence, gene_assignment, arm_a_rows, arm_b_rows, args):
+    """arm_a_rows is None when Arm A was not run: the survival rule is then Arm B alone,
+    and `arms_used` records that. Treating a missing Arm A as "every read fails Arm A"
+    would report NOT_DISTINGUISHABLE for a check that was never performed."""
+    arms_used = "arm_b_only" if arm_a_rows is None else "arm_a_and_arm_b"
     n_supporting = int(read_evidence["pks_reads"])
     original_tier = read_evidence["read_evidence"]
 
     all_read_ids = sorted(gene_assignment) if gene_assignment else sorted(
-        set(arm_a_rows) | set(arm_b_rows))
+        set(arm_a_rows or {}) | set(arm_b_rows))
 
     survivors = set()
     outcomes = []
     for read_id in all_read_ids:
-        arm_a_ok = arm_a_confirms(arm_a_rows.get(read_id), args.arm_a_target_clade,
-                                   args.arm_a_min_confidence, args.arm_a_min_unique_kmers)
+        arm_a_ok = True if arm_a_rows is None else arm_a_confirms(
+            arm_a_rows.get(read_id), args.arm_a_target_clade,
+            args.arm_a_min_confidence, args.arm_a_min_unique_kmers)
         arm_b_row = arm_b_rows.get(read_id)
         arm_b_ok = arm_b_row is not None and arm_b_row.get("classification") == "confirmed_true"
         survives = arm_a_ok and arm_b_ok
@@ -265,7 +281,10 @@ def decide(sample, read_evidence, gene_assignment, arm_a_rows, arm_b_rows, args)
 
     return {
         "sample": sample,
+        # Named so a row of this table can never be mistaken for a V8b carrier row.
+        "check": "locus_specificity",
         "verdict": verdict,
+        "arms_used": arms_used,
         "n_supporting": n_supporting,
         "n_survive": n_survive,
         "retention": retention,
@@ -292,7 +311,7 @@ def decide(sample, read_evidence, gene_assignment, arm_a_rows, arm_b_rows, args)
 
 
 SUMMARY_FIELDS = [
-    "sample", "verdict", "n_supporting", "n_survive", "retention", "retention_ci_lower",
+    "sample", "check", "verdict", "arms_used", "n_supporting", "n_survive", "retention", "retention_ci_lower",
     "retention_ci_upper", "bootstrap_iterations", "original_tier", "recomputed_tier",
     "tier_drop", "recomputed_clb_genes_detected", "recomputed_island_breadth_1x",
     "breadth_source", "non_megasynthase_genes_covered", "non_megasynthase_genes",
@@ -342,14 +361,18 @@ def build_parser():
     p.add_argument("--read-gene-assignment", required=True,
                    help="assign_reads_to_genes.py's read_id/Gene/overlap_bp TSV for "
                         "the original supporting read set")
-    p.add_argument("--arm-a", required=True,
-                   help="KrakenUniq reclassification TSV: read_id, assigned_clade, "
-                        "confidence, unique_kmer_count")
+    p.add_argument("--arm-a", default=None,
+                   help="OPTIONAL KrakenUniq reclassification TSV: read_id, "
+                        "assigned_clade, confidence, unique_kmer_count. Omitted, the "
+                        "decision is Arm B alone and the summary says arms_used="
+                        "arm_b_only rather than reporting a two-arm verdict that was "
+                        "never computed.")
     p.add_argument("--arm-b", required=True,
                    help="competitive_realign_score.py's output TSV")
-    p.add_argument("--arm-a-target-clade", required=True,
-                   help="the exact assigned_clade value that counts as a specific "
-                        "pks+ resolution (not collapsed to genus/family)")
+    p.add_argument("--arm-a-target-clade", default=None,
+                   help="required with --arm-a: the exact assigned_clade value that "
+                        "counts as a specific pks+ resolution (not collapsed to "
+                        "genus/family)")
     p.add_argument("--arm-a-min-confidence", type=float, default=0.65)
     p.add_argument("--arm-a-min-unique-kmers", type=int, default=3)
     p.add_argument("--island-length", type=int, default=0,
@@ -390,16 +413,22 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
 
+    if args.arm_a and not args.arm_a_target_clade:
+        raise SystemExit("--arm-a needs --arm-a-target-clade: without the exact clade "
+                          "value that counts as a specific pks+ resolution, no Arm-A row "
+                          "can confirm anything and every read would fail silently.")
+
     read_evidence = read_single_row_tsv(args.read_evidence)
     gene_assignment = read_gene_assignment(args.read_gene_assignment)
-    arm_a_rows = read_arm_a(args.arm_a)
+    arm_a_rows = read_arm_a(args.arm_a) if args.arm_a else None
     arm_b_rows = read_arm_b(args.arm_b)
 
     result = decide(args.sample, read_evidence, gene_assignment, arm_a_rows, arm_b_rows, args)
     write_summary(result, args.output_summary)
-    write_per_read(result, arm_a_rows, arm_b_rows, args.output_per_read)
+    write_per_read(result, arm_a_rows or {}, arm_b_rows, args.output_per_read)
 
-    print(f"{args.sample}\t{result['verdict']}\tR={result['retention']:.3f}"
+    print(f"{args.sample}\t{result['verdict']} ({result['arms_used']})"
+          f"\tR={result['retention']:.3f}"
           f" [{result['retention_ci_lower']:.3f},{result['retention_ci_upper']:.3f}]"
           f"\ttier={result['recomputed_tier']} (was {result['original_tier']})")
     return 0

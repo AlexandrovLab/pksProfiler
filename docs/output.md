@@ -58,6 +58,10 @@ by_sample/<sample>/
 ├── strain/                 ST, clonal complex, phylogroup            (step 7)
 ├── taxonomy/               bracken reports, island reads             --pks_taxa
 │                           (read-level taxonomic support, not carrier attribution)
+├── locus_specificity/      V8a: does the read belong to the pks locus?  --pks_locus_specificity
+│                           (pks-NEGATIVE decoy panel; never a carrier statement)
+├── carrier_attribution/    V8b: which pks+ organism carries it?         --pks_carrier_attribution
+│                           (pks-POSITIVE carrier panel; never a specificity statement)
 ├── prefilter/              kept and rescued reads                    --prefilter_mode
 │                           diamond_rescue_taxonomy.tsv: sample, read_taxon, taxid,
 │                           clb_gene, read_count -- each rescued read's own krakenuniq
@@ -298,6 +302,10 @@ order, whether or not any sample carried reads for them.
 | `by_sample/*/community/pks_community_interactions.tsv` | `--enable_mags` | producer × neighbour pair |
 | `by_sample/*/community/pks_island_mobility.tsv` | `--enable_mags` | draft genome |
 | `by_sample/*/strain/strain_types.tsv` | assembled output | typed unit |
+| `by_sample/*/locus_specificity/locus_specificity_summary.tsv` | `--pks_locus_specificity` | sample |
+| `by_sample/*/locus_specificity/locus_specificity_per_read.tsv` | `--pks_locus_specificity` | supporting read |
+| `by_sample/*/carrier_attribution/carrier_attribution.tsv` | `--pks_carrier_attribution` | sample |
+| `by_sample/*/carrier_attribution/carrier_per_read.tsv` | `--pks_carrier_attribution` | supporting read |
 
 ## Reading results from before v0.0.2
 

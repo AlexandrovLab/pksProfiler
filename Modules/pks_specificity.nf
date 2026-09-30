@@ -1,48 +1,67 @@
 nextflow.enable.dsl = 2
 
-// Optional, on-demand secondary check on top of the pipeline's own MAPQ>=40-vs-IHE3034
-// read-level pks call (classifyPksReadEvidence in pks_targeted.nf). Not part of the
-// default per-sample pipeline and not included from main.nf: the reference panels this
-// module depends on (--pks_specificity_true_index/decoy_index/concatenated_index/
-// true_contigs/decoy_contigs, and a combined-panel KrakenUniq DB for Arm A) are Phase 2
-// deliverables that do not exist yet (see scripts/specificity_decision.py's module
-// docstring and this repo's CLAUDE.md for the phase plan). Wiring an unconditional
-// import into main.nf for indices that cannot exist yet would only add new failure
-// surface to the default pipeline entry point for a feature nobody can run; this module
-// is invoked standalone instead: `nextflow run Modules/pks_specificity.nf --sample ...`.
+// ---------------------------------------------------------------------------------
+// V8a -- LOCUS-DETECTION SPECIFICITY.
 //
-// Ludmil's concern this answers: MAPQ >= 40 against IHE3034 alone shows confident
-// mapping to *that* reference, not uniqueness against the broader microbial universe.
+// Ludmil, 25 Sep report, section 4:
+//   "V8a. Locus-detection specificity. Challenge pks-supporting reads against
+//    pks-negative Enterobacterales, close homologous NRPS/PKS sequences, broad gut/oral
+//    backgrounds, GRCh38, and UniVec. This asks whether the sequence really belongs to
+//    the pks/clb locus."
+//
+// That is the ONLY question this lane answers. The separate question -- which organism
+// carries the island -- is V8b, Modules/pks_carrier.nf, against a panel of pks-POSITIVE
+// carriers, with its own vocabulary and its own outputs. The report explicitly says the
+// two "should not be conflated", so nothing here says "carrier" and nothing there says
+// "specificity", and neither one's verdict is ever folded into the other's column.
+//
+// Optional and off by default: main.nf runs this lane only under
+// --pks_locus_specificity true, and only when the V8a panel paths are given. Build the
+// panel with scripts/build_specificity_panels.py --panel v8a (its member list and
+// rationale are ref/specificity_panels/v8a_locus_decoy_panel.tsv); every member of that
+// panel is screened against the canonical island and refused if it carries clb sequence.
+//
+// The concern this answers: MAPQ >= 40 against IHE3034 alone shows confident mapping to
+// *that* reference, not uniqueness against the broader microbial universe.
 // clbB/clbC/clbH/clbI/clbJ/clbK/clbN/clbO carry NRPS/PKS megasynthase domains shared
 // with unrelated bacterial secondary-metabolite clusters -- the same domain-homology
 // failure M1 already caught once at the assembled-MAG-bin level (see
 // tests/test_pks_positive_definition.py). This checks for it at the read level, for
-// tumour samples too sparse to ever assemble a bin, on exactly the read set that
-// already passed the pipeline's own filter -- never a re-run of primary detection.
+// tumour samples too sparse to ever assemble a bin, on exactly the read set that already
+// passed the pipeline's own filter -- never a re-run of primary detection.
 //
 // Two independent arms decide, and full method/threshold documentation lives in
 // scripts/competitive_realign_score.py (Arm B) and scripts/specificity_decision.py
 // (Arm A + the decision rule), not duplicated here.
+// ---------------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------------
-// Phase 2 inputs. All null until the reference panel exists; each is validated below
-// with an error naming exactly what Phase 2 must produce.
+// V8a panel inputs. All null until the panel is built; each is validated below with an
+// error naming exactly what scripts/build_specificity_panels.py --panel v8a writes.
 // ---------------------------------------------------------------------------------
 params.pks_specificity_true_index          = null  // minimap2 index/FASTA: true pks+ reference(s) alone
-params.pks_specificity_decoy_index         = null  // minimap2 index/FASTA: pks-negative decoy panel alone
+params.pks_specificity_decoy_index         = null  // minimap2 index/FASTA: V8a decoy panel alone
 params.pks_specificity_concatenated_index  = null  // minimap2 index/FASTA: true + decoy panel, one index
 params.pks_specificity_true_contigs        = null  // text file, one contig name per line: which contigs
                                                     // in the CONCATENATED index are the true reference
 params.pks_specificity_decoy_contigs       = null  // text file, one contig name per line: which contigs
-                                                    // in the CONCATENATED index are decoys
-params.pks_specificity_arm_a_target_clade  = null  // exact Arm-A assigned_clade value that counts as a
-                                                    // specific pks+ resolution (not genus/family-collapsed);
-                                                    // depends on how Phase 2's KrakenUniq DB names it
+                                                    // in the CONCATENATED index are V8a decoys
+
+// Arm A is OPTIONAL. It needs a KrakenUniq database over the same true+decoy taxon set
+// and a per-sample reclassification TSV; when --pks_specificity_arm_a_dir names a
+// directory holding <sample>.arm_a.tsv, both arms must confirm a read, which is the
+// stricter rule. Without it the lane runs Arm B alone and says so in its output
+// (arms_used=arm_b_only), rather than silently reporting a two-arm verdict it did not
+// compute, or refusing to run at all.
+params.pks_specificity_arm_a_dir           = null
+params.pks_specificity_arm_a_target_clade  = null  // required only with --pks_specificity_arm_a_dir:
+                                                    // the exact assigned_clade value that counts as a
+                                                    // specific pks+ resolution (not genus/family-collapsed)
 
 // ---------------------------------------------------------------------------------
-// Decision-rule thresholds. Placeholders pending Phase 3 calibration against real
-// positive/negative controls -- configurable here, never hardcoded in the scripts.
-// Defaults mirror scripts/specificity_decision.py's own argparse defaults exactly.
+// Decision-rule thresholds. Placeholders pending calibration against real positive/
+// negative controls -- configurable here, never hardcoded in the scripts. Defaults
+// mirror scripts/specificity_decision.py's own argparse defaults exactly.
 // ---------------------------------------------------------------------------------
 params.pks_specificity_arm_a_min_confidence      = 0.65
 params.pks_specificity_arm_a_min_unique_kmers    = 3
@@ -79,20 +98,30 @@ params.scripts = params.scripts ?: "${moduleDir}/../scripts"
 params.pks_specificity_minimap2_env = params.minimap2_env ?: "${moduleDir}/../conda_envs/minimap2_env.yml"
 params.pks_align_env = params.pks_align_env ?: "${moduleDir}/../conda_envs/pks_align_env.yml"
 
-def pksSpecificityValidateParams() {
+// Staged in place of a real Arm A table when Arm A was not run. Its name is what
+// computeLocusSpecificityVerdict switches on, so an arm-B-only run is a visible, named
+// state rather than an absent input Nextflow would have no channel element for.
+def pksSpecificityNoArmA() {
+    return file("${moduleDir}/../ref/specificity_panels/NO_ARM_A.tsv", checkIfExists: true)
+}
+
+def pksLocusSpecificityValidateParams() {
     def missing = []
-    if (!params.pks_specificity_true_index)         missing << "--pks_specificity_true_index (Phase 2: minimap2 index of the true pks+ reference(s) alone)"
-    if (!params.pks_specificity_decoy_index)        missing << "--pks_specificity_decoy_index (Phase 2: minimap2 index of the pks-negative decoy panel alone)"
-    if (!params.pks_specificity_concatenated_index) missing << "--pks_specificity_concatenated_index (Phase 2: minimap2 index of true reference + decoy panel combined)"
-    if (!params.pks_specificity_true_contigs)       missing << "--pks_specificity_true_contigs (Phase 2: text file listing which contigs in the concatenated index are the true reference)"
-    if (!params.pks_specificity_decoy_contigs)      missing << "--pks_specificity_decoy_contigs (Phase 2: text file listing which contigs in the concatenated index are decoys)"
-    if (!params.pks_specificity_arm_a_target_clade) missing << "--pks_specificity_arm_a_target_clade (Phase 2/3: the exact Arm-A assigned_clade value that counts as a specific pks+ resolution)"
+    if (!params.pks_specificity_true_index)         missing << "--pks_specificity_true_index (v8a_true_index.mmi: the true pks+ reference alone)"
+    if (!params.pks_specificity_decoy_index)        missing << "--pks_specificity_decoy_index (v8a_panel.mmi: the pks-negative V8a decoy panel alone)"
+    if (!params.pks_specificity_concatenated_index) missing << "--pks_specificity_concatenated_index (v8a_locus_concatenated.mmi: true reference + V8a decoy panel in one index)"
+    if (!params.pks_specificity_true_contigs)       missing << "--pks_specificity_true_contigs (v8a_true_contigs.txt: which contigs in the concatenated index are the true reference)"
+    if (!params.pks_specificity_decoy_contigs)      missing << "--pks_specificity_decoy_contigs (v8a_decoy_contigs.txt: which contigs in the concatenated index are decoys)"
     if (!params.pks_specificity_island_length)      missing << "--pks_specificity_island_length (must match --pks_island_len_1based)"
+    if (params.pks_specificity_arm_a_dir && !params.pks_specificity_arm_a_target_clade) {
+        missing << "--pks_specificity_arm_a_target_clade (required with --pks_specificity_arm_a_dir: the exact Arm-A assigned_clade value that counts as a specific pks+ resolution)"
+    }
     if (missing) {
-        log.error "pks_specificity module: missing required parameter(s):"
+        log.error "V8a locus-specificity lane: missing required parameter(s):"
         missing.each { log.error "  ${it}" }
-        exit 1, "pks_specificity module cannot run without the Phase 2 reference panel " +
-                 "(see Modules/pks_specificity.nf and scripts/specificity_decision.py for what each parameter is)."
+        exit 1, "The V8a locus-specificity lane cannot run without its decoy panel. Build it with " +
+                 "scripts/build_specificity_panels.py --panel v8a (see " +
+                 "ref/specificity_panels/v8a_locus_decoy_panel.tsv for what goes in it)."
     }
 }
 
@@ -101,7 +130,7 @@ process alignConcatenatedIndex {
     label 'process_medium'
     tag "$sampleID"
     scratch true
-    publishDir { "${params.sample_dir}/${sampleID}/specificity_check" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
+    publishDir { "${params.sample_dir}/${sampleID}/locus_specificity" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
     conda "${params.pks_specificity_minimap2_env}"
 
     input:
@@ -112,6 +141,8 @@ process alignConcatenatedIndex {
 
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # v8a_panel ${params.dep_digest?.pks_specificity_panel}
     set -euo pipefail
     # -p 0.1 (default is 0.8): a decoy-side hit far weaker than the primary would
     # otherwise be dropped as "not a real secondary candidate", but Arm B needs
@@ -129,7 +160,7 @@ process alignSeparateIndices {
     label 'process_medium'
     tag "$sampleID"
     scratch true
-    publishDir { "${params.sample_dir}/${sampleID}/specificity_check" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
+    publishDir { "${params.sample_dir}/${sampleID}/locus_specificity" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
     conda "${params.pks_specificity_minimap2_env}"
 
     input:
@@ -140,6 +171,8 @@ process alignSeparateIndices {
 
     script:
     """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # v8a_panel ${params.dep_digest?.pks_specificity_panel}
     set -euo pipefail
     minimap2 -a -x sr -t "${task.cpus}" "${params.pks_specificity_true_index}" "${reads_fastq}" \
         > "${sampleID}.b2_true.sam"
@@ -151,7 +184,7 @@ process alignSeparateIndices {
 process scoreCompetitiveRealignment {
     label 'sample_stage'
     tag "$sampleID"
-    publishDir { "${params.sample_dir}/${sampleID}/specificity_check" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
+    publishDir { "${params.sample_dir}/${sampleID}/locus_specificity" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
     conda "${params.pks_specificity_minimap2_env}"
 
     input:
@@ -176,19 +209,30 @@ process scoreCompetitiveRealignment {
     """
 }
 
-process computeSpecificityVerdict {
+process computeLocusSpecificityVerdict {
     label 'sample_stage'
     tag "$sampleID"
-    publishDir { "${params.sample_dir}/${sampleID}/specificity_check" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
+    publishDir { "${params.sample_dir}/${sampleID}/locus_specificity" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
     conda "${params.pks_align_env}"
 
     input:
     tuple val(sampleID), path(read_evidence_tsv), path(read_gene_tsv), path(arm_a_tsv), path(arm_b_tsv)
 
     output:
-    tuple val(sampleID), path("${sampleID}.specificity_summary.tsv"), path("${sampleID}.specificity_per_read.tsv"), emit: verdict
+    tuple val(sampleID),
+          path("${sampleID}.locus_specificity_summary.tsv"),
+          path("${sampleID}.locus_specificity_per_read.tsv"), emit: verdict
 
     script:
+    // Arm A is optional: without it the decision is Arm B alone, and the summary's
+    // arms_used column says so. The staged placeholder's name is the switch, because a
+    // Nextflow channel element cannot simply be absent for one sample and present for
+    // another once the join has happened.
+    def arm_a_args = arm_a_tsv.name == 'NO_ARM_A.tsv' ? "" : (
+        "--arm-a ${arm_a_tsv} " +
+        "--arm-a-target-clade '${params.pks_specificity_arm_a_target_clade}' " +
+        "--arm-a-min-confidence ${params.pks_specificity_arm_a_min_confidence} " +
+        "--arm-a-min-unique-kmers ${params.pks_specificity_arm_a_min_unique_kmers}")
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # scripts ${params.dep_digest?.scripts}
@@ -197,11 +241,8 @@ process computeSpecificityVerdict {
         --sample "${sampleID}" \
         --read-evidence "${read_evidence_tsv}" \
         --read-gene-assignment "${read_gene_tsv}" \
-        --arm-a "${arm_a_tsv}" \
         --arm-b "${arm_b_tsv}" \
-        --arm-a-target-clade "${params.pks_specificity_arm_a_target_clade}" \
-        --arm-a-min-confidence "${params.pks_specificity_arm_a_min_confidence}" \
-        --arm-a-min-unique-kmers "${params.pks_specificity_arm_a_min_unique_kmers}" \
+        ${arm_a_args} \
         --island-length "${params.pks_specificity_island_length}" \
         --multi-gene-reads "${params.pks_specificity_multi_gene_reads}" \
         --multi-gene-genes "${params.pks_specificity_multi_gene_genes}" \
@@ -221,28 +262,26 @@ process computeSpecificityVerdict {
         --absorber-fraction-threshold "${params.pks_specificity_absorber_fraction_threshold}" \
         --absorber-near-threshold-margin "${params.pks_specificity_absorber_near_threshold_margin}" \
         --min-supporting-reads "${params.pks_specificity_min_supporting_reads}" \
-        --output-summary "${sampleID}.specificity_summary.tsv" \
-        --output-per-read "${sampleID}.specificity_per_read.tsv"
+        --output-summary "${sampleID}.locus_specificity_summary.tsv" \
+        --output-per-read "${sampleID}.locus_specificity_per_read.tsv"
     """
 }
 
-workflow pksSpecificityCheck {
+workflow pksLocusSpecificity {
     take:
     supporting_reads      // tuple(sampleID, pks.fastq.gz) -- extractPksIslandReads' emit in pks_taxa.nf
     read_evidence         // tuple(sampleID, read_evidence.tsv) -- classifyPksReadEvidence's emit
     read_gene_assignment  // tuple(sampleID, read_clb_gene.tsv) -- extractPksIslandReads' emit
-    arm_a_results         // tuple(sampleID, arm_a.tsv) -- Phase 2/3: a real KrakenUniq run against the
-                          // combined panel, parsed into read_id/assigned_clade/confidence/
-                          // unique_kmer_count. Not run by this module: deriving a real per-read
-                          // confidence and unique-kmer floor from KrakenUniq's raw per-read output
-                          // is exactly the kind of thing Phase 3 calibrates, not something to freeze
-                          // into pipeline code before a single real panel exists. This workflow
-                          // consumes the TSV directly (see scripts/specificity_decision.py's
-                          // docstring for the exact schema) so Phase 2/3 can produce it however it
-                          // is ultimately built.
+    arm_a_results         // tuple(sampleID, arm_a.tsv | NO_ARM_A.tsv) -- an optional KrakenUniq
+                          // reclassification against the combined panel, parsed into
+                          // read_id/assigned_clade/confidence/unique_kmer_count (see
+                          // scripts/specificity_decision.py's docstring for the exact schema).
+                          // Not run by this module: deriving a per-read confidence and
+                          // unique-k-mer floor from KrakenUniq's raw output is a calibration
+                          // question, not something to freeze into pipeline code.
 
     main:
-    pksSpecificityValidateParams()
+    pksLocusSpecificityValidateParams()
 
     alignConcatenatedIndex(supporting_reads)
     alignSeparateIndices(supporting_reads)
@@ -256,22 +295,24 @@ workflow pksSpecificityCheck {
         .join(arm_a_results, by: 0)
         .join(scoreCompetitiveRealignment.out.arm_b, by: 0)
         .map { sampleID, evidence, geneAssign, armA, armB -> tuple(sampleID, evidence, geneAssign, armA, armB) }
-    computeSpecificityVerdict(decision_input)
+    computeLocusSpecificityVerdict(decision_input)
 
     emit:
     arm_b   = scoreCompetitiveRealignment.out.arm_b
-    verdict = computeSpecificityVerdict.out.verdict
+    verdict = computeLocusSpecificityVerdict.out.verdict
 }
 
 // ---------------------------------------------------------------------------------
-// Standalone entry point: `nextflow run Modules/pks_specificity.nf --sample sheet.csv
-// --sample_dir out/ [threshold overrides...]`. Not reachable from main.nf. sheet.csv
-// columns: sample,reads_fastq,read_evidence,read_gene_assignment,arm_a_tsv
+// Standalone entry point, for re-running the lane on an existing cohort's retained
+// outputs without re-running the pipeline:
+//   nextflow run Modules/pks_specificity.nf --sample sheet.csv --sample_dir out/ [overrides]
+// sheet.csv columns: sample,reads_fastq,read_evidence,read_gene_assignment[,arm_a_tsv]
+// arm_a_tsv is optional per row; an empty cell runs that sample Arm-B-only.
 // ---------------------------------------------------------------------------------
 workflow {
     if (!params.sample) {
         exit 1, "Missing required parameter: --sample <sheet.csv> " +
-                 "(columns: sample,reads_fastq,read_evidence,read_gene_assignment,arm_a_tsv)"
+                 "(columns: sample,reads_fastq,read_evidence,read_gene_assignment[,arm_a_tsv])"
     }
     if (!params.sample_dir) {
         exit 1, "Missing required parameter: --sample_dir <output directory>"
@@ -283,7 +324,9 @@ workflow {
     supporting_reads = sheet.map { row -> tuple(row.sample, file(row.reads_fastq, checkIfExists: true)) }
     read_evidence = sheet.map { row -> tuple(row.sample, file(row.read_evidence, checkIfExists: true)) }
     read_gene_assignment = sheet.map { row -> tuple(row.sample, file(row.read_gene_assignment, checkIfExists: true)) }
-    arm_a_results = sheet.map { row -> tuple(row.sample, file(row.arm_a_tsv, checkIfExists: true)) }
+    arm_a_results = sheet.map { row ->
+        tuple(row.sample, row.arm_a_tsv ? file(row.arm_a_tsv, checkIfExists: true) : pksSpecificityNoArmA())
+    }
 
-    pksSpecificityCheck(supporting_reads, read_evidence, read_gene_assignment, arm_a_results)
+    pksLocusSpecificity(supporting_reads, read_evidence, read_gene_assignment, arm_a_results)
 }

@@ -1,0 +1,9 @@
+# Placeholder staged by Modules/pks_specificity.nf when the V8a locus-specificity lane
+# runs WITHOUT Arm A (no --pks_specificity_arm_a_dir). Its filename, NO_ARM_A.tsv, is the
+# switch computeLocusSpecificityVerdict tests: an Arm-A-less run then calls
+# scripts/specificity_decision.py without --arm-a, and the summary records
+# arms_used=arm_b_only instead of quietly reporting a two-arm verdict it never computed.
+#
+# The columns below are the real Arm A schema, kept here so the shape stays documented in
+# one place. Never read as data: this file has no rows.
+read_id	assigned_clade	confidence	unique_kmer_count
