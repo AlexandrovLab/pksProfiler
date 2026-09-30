@@ -66,6 +66,21 @@ class ModeExecutionCoverage(unittest.TestCase):
         self.assertIn('"GT"', generator)
         self.assertIn('"AG"', generator)
 
+    def test_wes_and_rna_qc_run_for_real(self):
+        # Ludmil, 26 Sep mode memo sections 3 and 4: WES runs from a BAM with 0x400 flags
+        # and a capture BED; RNA checks clb_transcripts_detected and residual human.
+        self.assertIn('--wes_capture_bed "$fixtures/wes_capture.bed"', self.code)
+        self.assertIn('"$fixtures/wes_input.bam"', self.code)
+        self.assertIn('--input_data_type "$input_type"', self.code)
+        generator = GENERATOR.read_text()
+        self.assertIn("1024 if i < WES_HOST_DUPLICATES", generator)
+        self.assertIn("for flag in (256, 2048)", generator)
+        for needle in ("wes_input_duplicate_fraction", "wes_capture_off_target_fraction",
+                       "wes_pks_island_duplicate_fraction", "clb_transcripts_detected",
+                       "rna_residual_human_fraction", "Residual-human check", "-n 2 -m 20 -s 30"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, self.assertions)
+
     def test_assertions_cover_branch_disabled_features_preset_and_state(self):
         for needle in ("EVIDENCE_FILES", "no targeted assembly", "no MAG lane", "-ax splice:sr ",
                        "-ax map-ont ", "-ax splice ", "terminal_state", "pks_reads_per_million",

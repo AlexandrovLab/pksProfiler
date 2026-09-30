@@ -11,10 +11,14 @@
 #               (60 bp island + 90 bp random) pairs; targeted recruitment (Bowtie2
 #               best-alignment, MAPQ + query-coverage + boundary rule) and MEGAHIT/metaSPAdes
 #               run for real, and every recruitment class is counted (Ludmil, 25 Sep A1/A2)
-#   wes         same reads; wes_evidence.tsv only, no tier, no assembly
+#   wes         BAM input: the positive pairs (one duplicated) as unmapped records beside 20
+#               mapped host records (5 flagged 0x400), --wes_capture_bed over half of them;
+#               wes_evidence.tsv only, no tier, no assembly, and the WES QC columns (input
+#               duplicate fraction, on/off-target fraction, pks-island duplicate fraction)
 #   rna         pks reads + reads across an exon-exon junction on a GRCh38 slice; human pass
 #               minimap2 -ax splice:sr -j <junction BED> against a splice:sr index built here;
-#               every junction read depleted, rna_evidence.tsv
+#               every junction read depleted, rna_evidence.tsv with clb_transcripts_detected
+#               and a residual-human check that finds nothing left
 #   metagenome  same paired reads; read_evidence untiered with pks_reads_per_million
 #               (the paired MAG assembly path needs the GTDB-Tk/CheckM2/geNomad databases:
 #               tests/check_metagenome_mag_execution.sh runs it)
@@ -66,6 +70,15 @@ if [[ -z "$MINIMAP2_BIN" ]]; then
     echo "ERROR: no minimap2 found (set MINIMAP2_BIN)." >&2
     exit 1
 fi
+# samtools builds the WES BAM fixture; minimap2_env.yml carries it beside minimap2.
+SAMTOOLS_BIN=${SAMTOOLS_BIN:-$(dirname "$MINIMAP2_BIN")/samtools}
+if [[ ! -x "$SAMTOOLS_BIN" ]]; then
+    SAMTOOLS_BIN=$(command -v samtools || true)
+fi
+if [[ -z "$SAMTOOLS_BIN" ]]; then
+    echo "ERROR: no samtools found (set SAMTOOLS_BIN)." >&2
+    exit 1
+fi
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/pks-modes.XXXXXX")
 echo "work dir: $work (kept on failure for inspection)"
@@ -84,6 +97,11 @@ echo "Building indexes ($MINIMAP2_BIN)"
 "$MINIMAP2_BIN" -d "$fixtures/t2t.mmi" "$fixtures/synthetic_t2t_phix.fa" 2>> "$work/mm2.log" &&
 "$MINIMAP2_BIN" -x splice:sr -d "$fixtures/human_splice_sr.mmi" "$fixtures/human_slice.fa" 2>> "$work/mm2.log" || {
     cat "$work/mm2.log" >&2; echo "ERROR: index build failed." >&2; exit 1; }
+
+echo "Building the WES BAM ($SAMTOOLS_BIN)"
+"$SAMTOOLS_BIN" sort -o "$fixtures/wes_input.bam" "$fixtures/wes_input.sam" 2> "$work/samtools.log" &&
+"$SAMTOOLS_BIN" index "$fixtures/wes_input.bam" 2>> "$work/samtools.log" || {
+    cat "$work/samtools.log" >&2; echo "ERROR: WES BAM build failed." >&2; exit 1; }
 
 cat > "$work/local.config" <<'EOF'
 executor {
@@ -112,8 +130,11 @@ run_mode() {
     local mode=$1; shift
     local sample="mode_${mode}"
     local started=$SECONDS
+    local input_type=fastq
     case "$mode" in
-        wgs|wes|metagenome) paired_sheet "$sample" > "$work/$mode.csv" ;;
+        wgs|metagenome) paired_sheet "$sample" > "$work/$mode.csv" ;;
+        wes)     printf 'patient,alignment\n%s,%s\n' "$sample" "$fixtures/wes_input.bam" > "$work/$mode.csv"
+                 input_type=bam ;;
         wgs_assembly) printf 'patient,fastq1,fastq2\n%s,%s,%s\n' "$sample" \
                           "$fixtures/recruitment_R1.fastq.gz" "$fixtures/recruitment_R2.fastq.gz" > "$work/$mode.csv" ;;
         rna)     single_sheet "$sample" "$fixtures/rna_short.fastq.gz" > "$work/$mode.csv" ;;
@@ -127,7 +148,7 @@ run_mode() {
             -work-dir "$work/work_$mode" \
             -c "$work/local.config" \
             --sample "$work/$mode.csv" \
-            --input_data_type fastq \
+            --input_data_type "$input_type" \
             --conda_cache_dir "$CONDA_CACHE_DIR" \
             --outdir "$work/results_$mode" \
             "$@"
@@ -154,6 +175,7 @@ for mode in $MODES; do
         wgs_assembly) run_mode wgs_assembly --sample_type wgs --profiling_method bowtie2 \
                         --hg38_db "$fixtures/hg38.mmi" --t2t_phix_db "$fixtures/t2t.mmi" ;;
         wes)        run_mode wes --sample_type wes --profiling_method bowtie2 \
+                        --wes_capture_bed "$fixtures/wes_capture.bed" \
                         --hg38_db "$fixtures/hg38.mmi" --t2t_phix_db "$fixtures/t2t.mmi" ;;
         rna)        run_mode rna --sample_type rna --profiling_method bowtie2 \
                         --rna_splice_db "$fixtures/human_splice_sr.mmi" \

@@ -61,6 +61,40 @@ def metrics(path):
         return {r["metric"]: r["value"] for r in csv.DictReader(fh, delimiter="\t")}
 
 
+def header(path):
+    with path.open(newline="") as fh:
+        return next(csv.reader(fh, delimiter="\t"))
+
+
+def check_rna_qc(sdir, ev, work_dir, fx, mode):
+    """Memo section 4: clb_transcripts_detected and the residual-human check."""
+    counts = {}
+    counts_path = sdir / "counts.txt"
+    check("counts.txt exists", counts_path.exists())
+    if counts_path.exists():
+        for line in counts_path.read_text().splitlines():
+            fields = line.split("\t")
+            if fields and fields[0].startswith("clb") and len(fields[0]) == 4:
+                counts[fields[0]] = int(fields[-1])
+    transcripts = sum(1 for n in counts.values() if n >= 3)
+    check(f"clb_transcripts_detected == clb genes with >= 3 reads ({transcripts})",
+          ev.get("clb_transcripts_detected") == str(transcripts), f"got {ev.get('clb_transcripts_detected')!r}")
+    checked = fx["rna_short_pks_reads"] if mode == "rna" else fx["long_pks_reads"]
+    check(f"rna_residual_checked_reads == {checked} (every surviving read checked)",
+          ev.get("rna_residual_checked_reads") == str(checked), f"got {ev.get('rna_residual_checked_reads')!r}")
+    check("rna_residual_human_fraction == 0.000000 (nothing human left)",
+          ev.get("rna_residual_human_fraction") == "0.000000", f"got {ev.get('rna_residual_human_fraction')!r}")
+    residual_cmds = [p.read_text(errors="replace") for p in work_dir.glob("*/*/.command.sh")
+                     if "Residual-human check" in p.read_text(errors="replace")]
+    check("found the rendered residual-human command", len(residual_cmds) == 1, f"{len(residual_cmds)} found")
+    preset = "-ax splice:sr " if mode == "rna" else "-ax splice "
+    check(f"residual check used the human pass preset ({preset.strip()}) and junctions",
+          bool(residual_cmds) and preset in residual_cmds[0] and "-j " in residual_cmds[0])
+    relaxed = "-n 2 -m 20 -s 30"
+    check(f"residual check relaxed floors ({relaxed}) for short reads only",
+          bool(residual_cmds) and ((relaxed in residual_cmds[0]) == (mode == "rna")))
+
+
 def check_targeted_recruitment(sdir, work_dir, fx):
     """Ludmil, 25 Sep A1/A2: recruitment ran with the new rule and reports its classes.
 
@@ -128,7 +162,7 @@ def main():
     if tier is not None:
         check(f"read_evidence is {tier}", ev.get("read_evidence") == tier, f"got {ev.get('read_evidence')!r}")
 
-    reads = {"wgs": fx["short_positive_reads"], "wgs_assembly": None, "wes": fx["short_positive_reads"],
+    reads = {"wgs": fx["short_positive_reads"], "wgs_assembly": None, "wes": fx["wes"]["pks_reads"],
              "metagenome": fx["short_positive_reads"], "rna": fx["rna_short_pks_reads"],
              "wgs_ont": fx["long_pks_reads"], "rna_ont": fx["long_pks_reads"]}[mode]
     got = ev.get(READS_FIELD[evidence_file])
@@ -151,6 +185,8 @@ def main():
     if mode == "rna":
         check("rna_library_type recorded (polyA)", ev.get("rna_library_type") == "polyA",
               f"got {ev.get('rna_library_type')!r}")
+    if mode in ("rna", "rna_ont"):
+        check_rna_qc(sdir, ev, a.work_dir, fx, mode)
 
     # ---- depletion: what was removed, and with which preset ----
     qc = rows_by(a.results / "cohort/qc/pks.qc.summary.tsv", "Sample").get(sample, {})
@@ -159,7 +195,7 @@ def main():
     host_in, host_out = {
         "wgs": (fx["short_positive_reads"], fx["short_positive_reads"]),
         "wgs_assembly": (fx["recruitment"]["input_reads"], fx["recruitment"]["input_reads"]),
-        "wes": (fx["short_positive_reads"], fx["short_positive_reads"]),
+        "wes": (fx["wes"]["extracted_reads"], fx["wes"]["extracted_reads"]),
         "metagenome": (fx["short_positive_reads"], fx["short_positive_reads"]),
         "rna": (fx["rna_short_input"], fx["rna_short_pks_reads"]),
         "wgs_ont": (fx["wgs_ont_input"], fx["long_pks_reads"]),
@@ -169,6 +205,27 @@ def main():
           f"got {qc.get('filter_input_reads')!r}")
     check(f"reads_after_hg38 == {host_out} (every human read removed, every pks read kept)",
           qc.get("reads_after_hg38") == str(host_out), f"got {qc.get('reads_after_hg38')!r}")
+    # ---- memo sections 3 and 4: the mode QC columns, only in their own mode ----
+    qc_header = header(a.results / "cohort/qc/pks.qc.summary.tsv")
+    wes_column, rna_column = "wes_input_duplicate_fraction", "rna_residual_human_fraction"
+    check(f"QC table has WES QC columns only for wes", (wes_column in qc_header) == (mode == "wes"))
+    check(f"QC table has RNA QC columns only for rna", (rna_column in qc_header) == mode.startswith("rna"))
+    if mode == "wes":
+        w = fx["wes"]
+        for column, want in (("wes_input_primary_mapped", w["input_primary_mapped"]),
+                             ("wes_input_duplicate_fraction", w["input_duplicate_fraction"]),
+                             ("wes_capture_on_target_fraction", w["on_target_fraction"]),
+                             ("wes_capture_off_target_fraction", w["off_target_fraction"]),
+                             ("wes_pks_island_reads", w["pks_island_reads"]),
+                             ("wes_pks_island_duplicate_fraction", w["pks_island_duplicate_fraction"])):
+            check(f"QC {column} == {want}", qc.get(column) == str(want), f"got {qc.get(column)!r}")
+    if mode.startswith("rna"):
+        checked = fx["rna_short_pks_reads"] if mode == "rna" else fx["long_pks_reads"]
+        check(f"QC rna_residual_checked_reads == {checked}", qc.get("rna_residual_checked_reads") == str(checked),
+              f"got {qc.get('rna_residual_checked_reads')!r}")
+        check("QC rna_residual_human_reads == 0", qc.get("rna_residual_human_reads") == "0",
+              f"got {qc.get('rna_residual_human_reads')!r}")
+
     commands = host_commands(a.work_dir)
     check("found the rendered host-depletion command", len(commands) >= 1, f"{len(commands)} found")
     human_preset = {"wgs": "-ax sr ", "wgs_assembly": "-ax sr ", "wes": "-ax sr ", "metagenome": "-ax sr ",
@@ -188,6 +245,18 @@ def main():
         check(f"master summary island_supporting_fragments == {fragments}",
               master.get("island_supporting_fragments") == fragments,
               f"got {master.get('island_supporting_fragments')!r}")
+    if mode == "wes":
+        want = fx["wes"]["input_duplicate_fraction"]
+        check(f"master summary wes_input_duplicate_fraction == {want}",
+              master.get("wes_input_duplicate_fraction") == want,
+              f"got {master.get('wes_input_duplicate_fraction')!r}")
+    if mode.startswith("rna"):
+        check("master summary carries clb_transcripts_detected",
+              master.get("clb_transcripts_detected") == ev.get("clb_transcripts_detected"),
+              f"got {master.get('clb_transcripts_detected')!r}")
+        check("master summary carries rna_residual_human_fraction",
+              master.get("rna_residual_human_fraction") == ev.get("rna_residual_human_fraction"),
+              f"got {master.get('rna_residual_human_fraction')!r}")
     check(f"master summary mode is {expected_mode}", master.get("mode") == expected_mode,
           f"got {master.get('mode')!r}")
     check("master summary terminal_state matches", master.get("terminal_state") == terminal,

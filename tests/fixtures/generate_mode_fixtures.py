@@ -14,7 +14,11 @@ Everything here is public reference sequence or simulated from it:
   * RNA short reads: the positive pks R1 reads plus 150 bp reads spanning the exon1-exon2
     junction, which only a splice-aware human pass can remove;
   * long reads (ONT-like, 3% substitutions): 3 kb pks-island reads, 3 kb unspliced human
-    reads, and 2.4 kb spliced human reads (exon1+2+3) for rna + ont.
+    reads, and 2.4 kb spliced human reads (exon1+2+3) for rna + ont;
+  * WES (memo section 3 QC): wes_input.sam, an "aligned" WES input against the synthetic
+    host -- 20 primary mapped host records (5 flagged 0x400, plus one secondary and one
+    supplementary that must not count), and the positive pks pairs as unmapped records,
+    one pair duplicated -- with wes_capture.bed covering the first 10 host records.
 
     generate_mode_fixtures.py --out-dir DIR [--grch38 FASTA] [--region chr22:START-END]
 
@@ -74,11 +78,60 @@ def mutate(rng, seq, rate):
     return "".join(out)
 
 
+def read_fasta(path):
+    records, name = {}, None
+    for line in Path(path).read_text().splitlines():
+        if line.startswith(">"):
+            name = line[1:].split()[0]; records[name] = []
+        elif name:
+            records[name].append(line.strip())
+    return {k: "".join(v) for k, v in records.items()}
+
+
 def write_fasta(path, name, seq):
     with open(path, "w") as fh:
         fh.write(f">{name}\n")
         for i in range(0, len(seq), 70):
             fh.write(seq[i:i + 70] + "\n")
+
+
+WES_HOST_RECORDS = 20
+WES_HOST_DUPLICATES = 5
+WES_HOST_STEP = 150
+WES_HOST_LEN = 100
+WES_CAPTURE_END = 1500     # BED [0, 1500): host records 0..9 overlap it
+
+
+def write_wes_input(out, host_name, host_seq, pks_r1, pks_r2):
+    """wes_input.sam + wes_capture.bed; returns the expected WES QC counts."""
+    lines = ["@HD\tVN:1.6\tSO:unsorted", f"@SQ\tSN:{host_name}\tLN:{len(host_seq)}"]
+    qual = "I" * WES_HOST_LEN
+    for i in range(WES_HOST_RECORDS):
+        pos0 = i * WES_HOST_STEP
+        flag = (16 if i % 2 else 0) | (1024 if i < WES_HOST_DUPLICATES else 0)
+        lines.append("\t".join(map(str, [f"sim_wes_host_{i}", flag, host_name, pos0 + 1, 60,
+                                          f"{WES_HOST_LEN}M", "*", 0, 0,
+                                          host_seq[pos0:pos0 + WES_HOST_LEN], qual])))
+    for flag in (256, 2048):   # not primary: excluded by -F 2308
+        lines.append("\t".join(map(str, [f"sim_wes_host_0", flag, host_name, 1, 0, f"{WES_HOST_LEN}M",
+                                          "*", 0, 0, host_seq[:WES_HOST_LEN], qual])))
+    # the positive pks pairs, unmapped; the first pair twice (a PCR duplicate of it)
+    pairs = list(zip(pks_r1, pks_r2)) + [((pks_r1[0][0] + "_dup", pks_r1[0][1]),
+                                          (pks_r2[0][0] + "_dup", pks_r2[0][1]))]
+    for (name, s1), (_name2, s2) in pairs:
+        for flag, seq in ((77, s1), (141, s2)):
+            lines.append("\t".join(map(str, [name, flag, "*", 0, 0, "*", "*", 0, 0, seq, "I" * len(seq)])))
+    (out / "wes_input.sam").write_text("\n".join(lines) + "\n")
+    (out / "wes_capture.bed").write_text(f"{host_name}\t0\t{WES_CAPTURE_END}\twes_target\n")
+    on_target = sum(1 for i in range(WES_HOST_RECORDS) if i * WES_HOST_STEP < WES_CAPTURE_END)
+    return {"extracted_reads": 2 * len(pairs), "pks_reads": 2 * len(pairs),
+            "input_primary_mapped": WES_HOST_RECORDS,
+            "input_duplicate_fraction": f"{WES_HOST_DUPLICATES / WES_HOST_RECORDS:.6f}",
+            "on_target_fraction": f"{on_target / WES_HOST_RECORDS:.6f}",
+            "off_target_fraction": f"{1 - on_target / WES_HOST_RECORDS:.6f}",
+            # the duplicated pair: both of its mates collapse onto the originals
+            "pks_island_reads": 2 * len(pairs),
+            "pks_island_duplicate_fraction": f"{2 / (2 * len(pairs)):.6f}"}
 
 
 def main():
@@ -126,6 +179,11 @@ def main():
     with gzip.open(out / "positive_R1.fastq.gz", "rt") as fh:
         lines = fh.read().splitlines()
     pks_short = [(lines[i][1:], lines[i + 1]) for i in range(0, len(lines), 4)]
+    with gzip.open(out / "positive_R2.fastq.gz", "rt") as fh:
+        lines2 = fh.read().splitlines()
+    pks_short_r2 = [(lines2[i][1:], lines2[i + 1]) for i in range(0, len(lines2), 4)]
+    host_name, host_seq = next(iter(read_fasta(out / "synthetic_hg38.fa").items()))
+    wes = write_wes_input(out, host_name, host_seq, pks_short, pks_short_r2)
     junction = []
     for i in range(JUNCTION_READS):
         left = 50 + (i * 50) // JUNCTION_READS          # 50..99 bp on exon 1
@@ -208,6 +266,7 @@ def main():
         "exons_0based_half_open": exons,
         "slice": slice_name,
         "recruitment": recruitment,
+        "wes": wes,
     }
     (out / "mode_fixtures.json").write_text(json.dumps(expected, indent=2) + "\n")
     print(json.dumps(expected))
