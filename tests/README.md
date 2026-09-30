@@ -27,10 +27,13 @@ real, once per mode, on tiny inputs built from public references
 (`tests/fixtures/generate_mode_fixtures.py`: IHE3034 reads, a 30 kb GRCh38 slice with a
 three-exon transcript at real GT/AG sites and its BED12, ONT-like long reads simulated from
 both): `wgs`, `wes`, `rna` (`-ax splice:sr -j` against a splice:sr index built on the slice),
-`metagenome`, `wgs --read_type ont` and `rna --read_type ont`.
+`metagenome`, `wgs --read_type ont` and `rna --read_type ont`, plus `wgs_assembly` (Ludmil,
+25 Sep A1/A2): an extensive_island sample with flank-only, boundary-spanning and chimeric
+(60 bp island + 90 bp random) pairs, so targeted recruitment and MEGAHIT/metaSPAdes run for
+real and every recruitment class in `pks_recruitment.tsv` is counted.
 `tests/fixtures/assert_mode_outputs.py` checks which evidence file each mode wrote, the
 counts, the host-depletion preset the task really ran, that tiers/assembly/MAGs are off
-where they should be, `terminal_state`, and the master summary. About 6-7 minutes with a
+where they should be, `terminal_state`, and the master summary. About 8-9 minutes with a
 warm conda cache:
 
 ```bash
