@@ -42,3 +42,45 @@ CONDA_CACHE_DIR=/path/to/cache bash tests/check_mode_execution.sh   # MODES="rna
 
 The metagenome paired-assembly path (`--enable_mags`) needs the GTDB-Tk, CheckM2 and geNomad
 databases and is exercised by `tests/check_metagenome_mag_execution.sh`.
+
+## The V8a and V8b lanes, run for real
+
+`tests/check_v8_lanes_execution.sh` runs each of Ludmil's two 25 Sep section-4 checks once,
+end to end, on fixtures cut from the repository's own IHE3034 reference
+(`tests/fixtures/generate_v8_fixtures.py`) — so the answer is known by construction:
+
+- **V8a, locus-detection specificity.** A sample mixing reads from a 20 kb island slice with
+  reads from a 12 %-divergent NRPS/PKS "homolog" slice taken from a different part of the
+  island. Island reads must come out `confirmed_true`, homolog reads `confirmed_decoy`, and
+  the sample's retention must land between the two extremes — a lane that confirmed or
+  rejected everything would otherwise pass. The lane is run without Arm A, so it must also
+  report `arms_used=arm_b_only`, and it must refuse outright when no panel is given.
+- **V8b, carrier attribution.** The same island as two carriers 3 % apart, one *E. coli* and
+  one *Klebsiella*. Reads taken from the *Klebsiella* copy must be attributed to that
+  carrier, and the sample call must name *Klebsiella*.
+
+`tests/fixtures/assert_v8_outputs.py` also checks that neither lane's output carries the
+other's vocabulary — Ludmil's "should not be conflated", enforced on real output rather than
+on source. About two minutes with a warm conda cache:
+
+```bash
+CONDA_CACHE_DIR=/path/to/cache bash tests/check_v8_lanes_execution.sh
+```
+
+## Resume after a reference changes (F15, executed)
+
+`tests/check_resume_reference_change.sh` is the one test that executes the F15 dependency-
+digest mechanism rather than reading it as source. Three real runs on the e2e fixtures: a
+clean run, a `-resume` with nothing changed (every task must be `CACHED`, or nothing below
+means anything), and a `-resume` after the clb annotation's **content** changes. Every
+process carrying the `pks_annotation` digest must then re-run, and the upstream processes
+that do not carry it must still be cached — re-running everything would satisfy "it re-ran"
+while proving the digest does nothing.
+
+```bash
+CONDA_CACHE_DIR=/path/to/cache bash tests/check_resume_reference_change.sh
+```
+
+Both scripts, plus `check_e2e_execution.sh`, `check_malformed_input_execution.sh` and
+`check_mode_execution.sh`, now run in CI on every push to `main` and nightly (F21), with the
+conda environments cached between runs and the outputs kept as build artefacts.

@@ -306,21 +306,39 @@ class AssertionsCoverTheMatePairRegressionGuard(unittest.TestCase):
 
 
 class CIWiring(unittest.TestCase):
-    """Not wired into the fast, always-on jobs -- see the module docstring -- but
-    present in ci.yml so it is at least runnable without local setup."""
+    """F21: "Run the suite in CI on a pinned Nextflow/tool environment." The real
+    execution tests now run on every push to main and nightly, not only when someone
+    remembers to dispatch them."""
 
     def test_ci_references_the_e2e_script(self):
         self.assertIn("check_e2e_execution.sh", CI)
 
-    def test_the_e2e_job_is_not_on_every_push_or_pull_request(self):
+    def test_the_execution_job_runs_on_a_schedule_and_on_push_to_main(self):
+        self.assertIn("schedule:", CI)
+        self.assertIn('cron: "0 7 * * *"', CI)
+        job = CI[CI.index("e2e-execution:"):]
+        self.assertIn("github.event_name == 'schedule'", job)
+        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main'", job)
+        self.assertIn("github.event_name == 'workflow_dispatch'", job)
+
+    def test_it_is_still_not_on_every_pull_request(self):
         # A cold GitHub-hosted runner has no persistent conda cache (unlike
-        # CONDA_CACHE_DIR on TSCC) and would solve bowtie2/minimap2/fastp/samtools/
-        # subread/deeptools/R+circlize from scratch -- an unknown, possibly large,
-        # multiple of the ~2 minutes this takes locally with every env pre-built.
-        # Gated to manual dispatch until that cold-start cost is actually measured.
-        e2e_job = CI[CI.index("check_e2e_execution.sh"):]
-        preceding = CI[:CI.index("check_e2e_execution.sh")]
-        self.assertIn("workflow_dispatch", preceding + e2e_job)
+        # CONDA_CACHE_DIR on TSCC). The conda environments are cached between runs, but a
+        # cache miss still pays the full bioconda solve, which is not a per-PR cost.
+        job = CI[CI.index("e2e-execution:"):]
+        condition = job[job.index("if:"):job.index("runs-on:")]
+        self.assertNotIn("pull_request", condition)
+
+    def test_the_conda_environments_are_cached_between_runs(self):
+        job = CI[CI.index("e2e-execution:"):]
+        self.assertIn("actions/cache@v4", job)
+        self.assertIn("hashFiles('conda_envs/*.yml')", job)
+
+    def test_the_execution_outputs_are_retained(self):
+        # Ludmil's F21 acceptance note asks for these outputs to be kept.
+        job = CI[CI.index("e2e-execution:"):]
+        self.assertIn("upload-artifact", job)
+        self.assertIn("if: always()", job)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  # F21: the real-execution jobs below must run on a schedule, not only when someone
+  # remembers to dispatch them. 07:00 UTC daily, so a break introduced during the day is
+  # reported by the next morning rather than at the next release.
+  schedule:
+    - cron: "0 7 * * *"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -77,24 +82,33 @@ jobs:
         # Reuse the ci-refs stand-ins the step above already created for the same script.
         run: DB_ROOT="$PWD/ci-refs" bash tests/run_checks.sh
 
-  # Ludmil's audit, u-3: a real (non -preview) execution, so bowtie2/minimap2/fastp/
-  # samtools/nhmmscan interacting through the real Nextflow channel wiring is checked
-  # at least once, not just the graph. Six real pipeline runs now (paired FASTQ, BAM,
-  # CRAM, single-end FASTQ, --profiling_method hmm, and a 5-sample cohort -- see
-  # tests/check_e2e_execution.sh's own header for what each covers). Manual-only for
-  # now, NOT on every push/PR: a GitHub-hosted runner has no persistent conda cache
-  # (unlike CONDA_CACHE_DIR on TSCC, which already has every env this needs pre-built
-  # from conda_envs/*.yml), so this job's cold-start cost -- solving and installing
-  # bowtie2/minimap2/fastp/samtools/subread/deeptools/R+circlize/hmmer/seqtk/seqkit from
-  # bioconda from scratch -- has not been measured and could be a large multiple of the
-  # few minutes tests/check_e2e_execution.sh takes locally with every environment
-  # already cached. Promote this to `pull_request` once that cost is known and
-  # acceptable; until then, run it by hand from the Actions tab when this area changes,
-  # or nightly on a schedule if the runtime turns out to be reasonable.
+  # Ludmil's audit, u-3 and F21: a real (non -preview) execution, so bowtie2/minimap2/
+  # fastp/samtools/nhmmscan interacting through the real Nextflow channel wiring is
+  # checked for real, not just the graph. Seven real pipeline runs now (paired FASTQ,
+  # BAM, CRAM, single-end FASTQ, --profiling_method hmm, a 5-sample cohort, and the
+  # malformed-input cohort -- see each check script's own header), plus the
+  # resume-after-reference-change check below.
+  #
+  # F21 asks for these to actually run in CI rather than waiting for someone to dispatch
+  # them, so this job now runs:
+  #   * on every push to main            -- the branch releases are cut from
+  #   * nightly on the schedule above    -- so a break on a feature branch that merged
+  #                                         late is caught within a day
+  #   * on manual dispatch               -- unchanged, for working on this area
+  # Still NOT on every pull request: a GitHub-hosted runner has no persistent conda cache
+  # (unlike CONDA_CACHE_DIR on TSCC), so the fixtures are deliberately tiny and the conda
+  # environments are cached between runs by actions/cache, keyed on conda_envs/*.yml --
+  # Nextflow hashes its environments from file CONTENT, so a restored cache is reused
+  # exactly as the local one is. The first run after a conda_envs change pays the full
+  # solve; subsequent runs do not.
   e2e-execution:
-    name: End-to-end execution (manual)
-    if: github.event_name == 'workflow_dispatch'
+    name: End-to-end execution
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -114,6 +128,13 @@ jobs:
           miniconda-version: latest
           auto-update-conda: false
           auto-activate-base: true
+      - name: Cache the pipeline's conda environments
+        # Keyed on the environment files' content, which is exactly what Nextflow hashes
+        # an environment from, so a cache hit is a genuine reuse and not an approximation.
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/conda_cache
+          key: pks-conda-${{ runner.os }}-${{ hashFiles('conda_envs/*.yml') }}
       - name: Install minimap2 for fixture index building
         # Nextflow builds its own minimap2 (and every other tool) inside the
         # pipeline's own conda envs; this one is only for the tests/fixtures/
@@ -135,6 +156,42 @@ jobs:
         env:
           CONDA_CACHE_DIR: ${{ runner.temp }}/conda_cache
         run: bash tests/check_malformed_input_execution.sh
+      - name: Run the real per-mode execution checks
+        # F21 names "one real execution test per modality"; tests/check_mode_execution.sh
+        # is that script and nothing ran it in CI before.
+        shell: bash -l {0}
+        env:
+          CONDA_CACHE_DIR: ${{ runner.temp }}/conda_cache
+        run: bash tests/check_mode_execution.sh
+      - name: Run the V8a/V8b lane execution checks
+        # Ludmil V8a/V8b: one real run of each lane on synthetic reads whose correct
+        # answer the fixture knows -- island reads vs a 12%-divergent NRPS/PKS look-alike
+        # for V8a, and a 3%-divergent Klebsiella carrier copy for V8b.
+        shell: bash -l {0}
+        env:
+          CONDA_CACHE_DIR: ${{ runner.temp }}/conda_cache
+        run: bash tests/check_v8_lanes_execution.sh
+      - name: Run the resume-after-reference-change check
+        # F21, "resume/reference-change tests", and the only execution proof of the F15
+        # dependency-digest mechanism: change a reference's content, resume, and assert
+        # that exactly the tasks depending on it re-ran.
+        shell: bash -l {0}
+        env:
+          CONDA_CACHE_DIR: ${{ runner.temp }}/conda_cache
+        run: bash tests/check_resume_reference_change.sh
+      - name: Keep the execution-test outputs
+        # Ludmil's F21 acceptance note: "Resource and cohort-scale tests can run
+        # separately on scheduled CI or HPC, but their outputs should be retained."
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: execution-test-logs-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/pks-*/**/*.log
+            ${{ runner.temp }}/pks-*/**/trace*.txt
+            ${{ runner.temp }}/pks-*/results*/runs/**
+          if-no-files-found: ignore
+          retention-days: 14
 
   # tests/check_metagenome_mag_execution.sh: a real (non -preview) execution of the
   # metagenome --enable_mags lane, sized so MetaBAT2 recovers zero real bins and the

@@ -150,12 +150,16 @@ class CIWiring(unittest.TestCase):
     def test_ci_references_the_malformed_input_script(self):
         self.assertIn("check_malformed_input_execution.sh", CI)
 
-    def test_it_is_not_on_every_push_or_pull_request(self):
-        # Same reasoning as check_e2e_execution.sh: no persistent conda cache on a
-        # GitHub-hosted runner, gated to manual dispatch until that cost is measured.
-        script_ref = CI[CI.index("check_malformed_input_execution.sh"):]
-        preceding = CI[:CI.index("check_malformed_input_execution.sh")]
-        self.assertIn("workflow_dispatch", preceding + script_ref)
+    def test_it_runs_in_the_scheduled_execution_job_not_only_on_dispatch(self):
+        # F21: same job as check_e2e_execution.sh, so it inherits nightly + push-to-main.
+        job = CI[CI.index("e2e-execution:"):]
+        self.assertIn("check_malformed_input_execution.sh", job)
+        self.assertIn("github.event_name == 'schedule'", job)
+
+    def test_it_is_still_not_on_every_pull_request(self):
+        job = CI[CI.index("e2e-execution:"):]
+        condition = job[job.index("if:"):job.index("runs-on:")]
+        self.assertNotIn("pull_request", condition)
 
 
 if __name__ == "__main__":

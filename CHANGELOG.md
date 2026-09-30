@@ -10,6 +10,24 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
   `extract_low_score_no_as_records` and `extract_low_score_mode` in `pks.qc.summary.tsv` (with an
   add-up check); `aligner_bwa_mem`, `bwa_min_score`, `extract_low_score_mapped`, `extract_min_as`
   in `provenance/input_header.tsv`; the two parameters and a per-state count in `RUN_REPORT.txt`.
+- Two separate optional checks on the retained pks-island reads (Ludmil, 25 Sep report
+  section 4, V8a and V8b), both off by default and deliberately never reported as one
+  number. `--pks_locus_specificity` (V8a, `Modules/pks_specificity.nf`) asks whether a
+  supporting read really belongs to the pks/clb locus, re-challenging it against a
+  pks-NEGATIVE panel -- pks-negative Enterobacterales, NRPS/PKS homolog genomes and
+  non-colibactin MIBiG clusters, gut and oral backgrounds, UniVec, optionally GRCh38 --
+  and reporting SURVIVES / NOT_DISTINGUISHABLE_FROM_CROSS_MAPPING / UNDERPOWERED with
+  `arms_used`, since Arm A (KrakenUniq) is optional and an Arm-B-only verdict says so.
+  `--pks_carrier_attribution` (V8b, `Modules/pks_carrier.nf`) asks which organism carries
+  it, against a pks-POSITIVE carrier panel (pks+ *E. coli* beyond IHE3034, pks+
+  *Klebsiella*, *Citrobacter*, *Enterobacter*), reporting CARRIER_ATTRIBUTED /
+  CARRIER_GENUS_ONLY / CARRIER_AMBIGUOUS / CARRIER_UNDETERMINED with strain and genus
+  together. Both panels are built by `scripts/build_specificity_panels.py` from public
+  sequence, with membership screened against the canonical island in opposite directions
+  and every accepted and rejected candidate recorded. New per-sample outputs
+  (`locus_specificity/`, `carrier_attribution/`), two column groups in
+  `pks.master_summary.tsv`, two cohort-report sections, both panels tracked as F15
+  dependencies. See `docs/running/specificity.md`.
 - Long-read input, `--read_type short|ont|hifi` (owner decision, 29 Sep; wgs and rna only):
   fastplong read QC (`--long_read_min_length`, QC metric names kept), map-ont/map-hifi depletion
   (splice/splice:hq for the RNA human pass) against `--hg38_db_long` / `--rna_splice_db_long` /
@@ -107,6 +125,14 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
   taxonomic support"; carrier language is kept for contig and genome-bin evidence.
   `tests/test_taxonomy_wording.py` scans the docs and source for carrier language beside
   read-level taxonomy, and for NM/divergence text claiming specificity or uniqueness.
+- **F21, real execution in CI**: the execution checks now run on every push to `main` and
+  nightly, not only on manual dispatch, with the pipeline's conda environments cached
+  between runs and the outputs retained as build artefacts. Two new execution checks:
+  `tests/check_resume_reference_change.sh` (change a reference's content, `-resume`, and
+  assert that exactly the tasks carrying its F15 digest re-ran while the rest stayed
+  cached -- the first execution proof of the F15 mechanism) and
+  `tests/check_v8_lanes_execution.sh` (one real run of each V8 lane on synthetic reads
+  whose correct answer the fixture knows).
 - **Targeted recruitment specificity and classes** (Ludmil, 25 Sep A1/A2): recruitment Bowtie2
   drops `-k 1` (best-alignment reporting, so MAPQ is meaningful) and every read needs MAPQ >=
   `--recruit_min_mapq` (20). Reads are classed `island_internal` (query coverage >=
