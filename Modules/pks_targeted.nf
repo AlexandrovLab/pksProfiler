@@ -115,7 +115,11 @@ process targetedPksSpades {
     args=()
     if [[ \$pairs -gt 0 ]]; then args+=(-1 "${r1}" -2 "${r2}"); fi
     if [[ \$singles -gt 0 ]]; then args+=(-s "${single}"); fi
-    metaspades.py "\${args[@]}" -t ${task.cpus} -m ${task.memory.toGiga().intValue()} -o spades_out
+    # Every FASTQ here is Phred+33 (samtools fastq / fastp). metaSPAdes otherwise guesses the
+    # offset from the quality characters and aborts ("Failed to determine offset!") when a
+    # small recruited set carries only characters valid in both encodings, e.g. all 'I' or
+    # NovaSeq-binned all 'F'.
+    metaspades.py "\${args[@]}" --phred-offset 33 -t ${task.cpus} -m ${task.memory.toGiga().intValue()} -o spades_out
     # metaSPAdes has no --min-contig-len, so apply MEGAHIT's floor here. Without this the
     # two assemblers are compared on different length distributions and assembler_agreement
     # reports discordance that is an artefact of the floor, not of the assemblies.

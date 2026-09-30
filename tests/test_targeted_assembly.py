@@ -1,5 +1,6 @@
 import csv
 import importlib.util
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -36,6 +37,13 @@ class TargetedAssemblyContractTests(unittest.TestCase):
             ids, alignments = recover.recruited_ids(sam, rule)
             self.assertEqual(ids, {"r"})
             self.assertEqual(alignments, 1)
+
+    def test_metaspades_is_told_the_phred_offset(self):
+        # A small recruited set with uniform qualities made metaSPAdes abort with "Failed to
+        # determine offset!" (found by tests/check_mode_execution.sh wgs_assembly).
+        module = (ROOT / "Modules/pks_targeted.nf").read_text()
+        command = next(l for l in module.splitlines() if l.strip().startswith("metaspades.py"))
+        self.assertIn("--phred-offset 33", command)
 
     def test_both_assemblers_are_aligned_to_canonical_reference(self):
         module = (ROOT / "Modules/pks_targeted.nf").read_text()
@@ -95,6 +103,44 @@ class RecruitmentStatsReachFinalEvidence(unittest.TestCase):
             parsed = summarize.recruitment(stats)
         self.assertEqual(parsed["recruited_fragment_ids"], "7")
         self.assertEqual(parsed["paired_fragments"], "3")
+
+    def test_end_to_end_with_the_producers_evidence_schema(self):
+        """read_evidence.tsv exactly as classify_tumor_pks_evidence.py writes it (with the
+        26 Sep `mode` column). The summarizer's DictWriter raised on `mode`, so no real
+        WGS sample got a final_pks_evidence.tsv; found by check_mode_execution.sh
+        wgs_assembly (Ludmil, 25 Sep A1/A2 work)."""
+        sys.path.insert(0, str(ROOT / "scripts"))
+        spec = importlib.util.spec_from_file_location("classify_schema", ROOT / "scripts/classify_tumor_pks_evidence.py")
+        classify = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(classify)
+        values = {"sample": "S1", "mode": "wgs", "read_evidence": "extensive_island", "pks_reads": "150",
+                  "clb_genes_detected": "12", "island_breadth_1x": "0.2", "island_breadth_2x": "0.1",
+                  "island_breadth_3x": "0.05"}
+        header = classify.SCHEMAS["wgs"]
+        with tempfile.TemporaryDirectory() as directory:
+            d = Path(directory)
+            for name in ("megahit.fa", "metaspades.fa", "megahit.paf", "metaspades.paf", "raw_depth.tsv"):
+                (d / name).write_text("")
+            (d / "ref.gff").write_text("##gff-version 3\n")
+            (d / "read_evidence.tsv").write_text("\t".join(header) + "\n" + "\t".join(values[h] for h in header) + "\n")
+            (d / "stats.tsv").write_text("metric\tvalue\nrecruited_fragment_ids\t9\npaired_fragments\t9\n"
+                                         "island_supporting_fragments\t0\nfragments_island_internal\t0\n"
+                                         "fragments_boundary_spanning\t0\nfragments_flank_only\t9\n")
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/summarize_tumor_pks_contigs.py"), "--sample", "S1",
+                 "--megahit-contigs", str(d / "megahit.fa"), "--metaspades-contigs", str(d / "metaspades.fa"),
+                 "--megahit-paf", str(d / "megahit.paf"), "--metaspades-paf", str(d / "metaspades.paf"),
+                 "--raw-depth", str(d / "raw_depth.tsv"), "--read-evidence", str(d / "read_evidence.tsv"),
+                 "--recruitment-stats", str(d / "stats.tsv"), "--gff", str(d / "ref.gff"),
+                 "--output-tsv", str(d / "out.tsv"), "--output-svg", str(d / "out.svg")],
+                capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            with (d / "out.tsv").open() as handle:
+                row = list(csv.DictReader(handle, delimiter="\t"))[0]
+        self.assertEqual(row["mode"], "wgs")
+        self.assertEqual(row["flank_only_fragments"], "9")
+        self.assertEqual(row["island_supporting_fragments"], "0")
+        self.assertEqual(row["assembly_input_diagnostic"], "no_island_supporting_fragments")
 
     def test_end_to_end_merges_recruitment_fields_into_the_output_row(self):
         script_path = ROOT / "scripts/summarize_tumor_pks_contigs.py"

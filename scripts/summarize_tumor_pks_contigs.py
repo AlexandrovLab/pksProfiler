@@ -158,7 +158,9 @@ def main():
     supporting={k:supporting_contigs(v,a.island_start,a.island_end,a.min_aligned_bp) for k,v in hits.items()}
     bp={k:union_length(v,a.island_start,a.island_end) for k,v in hits.items()}; cov={k:v/length for k,v in bp.items()}
     call,agreement=structural_call(cov["megahit"],cov["metaspades"])
-    fields=["sample","read_evidence","pks_reads","clb_genes_detected","island_breadth_1x","island_breadth_2x","island_breadth_3x","megahit_reference_covered_bp","megahit_reference_coverage","megahit_supporting_contigs","metaspades_reference_covered_bp","metaspades_reference_coverage","metaspades_supporting_contigs","assembler_agreement","final_structural_evidence","recruited_fragment_ids","paired_fragments"]+[name for name,_ in RECRUITMENT_FIELDS]+["assembly_input_diagnostic"]
+    # "mode": classify_tumor_pks_evidence.py writes it since the 26 Sep mode memo; without it
+    # here DictWriter raised on every real sample and final_pks_evidence.tsv was never written.
+    fields=["sample","mode","read_evidence","pks_reads","clb_genes_detected","island_breadth_1x","island_breadth_2x","island_breadth_3x","megahit_reference_covered_bp","megahit_reference_coverage","megahit_supporting_contigs","metaspades_reference_covered_bp","metaspades_reference_coverage","metaspades_supporting_contigs","assembler_agreement","final_structural_evidence","recruited_fragment_ids","paired_fragments"]+[name for name,_ in RECRUITMENT_FIELDS]+["assembly_input_diagnostic"]
     result=dict(ev,megahit_reference_covered_bp=bp["megahit"],megahit_reference_coverage=f'{cov["megahit"]:.6f}',megahit_supporting_contigs=len(supporting["megahit"]),metaspades_reference_covered_bp=bp["metaspades"],metaspades_reference_coverage=f'{cov["metaspades"]:.6f}',metaspades_supporting_contigs=len(supporting["metaspades"]),assembler_agreement=agreement,final_structural_evidence=call,recruited_fragment_ids=recruit["recruited_fragment_ids"],paired_fragments=recruit["paired_fragments"])
     result.update({name: recruit.get(metric, "NA") for name, metric in RECRUITMENT_FIELDS})
     result["assembly_input_diagnostic"] = assembly_input_diagnostic(recruit, max(cov.values()))
