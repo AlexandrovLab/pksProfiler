@@ -462,6 +462,184 @@ def reportManifestText(rows) {
     return lines.join('\n') + '\n'
 }
 
+// Moved out of the workflow block verbatim, for the same 65,535-character reason as validateStageParams.
+def validatePrefilterParams(Map flags) {
+    def prefilter_mode       = flags.prefilter_mode
+    def diamond_rescue_b     = flags.diamond_rescue_b
+    def pks_community_taxa_b = flags.pks_community_taxa_b
+	// ---------- v0.0.2: prefilter validation ----------
+    def valid_prefilter_modes = ["auto", "off", "balanced"]
+    if (!(params.prefilter_mode in valid_prefilter_modes)) {
+        exit 1, "Unknown --prefilter_mode: ${params.prefilter_mode}. Supported: auto, off, balanced"
+    }
+    if (prefilter_mode == "balanced") {
+        if (!params.kraken_db) { exit 1, "Balanced prefiltering requires: --kraken_db" }
+        if (!diamond_rescue_b) {
+            exit 1, "--prefilter_mode balanced requires --diamond_rescue true; without the rescue, clb reads outside taxid ${params.primary_taxid} are discarded"
+        }
+        if (!file(params.clb_protein_fasta).exists()) {
+            exit 1, "clb protein FASTA not found: ${params.clb_protein_fasta}"
+        }
+    }
+    if (!(params.primary_taxid.toString() ==~ /^[1-9][0-9]*$/)) {
+        exit 1, "--primary_taxid must be a positive integer (got ${params.primary_taxid})"
+    }
+    if (params.diamond_evalue.toString().toDouble() <= 0 ||
+        params.diamond_min_aa.toString().toInteger() <= 0 ||
+        params.diamond_min_query_coverage.toString().toDouble() <= 0 ||
+        params.diamond_min_query_coverage.toString().toDouble() > 1) {
+        exit 1, "--diamond_evalue and --diamond_min_aa must be positive, and --diamond_min_query_coverage must be in (0,1]"
+    }
+    if (params.pks_align_min_mapq.toString() != "40") {
+        exit 1, "--pks_align_min_mapq must stay 40: the evidence tiers and reads_mapped_ihe3034_mapq40 were calibrated at MAPQ >= 40 (A4). Recalibrate before changing it."
+    }
+    if (!(params.minimap2_frag_mode.toString() in ["default", "no"])) {
+        exit 1, "--minimap2_frag_mode must be default or no (got ${params.minimap2_frag_mode})"
+    }
+    // Local mode needs its own preset (-local) and score-min (G,...); neither is calibrated.
+    if (params.pks_align_bowtie2_mode.toString() != "end-to-end") {
+        exit 1, "--pks_align_bowtie2_mode must be end-to-end: the tiers were calibrated on it and local mode needs a different preset and score-min (got ${params.pks_align_bowtie2_mode})"
+    }
+    if (pks_community_taxa_b && prefilter_mode != "balanced") {
+        exit 1, "--pks_community_taxa requires --prefilter_mode balanced so Bracken receives the complete non-host krakenuniq report"
+    }
+    if (pks_community_taxa_b && !params.bracken_read_length) {
+        exit 1, "--pks_community_taxa requires: --bracken_read_length"
+    }
+}
+
+// Moved out of the workflow block verbatim (combined rc1 branch, 30 Sep): Nextflow 24.10 keeps the
+// workflow block's source as a single string, and Groovy caps a string constant at 65,535 characters.
+// Called once, at the same point in the workflow, with the flags it needs.
+def validateStageParams(Map flags) {
+    def enable_mags_b             = flags.enable_mags_b
+    def tumor_targeted_assembly_b = flags.tumor_targeted_assembly_b
+    def enable_strain_typing_b    = flags.enable_strain_typing_b
+    def alignment_input           = flags.alignment_input
+	// ---------- v0.0.2: sample-type and contig-analysis validation ----------
+    // Ludmil, 26 Sep mode memo: every accepted sample_type must map to a real execution
+    // branch. wes and rna (then tumor_wes/tumor_rna) used to pass this check and match no branch,
+    // so they ran generic profiling with no mode-specific handling. Refused, loudly,
+    // until the WES (evidence-only) and RNA (splice-aware depletion) lanes exist.
+    def valid_sample_types = ["metagenome", "wgs", "wes", "rna"]
+    if (!(params.sample_type in valid_sample_types)) {
+        exit 1, "Unknown --sample_type: ${params.sample_type}. Supported: ${valid_sample_types.join(', ')}"
+    }
+    if (enable_mags_b && params.sample_type != "metagenome") {
+        exit 1, "--enable_mags requires --sample_type metagenome; tumour assembly is selected with --sample_type wgs"
+    }
+    if (params.sample_type == "wgs" && params.profiling_method == "hmm") {
+        exit 1, "--sample_type wgs requires --profiling_method bowtie2 or both for read-level clb screening"
+    }
+    // Ludmil, 26 Sep mode memo sections 3 and 4: WES and RNA are evidence-only, and their
+    // evidence file is written from the alignment lane, so an HMM-only run would produce none.
+    if (params.sample_type in ["wes", "rna"] && params.profiling_method == "hmm") {
+        exit 1, "--sample_type ${params.sample_type} requires --profiling_method bowtie2 or both: ${params.sample_type}_evidence.tsv comes from the alignment lane"
+    }
+    if (!(params.rna_library_type.toString() in ["polyA", "total", "unknown"])) {
+        exit 1, "--rna_library_type must be polyA, total or unknown (got ${params.rna_library_type})"
+    }
+    if (params.sample_type != "rna" && (params.rna_splice_db || params.rna_junctions_bed)) {
+        log.warn "--rna_splice_db / --rna_junctions_bed apply to --sample_type rna only; ignored for ${params.sample_type}"
+    }
+    // Memo sections 3 and 4: the mode QC parameters.
+    [rna_transcript_min_reads: params.rna_transcript_min_reads,
+     rna_residual_human_sample_reads: params.rna_residual_human_sample_reads].each { name, value ->
+        if (!(value.toString() ==~ /^[0-9]+$/) || value.toString().toInteger() < 1) {
+            exit 1, "--${name} must be a positive integer (got ${value})"
+        }
+    }
+    if (params.wes_capture_bed && params.sample_type != "wes") {
+        log.warn "--wes_capture_bed applies to --sample_type wes only; ignored for ${params.sample_type}"
+    }
+    if (params.wes_capture_bed && params.sample_type == "wes" && !alignment_input) {
+        log.warn "--wes_capture_bed needs alignment input (the on-target fraction is counted on the input alignment); FASTQ input reports no capture QC"
+    }
+    // No WGS tiers and no targeted assembly outside wgs; the default-on flag is inert there.
+    if (params.sample_type in ["wes", "rna"] && tumor_targeted_assembly_b) {
+        log.info "--tumor_targeted_assembly does not apply to --sample_type ${params.sample_type} (evidence-only lane); no assembly will run"
+    }
+    if (params.sample_type == "wgs" && tumor_targeted_assembly_b) {
+        if (!file(params.pks_reference_fasta).exists()) {
+            exit 1, "Canonical PKS reference not found: ${params.pks_reference_fasta}"
+        }
+        if (!file("${params.pks_recruit_index}.1.bt2").exists()) {
+            exit 1, "PKS recruitment index not found: ${params.pks_recruit_index}.*.bt2"
+        }
+    }
+    // Ludmil, 25 Sep A1/A2: recruitment rule and classes.
+    if (!(params.recruit_min_query_coverage.toString() ==~ /^[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?$/) ||
+        params.recruit_min_query_coverage.toString().toDouble() <= 0 ||
+        params.recruit_min_query_coverage.toString().toDouble() > 1) {
+        exit 1, "--recruit_min_query_coverage must be a fraction in (0,1] (got ${params.recruit_min_query_coverage})"
+    }
+    [recruit_boundary_tolerance_bp: params.recruit_boundary_tolerance_bp,
+     recruit_min_mapq: params.recruit_min_mapq,
+     pks_recruit_flank_bp: params.pks_recruit_flank_bp].each { name, value ->
+        if (!(value.toString() ==~ /^[0-9]+$/)) {
+            exit 1, "--${name} must be a non-negative integer (got ${value})"
+        }
+    }
+    if (params.recruit_boundary_tolerance_bp.toString().toInteger() * 2 >= params.pks_recruit_min_aligned.toString().toInteger()) {
+        exit 1, "--recruit_boundary_tolerance_bp must be less than half of --pks_recruit_min_aligned (${params.pks_recruit_min_aligned}), or a boundary read could be anchored on neither side"
+    }
+    if (!(params.recruit_include_flank_only.toString() in ["true", "false"])) {
+        exit 1, "--recruit_include_flank_only must be true or false (got ${params.recruit_include_flank_only})"
+    }
+    if (params.sample_type == "wgs" && tumor_targeted_assembly_b) {
+        // The island's place in the recruitment reference comes from pks_start/end_1based and
+        // pks_recruit_flank_bp; the index FASTA's header records what it was built with.
+        def recruit_fasta = file("${params.pks_recruit_index}.fna")
+        if (recruit_fasta.exists()) {
+            def header = recruit_fasta.withReader { it.readLine() } ?: ''
+            def built = (header =~ /island=([0-9]+)-([0-9]+) flank=([0-9]+)/)
+            if (!built.find()) {
+                exit 1, "Recruitment index FASTA header has no island=START-END flank=N record: ${recruit_fasta}"
+            }
+            if (built.group(1) != params.pks_start_1based.toString() || built.group(2) != params.pks_end_1based.toString() ||
+                built.group(3) != params.pks_recruit_flank_bp.toString()) {
+                exit 1, "Recruitment index ${recruit_fasta} was built with island=${built.group(1)}-${built.group(2)} flank=${built.group(3)}, but the run has --pks_start_1based ${params.pks_start_1based} --pks_end_1based ${params.pks_end_1based} --pks_recruit_flank_bp ${params.pks_recruit_flank_bp}; recruitment classes would be misplaced"
+            }
+        } else {
+            log.warn "No ${params.pks_recruit_index}.fna beside the recruitment index; island placement is checked only against the SAM @SQ length"
+        }
+    }
+    // pksMAG runs checkm2, gtdbtk and genomad unconditionally, so all three are required.
+    [enable_mags: enable_mags_b].each { flag, on ->
+        if (on) {
+            if (!params.gtdbtk_db)  { exit 1, "--${flag} requires --gtdbtk_db" }
+            if (!params.checkm2_db) { exit 1, "--${flag} requires --checkm2_db" }
+            if (!params.genomad_db) { exit 1, "--${flag} requires --genomad_db for prophage detection" }
+        }
+    }
+    if (enable_mags_b && !file(params.clb_protein_hmm).exists()) {
+        exit 1, "Protein HMM not found: ${params.clb_protein_hmm}"
+    }
+    // nhmmscan reads the pressed index, not the plain .hmm; hmmsearch needs only the .hmm.
+    if (params.profiling_method in ["hmm", "both"]) {
+        if (!file(params.hmm_model).exists()) {
+            exit 1, "Nucleotide HMM not found: ${params.hmm_model}"
+        }
+        if (!file("${params.hmm_model}.h3i").exists()) {
+            exit 1, "Nucleotide HMM is not pressed: ${params.hmm_model}.h3i missing. Run: hmmpress ${params.hmm_model}"
+        }
+    }
+
+    if (enable_strain_typing_b) {
+        if (!file(params.st_phylogroup_lookup).exists()) {
+            exit 1, "ST/phylogroup lookup not found: ${params.st_phylogroup_lookup}"
+        }
+        if (!(params.typing_min_assembly_bp.toString() ==~ /^[0-9]+$/)) {
+            exit 1, "--typing_min_assembly_bp must be a non-negative integer (got ${params.typing_min_assembly_bp})"
+        }
+    }
+
+    if (!(params.context_window_bp.toString() ==~ /^[0-9]+$/) || params.context_window_bp.toString().toInteger() <= 0) {
+        exit 1, "--context_window_bp must be a positive integer (got ${params.context_window_bp})"
+    }
+}
+
+
 // ---------------- Workflow ----------------
 workflow {
 
@@ -1060,167 +1238,14 @@ workflow {
             pksMAG.out.strain_summary.map { sampleID, f -> tuple(sampleID, 'strain_types', f) })
     }
 
-	// ---------- v0.0.2: prefilter validation ----------
-    def valid_prefilter_modes = ["auto", "off", "balanced"]
-    if (!(params.prefilter_mode in valid_prefilter_modes)) {
-        exit 1, "Unknown --prefilter_mode: ${params.prefilter_mode}. Supported: auto, off, balanced"
-    }
-    if (prefilter_mode == "balanced") {
-        if (!params.kraken_db) { exit 1, "Balanced prefiltering requires: --kraken_db" }
-        if (!diamond_rescue_b) {
-            exit 1, "--prefilter_mode balanced requires --diamond_rescue true; without the rescue, clb reads outside taxid ${params.primary_taxid} are discarded"
-        }
-        if (!file(params.clb_protein_fasta).exists()) {
-            exit 1, "clb protein FASTA not found: ${params.clb_protein_fasta}"
-        }
-    }
-    if (!(params.primary_taxid.toString() ==~ /^[1-9][0-9]*$/)) {
-        exit 1, "--primary_taxid must be a positive integer (got ${params.primary_taxid})"
-    }
-    if (params.diamond_evalue.toString().toDouble() <= 0 ||
-        params.diamond_min_aa.toString().toInteger() <= 0 ||
-        params.diamond_min_query_coverage.toString().toDouble() <= 0 ||
-        params.diamond_min_query_coverage.toString().toDouble() > 1) {
-        exit 1, "--diamond_evalue and --diamond_min_aa must be positive, and --diamond_min_query_coverage must be in (0,1]"
-    }
-    if (params.pks_align_min_mapq.toString() != "40") {
-        exit 1, "--pks_align_min_mapq must stay 40: the evidence tiers and reads_mapped_ihe3034_mapq40 were calibrated at MAPQ >= 40 (A4). Recalibrate before changing it."
-    }
-    if (!(params.minimap2_frag_mode.toString() in ["default", "no"])) {
-        exit 1, "--minimap2_frag_mode must be default or no (got ${params.minimap2_frag_mode})"
-    }
-    // Local mode needs its own preset (-local) and score-min (G,...); neither is calibrated.
-    if (params.pks_align_bowtie2_mode.toString() != "end-to-end") {
-        exit 1, "--pks_align_bowtie2_mode must be end-to-end: the tiers were calibrated on it and local mode needs a different preset and score-min (got ${params.pks_align_bowtie2_mode})"
-    }
-    if (pks_community_taxa_b && prefilter_mode != "balanced") {
-        exit 1, "--pks_community_taxa requires --prefilter_mode balanced so Bracken receives the complete non-host krakenuniq report"
-    }
-    if (pks_community_taxa_b && !params.bracken_read_length) {
-        exit 1, "--pks_community_taxa requires: --bracken_read_length"
-    }
+    validatePrefilterParams(prefilter_mode: prefilter_mode, diamond_rescue_b: diamond_rescue_b,
+                            pks_community_taxa_b: pks_community_taxa_b)
 
-	// ---------- v0.0.2: sample-type and contig-analysis validation ----------
-    // Ludmil, 26 Sep mode memo: every accepted sample_type must map to a real execution
-    // branch. wes and rna (then tumor_wes/tumor_rna) used to pass this check and match no branch,
-    // so they ran generic profiling with no mode-specific handling. Refused, loudly,
-    // until the WES (evidence-only) and RNA (splice-aware depletion) lanes exist.
-    def valid_sample_types = ["metagenome", "wgs", "wes", "rna"]
-    if (!(params.sample_type in valid_sample_types)) {
-        exit 1, "Unknown --sample_type: ${params.sample_type}. Supported: ${valid_sample_types.join(', ')}"
-    }
-    if (enable_mags_b && params.sample_type != "metagenome") {
-        exit 1, "--enable_mags requires --sample_type metagenome; tumour assembly is selected with --sample_type wgs"
-    }
-    if (params.sample_type == "wgs" && params.profiling_method == "hmm") {
-        exit 1, "--sample_type wgs requires --profiling_method bowtie2 or both for read-level clb screening"
-    }
-    // Ludmil, 26 Sep mode memo sections 3 and 4: WES and RNA are evidence-only, and their
-    // evidence file is written from the alignment lane, so an HMM-only run would produce none.
-    if (params.sample_type in ["wes", "rna"] && params.profiling_method == "hmm") {
-        exit 1, "--sample_type ${params.sample_type} requires --profiling_method bowtie2 or both: ${params.sample_type}_evidence.tsv comes from the alignment lane"
-    }
-    if (!(params.rna_library_type.toString() in ["polyA", "total", "unknown"])) {
-        exit 1, "--rna_library_type must be polyA, total or unknown (got ${params.rna_library_type})"
-    }
-    if (params.sample_type != "rna" && (params.rna_splice_db || params.rna_junctions_bed)) {
-        log.warn "--rna_splice_db / --rna_junctions_bed apply to --sample_type rna only; ignored for ${params.sample_type}"
-    }
-    // Memo sections 3 and 4: the mode QC parameters.
-    [rna_transcript_min_reads: params.rna_transcript_min_reads,
-     rna_residual_human_sample_reads: params.rna_residual_human_sample_reads].each { name, value ->
-        if (!(value.toString() ==~ /^[0-9]+$/) || value.toString().toInteger() < 1) {
-            exit 1, "--${name} must be a positive integer (got ${value})"
-        }
-    }
-    if (params.wes_capture_bed && params.sample_type != "wes") {
-        log.warn "--wes_capture_bed applies to --sample_type wes only; ignored for ${params.sample_type}"
-    }
-    if (params.wes_capture_bed && params.sample_type == "wes" && !alignment_input) {
-        log.warn "--wes_capture_bed needs alignment input (the on-target fraction is counted on the input alignment); FASTQ input reports no capture QC"
-    }
-    // No WGS tiers and no targeted assembly outside wgs; the default-on flag is inert there.
-    if (params.sample_type in ["wes", "rna"] && tumor_targeted_assembly_b) {
-        log.info "--tumor_targeted_assembly does not apply to --sample_type ${params.sample_type} (evidence-only lane); no assembly will run"
-    }
-    if (params.sample_type == "wgs" && tumor_targeted_assembly_b) {
-        if (!file(params.pks_reference_fasta).exists()) {
-            exit 1, "Canonical PKS reference not found: ${params.pks_reference_fasta}"
-        }
-        if (!file("${params.pks_recruit_index}.1.bt2").exists()) {
-            exit 1, "PKS recruitment index not found: ${params.pks_recruit_index}.*.bt2"
-        }
-    }
-    // Ludmil, 25 Sep A1/A2: recruitment rule and classes.
-    if (!(params.recruit_min_query_coverage.toString() ==~ /^[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?$/) ||
-        params.recruit_min_query_coverage.toString().toDouble() <= 0 ||
-        params.recruit_min_query_coverage.toString().toDouble() > 1) {
-        exit 1, "--recruit_min_query_coverage must be a fraction in (0,1] (got ${params.recruit_min_query_coverage})"
-    }
-    [recruit_boundary_tolerance_bp: params.recruit_boundary_tolerance_bp,
-     recruit_min_mapq: params.recruit_min_mapq,
-     pks_recruit_flank_bp: params.pks_recruit_flank_bp].each { name, value ->
-        if (!(value.toString() ==~ /^[0-9]+$/)) {
-            exit 1, "--${name} must be a non-negative integer (got ${value})"
-        }
-    }
-    if (params.recruit_boundary_tolerance_bp.toString().toInteger() * 2 >= params.pks_recruit_min_aligned.toString().toInteger()) {
-        exit 1, "--recruit_boundary_tolerance_bp must be less than half of --pks_recruit_min_aligned (${params.pks_recruit_min_aligned}), or a boundary read could be anchored on neither side"
-    }
-    if (!(params.recruit_include_flank_only.toString() in ["true", "false"])) {
-        exit 1, "--recruit_include_flank_only must be true or false (got ${params.recruit_include_flank_only})"
-    }
-    if (params.sample_type == "wgs" && tumor_targeted_assembly_b) {
-        // The island's place in the recruitment reference comes from pks_start/end_1based and
-        // pks_recruit_flank_bp; the index FASTA's header records what it was built with.
-        def recruit_fasta = file("${params.pks_recruit_index}.fna")
-        if (recruit_fasta.exists()) {
-            def header = recruit_fasta.withReader { it.readLine() } ?: ''
-            def built = (header =~ /island=([0-9]+)-([0-9]+) flank=([0-9]+)/)
-            if (!built.find()) {
-                exit 1, "Recruitment index FASTA header has no island=START-END flank=N record: ${recruit_fasta}"
-            }
-            if (built.group(1) != params.pks_start_1based.toString() || built.group(2) != params.pks_end_1based.toString() ||
-                built.group(3) != params.pks_recruit_flank_bp.toString()) {
-                exit 1, "Recruitment index ${recruit_fasta} was built with island=${built.group(1)}-${built.group(2)} flank=${built.group(3)}, but the run has --pks_start_1based ${params.pks_start_1based} --pks_end_1based ${params.pks_end_1based} --pks_recruit_flank_bp ${params.pks_recruit_flank_bp}; recruitment classes would be misplaced"
-            }
-        } else {
-            log.warn "No ${params.pks_recruit_index}.fna beside the recruitment index; island placement is checked only against the SAM @SQ length"
-        }
-    }
-    // pksMAG runs checkm2, gtdbtk and genomad unconditionally, so all three are required.
-    [enable_mags: enable_mags_b].each { flag, on ->
-        if (on) {
-            if (!params.gtdbtk_db)  { exit 1, "--${flag} requires --gtdbtk_db" }
-            if (!params.checkm2_db) { exit 1, "--${flag} requires --checkm2_db" }
-            if (!params.genomad_db) { exit 1, "--${flag} requires --genomad_db for prophage detection" }
-        }
-    }
-    if (enable_mags_b && !file(params.clb_protein_hmm).exists()) {
-        exit 1, "Protein HMM not found: ${params.clb_protein_hmm}"
-    }
-    // nhmmscan reads the pressed index, not the plain .hmm; hmmsearch needs only the .hmm.
-    if (params.profiling_method in ["hmm", "both"]) {
-        if (!file(params.hmm_model).exists()) {
-            exit 1, "Nucleotide HMM not found: ${params.hmm_model}"
-        }
-        if (!file("${params.hmm_model}.h3i").exists()) {
-            exit 1, "Nucleotide HMM is not pressed: ${params.hmm_model}.h3i missing. Run: hmmpress ${params.hmm_model}"
-        }
-    }
-
-    if (enable_strain_typing_b) {
-        if (!file(params.st_phylogroup_lookup).exists()) {
-            exit 1, "ST/phylogroup lookup not found: ${params.st_phylogroup_lookup}"
-        }
-        if (!(params.typing_min_assembly_bp.toString() ==~ /^[0-9]+$/)) {
-            exit 1, "--typing_min_assembly_bp must be a non-negative integer (got ${params.typing_min_assembly_bp})"
-        }
-    }
-
-    if (!(params.context_window_bp.toString() ==~ /^[0-9]+$/) || params.context_window_bp.toString().toInteger() <= 0) {
-        exit 1, "--context_window_bp must be a positive integer (got ${params.context_window_bp})"
-    }
+    // Parameter checks for sample type, stages, recruitment and MAG/strain inputs. They run here, before
+    // any task, exactly as before; they live in a top-level function because Nextflow 24.10 stores the
+    // workflow block's source text as one string, capped at 65,535 characters (see validateStageParams).
+    validateStageParams(enable_mags_b: enable_mags_b, tumor_targeted_assembly_b: tumor_targeted_assembly_b,
+                        enable_strain_typing_b: enable_strain_typing_b, alignment_input: alignment_input)
 
     def tier_order = ["multi_gene", "broad_island", "extensive_island"]
     def contig_tiers = params.tumor_contig_tiers.toString().split(",").collect { it.trim() }.findAll { it }

@@ -12,7 +12,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = (ROOT / "main.nf").read_text()
-BODY = MAIN.split("workflow {", 1)[1]
+# The workflow block plus the parameter checks moved out of it (validatePrefilterParams /
+# validateStageParams, top-level defs just above it, for Nextflow 24.10's 65,535-char limit).
+BODY = MAIN[MAIN.index("def validatePrefilterParams("):]
 
 
 def code_only(text):

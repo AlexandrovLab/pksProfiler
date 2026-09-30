@@ -29,10 +29,13 @@ READ_LEVEL = re.compile(
 # "carries" (a taxDB "carries" a pseudo-taxid).
 CARRIER = re.compile(r"\bcarriers?\b|\bcarr(?:y|ies|ying)\s+(?:it\b|the (?:pks )?island|"
                      r"(?:the )?pks|clb)|\bharbou?r", re.I)
-# A unit may name both only to say the one is not the other.
+# A unit may name both only to say the one is not the other, or when the carrier language is the
+# V8b carrier-attribution lane's own (a pks-POSITIVE genome panel, not read-level taxonomy): config
+# maps, lane lists and report templates name both lanes side by side (combined rc1 branch, 30 Sep).
 DISCLAIMED = re.compile(
     r"not (?:a |the )?carrier|not carrier attribution|never a carrier|carrier[- ]genome language is"
-    r" reserved|not the organism shown to carry|not proof that a species carries",
+    r" reserved|not the organism shown to carry|not proof that a species carries"
+    r"|\bV8b\b|carrier[_ ]attribution|pks_carrier|carrier panel",
     re.I)
 # NM / divergence text must not claim more than divergence.
 DIVERGENCE = re.compile(r"\bNM\b|divergence_ihe3034|ihe3034_divergence", re.I)
