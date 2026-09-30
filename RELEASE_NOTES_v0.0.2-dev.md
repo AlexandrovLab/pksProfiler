@@ -91,7 +91,7 @@ With `balanced`:
 3. `mergePksCandidates` — rescued reads rejoin `primary` to become `PROFILING_READS`.
 
 `--diamond_rescue false` with `balanced` is **refused**: without the rescue the mode degenerates
-into a blunt taxonomic filter that discards clb-carrying reads placed outside the target taxon.
+into a blunt taxonomic filter that discards reads with clb homology placed outside the target taxon.
 
 The prefilter narrows **only what gets profiled**. MAG assembly and the tumour re-join both
 draw on `MAPPED_READS`, so neither is affected.

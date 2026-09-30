@@ -57,7 +57,11 @@ by_sample/<sample>/
 │   └── contig_pks_context.tsv / _summary.tsv / _mobility.tsv
 ├── strain/                 ST, clonal complex, phylogroup            (step 7)
 ├── taxonomy/               bracken reports, island reads             --pks_taxa
+│                           (read-level taxonomic support, not carrier attribution)
 ├── prefilter/              kept and rescued reads                    --prefilter_mode
+│                           diamond_rescue_taxonomy.tsv: sample, read_taxon, taxid,
+│                           clb_gene, read_count -- each rescued read's own krakenuniq
+│                           taxon (read-level taxonomic support, not carrier attribution)
 ├── provenance/             input_header.tsv: the input BAM/CRAM's reference and aligner
 │                           (E3; alignment input only, see below)
 ├── figures/                circos.pdf, contig_validation.svg,
@@ -230,8 +234,8 @@ warning.
 | `extract_low_score_no_as_records` | mapped primary records without an `AS` tag, never added; only when low-score extraction was on |
 | `extract_low_score_mode` | `on_auto_bwa_mem`, `off_auto_not_bwa_mem`, `on_requested` or `off_requested` |
 | `filter_input_reads` | reads entering fastp. For alignment input this equals the extracted count; for FASTQ input it is the library |
-| `taxonomy_status` | why a sample is or is not in the species table: `no_pks_reads`, `below_rank_threshold`, `no_species_identified`, `species_identified`. `NA` when taxonomy did not run |
-| `clb_species_reported` | how many species that sample contributed to `pks.clb_species_support.tsv` |
+| `taxonomy_status` | why a sample is or is not in the read-level species table: `no_pks_reads`, `below_rank_threshold`, `no_species_identified`, `species_identified` (species here are read-level KrakenUniq assignments, not carriers). `NA` when taxonomy did not run |
+| `clb_species_reported` | how many species that sample contributed to `pks.clb_species_support.tsv` — read-level taxonomic support, not carrier attribution |
 | `reads_mapped_ihe3034_mapq40` | reads that mapped to the reference at all, at MAPQ ≥ 40 (named `reads_mapped_ihe3034` before rc1) — the denominator the *clb* counts sit inside |
 | `unmapped_reads` | unmapped primary records extracted (`-f 4 -F 2304`) |
 | `reads_after_fastp` | surviving adapter and quality filtering |

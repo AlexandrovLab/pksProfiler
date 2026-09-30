@@ -96,6 +96,14 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
   the attrition chain is now `extracted_reads`. Validated in `validation/E1` (synthetic: 99.9-100%
   of hidden reads recovered; 20-sample TCGA pilot: tumours gained evidence, matched normals no
   *clb* read). See `docs/running/bam.md`.
+- **Read-level taxonomy is not carrier evidence** (Ludmil, 26 Sep mode memo section 5):
+  `prefilter/diamond_rescue_taxonomy.tsv` column `organism` is renamed `read_taxon` (the
+  cohort report still reads the old name). README, `docs/running/taxonomy.md`,
+  `docs/prefilter.md`, `docs/output.md`, the cohort report's species and DIAMOND-rescue panels
+  and the Bracken barplot titles call Kraken/Bracken/DIAMOND-rescue output "read-level
+  taxonomic support"; carrier language is kept for contig and genome-bin evidence.
+  `tests/test_taxonomy_wording.py` scans the docs and source for carrier language beside
+  read-level taxonomy, and for NM/divergence text claiming specificity or uniqueness.
 - **Targeted recruitment specificity and classes** (Ludmil, 25 Sep A1/A2): recruitment Bowtie2
   drops `-k 1` (best-alignment reporting, so MAPQ is meaningful) and every read needs MAPQ >=
   `--recruit_min_mapq` (20). Reads are classed `island_internal` (query coverage >=

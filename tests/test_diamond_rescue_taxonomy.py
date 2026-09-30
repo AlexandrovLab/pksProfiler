@@ -163,8 +163,9 @@ class EndToEnd(unittest.TestCase):
         with self.out.open(newline="") as fh:
             rows = list(csv.DictReader(fh, delimiter="\t"))
         self.assertEqual(list(rows[0].keys()),
-                         ["sample", "organism", "taxid", "clb_gene", "read_count"])
-        by_organism = {r["organism"]: r for r in rows}
+                         ["sample", "read_taxon", "taxid", "clb_gene", "read_count"])
+        # 26 Sep mode memo section 5: read-level taxon, renamed from `organism`.
+        by_organism = {r["read_taxon"]: r for r in rows}
         self.assertEqual(by_organism["Klebsiella pneumoniae"]["clb_gene"], "clbB")
         self.assertEqual(by_organism["Escherichia coli"]["clb_gene"], "clbA")
         self.assertEqual(by_organism["Klebsiella pneumoniae"]["read_count"], "1")

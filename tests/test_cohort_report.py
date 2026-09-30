@@ -501,7 +501,7 @@ MAG_SUMMARY_HEADER = ("sample\tbin_id\tunit_type\ttaxonomy\tcompleteness\tcontam
 PROPHAGE_HEADER = ("sample\tbin_id\thost_taxonomy\tprophage_id\thost_contig\tstart\tend\t"
                    "length\tvirus_score\tviral_taxonomy\thas_recA\thas_lexA\tclbS_like\t"
                    "evidence_level\n")
-RESCUE_HEADER = "sample\torganism\ttaxid\tclb_gene\tread_count\n"
+RESCUE_HEADER = "sample\tread_taxon\ttaxid\tclb_gene\tread_count\n"
 
 
 class GenomeBinsPanel(unittest.TestCase):
@@ -681,6 +681,10 @@ class DiamondRescueTaxonomyPanel(unittest.TestCase):
         anchor = report.detail_anchor("rescue", "S_ext")
         panel = self.text[self.text.index(f'id="{anchor}"'):]
         self.assertIn("Klebsiella pneumoniae", panel)
+        # 26 Sep mode memo section 5: the taxon is the read's own, not a carrier.
+        self.assertIn("<th>Read-level taxon</th>", panel)
+        self.assertIn("not carrier attribution", panel)
+        self.assertNotIn("<th>Organism</th>", panel)
         self.assertIn("clbB", panel)
         self.assertIn(">4<", panel)
 
@@ -704,8 +708,8 @@ class CommunitySpeciesSupportSection(unittest.TestCase):
         # The bullet in "Where these numbers come from" documents the path regardless;
         # the section itself -- the table and its heading -- must not appear.
         text = self._run()
-        self.assertNotIn("Direct krakenuniq support for reads aligned", text)
-        self.assertNotIn("Community species", text)
+        self.assertNotIn("per-read species assignment of the reads aligned", text)
+        self.assertNotIn("Read-level taxonomic support: species", text)
 
     def test_present_when_the_file_exists(self):
         taxonomy = self.results / "cohort/taxonomy"
@@ -715,7 +719,8 @@ class CommunitySpeciesSupportSection(unittest.TestCase):
                "\t".join(["3"] + ["0"] * (len(GENES) - 1)) + "\t3\n")
         (taxonomy / "pks.clb_species_support.tsv").write_text(header + row)
         text = self._run()
-        self.assertIn("clb-gene support", text)
+        self.assertIn("Read-level taxonomic support: species", text)
+        self.assertIn("not carrier attribution", text)
         self.assertIn("Escherichia coli", text)
         self.assertIn("<th>clbA</th>", text)
 
@@ -836,7 +841,7 @@ class P0_5bTheReportReadsItsStagedInputsNotThePublishedTree(unittest.TestCase):
         self.assertEqual(rows["S_neg"]["final_structural_evidence"], "")
         self.assertNotIn("S_stale_old_run", html)
         self.assertNotIn("Stale organism", html)
-        self.assertNotIn("Community species", html)
+        self.assertNotIn("Read-level taxonomic support: species", html)
         # Figures: the run made a circos plot for S_ext and nothing for S_neg.
         self.assertIn("../by_sample/S_ext/figures/circos.pdf", html)
         self.assertNotIn("../by_sample/S_neg/figures/contig_validation.svg", html)

@@ -1161,8 +1161,9 @@ workflow {
 
         // Joins the rescued reads' clb-gene hit (diamond matches) back to their
         // krakenPrefilter taxid, closing the taxonomic blind spot select_diamond_reads.py
-        // otherwise leaves: which organisms in this community carry clb-gene homology
-        // besides the primary hit. cohortReport already renders the output if present.
+        // otherwise leaves: the read-level taxon of each rescued read, per clb gene. This
+        // is read-level taxonomic support, not carrier attribution (26 Sep mode memo
+        // section 5). cohortReport already renders the output if present.
         diamondRescueTaxonomy(
             DIAMOND_RESCUE_OUT.matches
                 .join(KRAKEN_PREFILTER_OUT.taxonomy.map { sampleID, _report, output -> tuple(sampleID, output) })

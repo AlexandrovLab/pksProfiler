@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Join DIAMOND-rescued reads back to the organism the fast classifier called them.
+"""Join DIAMOND-rescued reads back to the taxon the fast classifier assigned each of them.
 
 select_diamond_reads.py decides which non-target reads to keep by DIAMOND identity
 alone, then writes only the read ID onward -- it keeps neither `sseqid` (which clb gene
 the read hit) nor the read's own krakenPrefilter taxid, so a rescued read's protein
 homology and its community identity were computed and then both discarded. This
-produces the table that was missing: per organism, per clb gene, how many rescued reads.
-The organism is the krakenuniq per-read call from `krakenPrefilter` (Modules/pks_prefilter.nf),
+produces the table that was missing: per read-level taxon, per clb gene, how many rescued
+reads. The taxon is the krakenuniq per-read call from `krakenPrefilter` (Modules/pks_prefilter.nf),
 resolved to its species ancestor with the same taxDB/NCBI-dump logic
 build_clb_species_matrix.py already uses for the --pks_taxa lane -- reused here, not
 re-derived, so "Unresolved_at_species" and "Unclassified" mean the same thing in both
@@ -33,7 +33,11 @@ from build_clb_species_matrix import find_species_taxid, load_taxonomy, normaliz
 
 CLB_GENE_RE = re.compile(r"^clb[A-Za-z]$")
 
-FIELDS = ["sample", "organism", "taxid", "clb_gene", "read_count"]
+# Ludmil, 26 Sep mode memo section 5: this is read-level taxonomic support, not carrier
+# attribution -- a read's taxon is what its k-mers most resemble, not the genome the island
+# sits in. The column was `organism` until rc1, which read as the organism the clb gene
+# came from; it is renamed `read_taxon` to say what it is.
+FIELDS = ["sample", "read_taxon", "taxid", "clb_gene", "read_count"]
 
 
 def clb_gene_from_sseqid(sseqid):
@@ -96,7 +100,7 @@ def load_read_taxids(path):
 
 
 def build_table(gene_by_read, taxid_by_read, parents, ranks, scientific_names):
-    """{(organism, taxid, clb_gene): read_count}, one row per rescued read."""
+    """{(read_taxon, taxid, clb_gene): read_count}, one row per rescued read."""
     counts = defaultdict(int)
     species_cache = {}
     for read_id, gene in gene_by_read.items():
@@ -118,9 +122,9 @@ def write_table(sample, counts, output_path):
     with Path(output_path).open("w", newline="") as handle:
         writer = csv.DictWriter(handle, FIELDS, delimiter="\t")
         writer.writeheader()
-        for (organism, taxid, gene), count in sorted(
+        for (read_taxon, taxid, gene), count in sorted(
                 counts.items(), key=lambda kv: (kv[0][0].lower(), kv[0][1], kv[0][2])):
-            writer.writerow(dict(sample=sample, organism=organism, taxid=taxid,
+            writer.writerow(dict(sample=sample, read_taxon=read_taxon, taxid=taxid,
                                  clb_gene=gene, read_count=count))
 
 

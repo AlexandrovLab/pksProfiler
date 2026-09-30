@@ -28,8 +28,8 @@ recomputed here either:
 
     by_sample/<sample>/genomes/pks_mag_summary.tsv                  MAG bin locus evidence
     by_sample/<sample>/community/community_prophage_inventory.tsv   prophage regions per bin
-    by_sample/<sample>/prefilter/diamond_rescue_taxonomy.tsv        rescued reads by organism
-    cohort/taxonomy/pks.clb_species_support.tsv                     --pks_taxa species support
+    by_sample/<sample>/prefilter/diamond_rescue_taxonomy.tsv        rescued reads by read-level taxon
+    cohort/taxonomy/pks.clb_species_support.tsv                     --pks_taxa read-level species support
 
 Ludmil, 2026-09-25 report P0-5b: those are where the files are *published*, and this
 used to read them there, from `--results`. Nextflow publishes asynchronously, so even
@@ -284,12 +284,14 @@ def mag_unbinned(summary_path):
 
 
 def diamond_rescue_reads(path):
-    """Organism x clb-gene read counts for reads DIAMOND rescued but krakenPrefilter's
-    target-taxon routing did not keep -- see summarize_diamond_rescue_taxonomy.py."""
+    """Read-level taxon x clb-gene read counts for reads DIAMOND rescued but
+    krakenPrefilter's target-taxon routing did not keep -- see
+    summarize_diamond_rescue_taxonomy.py. Read-level taxonomic support, not carrier
+    attribution (26 Sep mode memo section 5). `organism` is the pre-rc1 column name."""
     rows = []
     for row in read_tsv(path):
         rows.append({
-            "organism": row.get("organism", ""),
+            "read_taxon": row.get("read_taxon", row.get("organism", "")),
             "taxid": row.get("taxid", ""),
             "clb_gene": row.get("clb_gene", ""),
             "read_count": int(number(row.get("read_count"))),
@@ -558,11 +560,12 @@ def svg_matrix(records):
             out.append(f'<text x="{BIN_X}" y="{y}" class="n" style="fill:#bbb">none</text>')
 
         if record["diamond_rescue"]:
-            organisms = len({r["organism"] for r in record["diamond_rescue"]})
+            taxa = len({r["read_taxon"] for r in record["diamond_rescue"]})
             reads = sum(r["read_count"] for r in record["diamond_rescue"])
-            label = f'{reads} read{"s" if reads != 1 else ""}, {organisms} organism{"s" if organisms != 1 else ""}'
+            label = f'{reads} read{"s" if reads != 1 else ""}, {taxa} tax{"a" if taxa != 1 else "on"}'
             anchor = detail_anchor("rescue", record["sample"])
-            out.append(f'<a href="#{esc(anchor)}"><title>open DIAMOND-rescue taxonomy</title>'
+            out.append(f'<a href="#{esc(anchor)}"><title>open the read-level taxonomy of the DIAMOND-rescued reads '
+                       f'(read-level taxonomic support, not carrier attribution)</title>'
                        f'<text x="{RESCUE_X}" y="{y}" class="n" '
                        f'style="fill:#2166ac;text-decoration:underline">{esc(label)}</text></a>')
         else:
@@ -657,12 +660,15 @@ def rescue_table(record):
     if not record["diamond_rescue"]:
         return ""
     ordered = sorted(record["diamond_rescue"],
-                     key=lambda r: (-r["read_count"], r["organism"].lower()))
+                     key=lambda r: (-r["read_count"], r["read_taxon"].lower()))
     rows = "".join(
-        f'<tr><td>{esc(r["organism"])}</td><td>{esc(r["taxid"])}</td>'
+        f'<tr><td>{esc(r["read_taxon"])}</td><td>{esc(r["taxid"])}</td>'
         f'<td>{esc(r["clb_gene"])}</td><td>{r["read_count"]}</td></tr>'
         for r in ordered)
-    return (f'<table class="detail"><thead><tr><th>Organism</th><th>TaxID</th>'
+    return (f'<p class="muted">The krakenuniq taxon of each rescued read: read-level taxonomic '
+            f'support, not carrier attribution. Linking pks to a genome takes contig or '
+            f'genome-bin evidence.</p>'
+            f'<table class="detail"><thead><tr><th>Read-level taxon</th><th>TaxID</th>'
             f'<th>clb gene</th><th>Rescued reads</th></tr></thead>'
             f'<tbody>{rows}</tbody></table>')
 
@@ -685,7 +691,7 @@ def detail_panels(records):
             anchor = detail_anchor("rescue", record["sample"])
             panels.append(
                 f'<div class="figpanel" id="{esc(anchor)}">'
-                f'<div class="fighead">{esc(record["sample"])} &middot; DIAMOND-rescued reads by organism'
+                f'<div class="fighead">{esc(record["sample"])} &middot; DIAMOND-rescued reads by read-level taxon'
                 f'<a class="figclose" href="#top">close</a></div>{rescue_table(record)}</div>')
     return "".join(panels)
 
@@ -703,11 +709,12 @@ def species_support_section(rows):
     header = ("<tr><th>Sample</th><th>Species</th><th>TaxID</th>"
              + "".join(f"<th>{gene}</th>" for gene in genes) + "<th>Total</th></tr>")
     return f"""
-  <h2 style="font-size:15px;margin:26px 0 6px">Community species &times; clb-gene support (--pks_taxa)</h2>
-  <p class="muted">Direct krakenuniq support for reads aligned to a clb gene within the
-  extracted island, one row per species per sample. Answers: besides the organism the
-  island alignment landed in, what else in this sample's community has direct read
-  support for a clb gene?</p>
+  <h2 style="font-size:15px;margin:26px 0 6px">Read-level taxonomic support: species &times; clb gene (--pks_taxa)</h2>
+  <p class="muted">KrakenUniq's per-read species assignment of the reads aligned to each clb
+  gene within the extracted island, one row per species per sample. This is read-level
+  taxonomic support, not carrier attribution: a species here is a taxon some clb reads
+  resemble, not a genome shown to carry the island. That takes contig or genome-bin
+  evidence (the Contigs and Genome bins columns above).</p>
   <div class="scroll table-scroll"><table class="detail">
   <thead>{header}</thead><tbody>{body}</tbody></table></div>"""
 
@@ -796,8 +803,8 @@ def page(records, species_rows=()):
     <li><code>by_sample/&lt;sample&gt;/contigs/final_evidence/final_pks_evidence.tsv</code> &mdash; contig columns</li>
     <li><code>by_sample/&lt;sample&gt;/genomes/pks_mag_summary.tsv</code> &mdash; genome-bin locus tier, taxonomy, completeness</li>
     <li><code>by_sample/&lt;sample&gt;/community/community_prophage_inventory.tsv</code> &mdash; prophage regions per bin</li>
-    <li><code>by_sample/&lt;sample&gt;/prefilter/diamond_rescue_taxonomy.tsv</code> &mdash; DIAMOND-rescued reads by organism</li>
-    <li><code>cohort/taxonomy/pks.clb_species_support.tsv</code> &mdash; cohort-wide species &times; clb-gene support (--pks_taxa)</li>
+    <li><code>by_sample/&lt;sample&gt;/prefilter/diamond_rescue_taxonomy.tsv</code> &mdash; DIAMOND-rescued reads by read-level taxon</li>
+    <li><code>cohort/taxonomy/pks.clb_species_support.tsv</code> &mdash; cohort-wide read-level species &times; clb-gene support (--pks_taxa)</li>
     <li><code>RUN_REPORT.txt</code> &mdash; the code, parameters and references behind them</li>
     <li><code>by_sample/&lt;sample&gt;/figures/</code> &mdash; what the Figures links open;
         they are relative, so this page has to stay in <code>cohort/</code></li>

@@ -109,7 +109,7 @@ def main():
         # Genus page
         fig, ax = plt.subplots(figsize=(12, 6))
         label = "PKS island" if args.scope == "pks_island" else "community"
-        barplot(ax, gdf, f"{sample} — {label}, Bracken Genus (top {args.top if args.top>0 else 'all'})",
+        barplot(ax, gdf, f"{sample} — {label}, Bracken Genus, read-level taxonomic support (top {args.top if args.top>0 else 'all'})",
                 args.top, YLABEL[args.scope])
         fig.tight_layout()
         pdf.savefig(fig)
@@ -117,7 +117,7 @@ def main():
 
         # Species page
         fig, ax = plt.subplots(figsize=(12, 6))
-        barplot(ax, sdf, f"{sample} — {label}, Bracken Species (top {args.top if args.top>0 else 'all'})",
+        barplot(ax, sdf, f"{sample} — {label}, Bracken Species, read-level taxonomic support (top {args.top if args.top>0 else 'all'})",
                 args.top, YLABEL[args.scope])
         fig.tight_layout()
         pdf.savefig(fig)

@@ -6,7 +6,7 @@
 [![License: BSD 2-Clause](https://img.shields.io/badge/License-BSD_2--Clause-blue.svg)](LICENSE)
 
 **pksProfiler** is a Nextflow pipeline that detects and quantifies the *pks* island in sequencing
-data, and identifies which bacterium is carrying it.
+data and, for metagenomes with genome binning, identifies which reconstructed genome carries it.
 
 The *pks* island is a cluster of 19 genes (*clbA*–*clbS*) found in some gut bacteria, most often
 *Escherichia coli*. Together they produce **colibactin**, a molecule that damages human DNA and
@@ -33,7 +33,7 @@ decisions; dashed outlines are optional or conditional.</sub>
 | **Could the island move between bacteria?** | metagenome | whether an integrase or a tRNA site sits within 50 kb of the island — the features that let DNA transfer, which is a hint and not proof that it did | `--enable_mags true`; needs `--genomad_db` |
 | **What is around the carrier?** | metagenome | prophages, and the DNA-damage-response genes in every neighbouring organism | automatic with `--enable_mags` |
 | **What strain is the carrier?** | assembled output | sequence type, clonal complex, phylogroup | automatic |
-| **What else is in the sample?** | any | species abundances | `--pks_taxa true` |
+| **What else is in the sample?** | any | read-level taxonomic support: Kraken/Bracken species abundances, not carrier attribution | `--pks_taxa true` |
 
 Flags, extra databases and the caveats for each are in the [documentation](#documentation).
 
@@ -71,11 +71,14 @@ against MetaBAT2's pooled unbinned contigs, which shows up in the same "Genome b
 bin named `unbinned`.
 
 **What else in this sample, or across the cohort, has clb-gene homology?** — metagenome only.
-Reads the fast classifier missed but a sensitive DIAMOND rescue caught, by organism and which clb
-gene, are in `prefilter/diamond_rescue_taxonomy.tsv` and the report's "Community clb homology"
-panel. With `--pks_taxa`, `cohort/taxonomy/pks.clb_species_support.tsv` lists every species across
-the whole cohort with direct read support for a clb gene, as its own table at the bottom of the
-cohort report.
+Reads the fast classifier missed but a sensitive DIAMOND rescue caught, by each read's own
+taxonomic assignment and which clb gene it hit, are in `prefilter/diamond_rescue_taxonomy.tsv` and
+the report's "Community clb homology" panel. With `--pks_taxa`,
+`cohort/taxonomy/pks.clb_species_support.tsv` lists every species across the whole cohort with
+read-level taxonomic support for a clb gene, as its own table at the bottom of the cohort report.
+Both are **read-level taxonomic support** (Ludmil, 26 Sep mode memo section 5): a read's taxon says
+what its k-mers or protein hit most resemble, not which genome the island sits in. Linking *pks*
+to a genome takes contig or genome-bin evidence (above).
 
 **Does the carrier sit near anything that could move the island, or wake a neighbour's
 prophage?** — metagenome only. A one-line prophage-association call per bin (yes/no, region count)
@@ -154,7 +157,7 @@ Each row adds flags to the command above. Nothing is replaced.
 | which organism carries it | `--sample_type metagenome --enable_mags true` plus `--gtdbtk_db --checkm2_db --genomad_db` | [MAGs](docs/running/mags.md) |
 | community and neighbour context | automatic with `--enable_mags` | [community context](docs/running/community_context.md) |
 | strain type and phylogroup | automatic; disable with `--enable_strain_typing false` | [strain typing](docs/running/strain_typing.md) |
-| species abundances | `--pks_taxa true` or `--pks_community_taxa true`, plus `--kraken_db --bracken_read_length` | [taxonomy](docs/running/taxonomy.md) |
+| read-level taxonomic support (species abundances) | `--pks_taxa true` or `--pks_community_taxa true`, plus `--kraken_db --bracken_read_length` | [taxonomy](docs/running/taxonomy.md) |
 | profile-model search instead of alignment | `--profiling_method hmm` or `both` | [HMM modes](docs/running/hmm.md) |
 | faster profiling on metagenomes | `--prefilter_mode balanced --kraken_db <dir>` | [prefilter](docs/prefilter.md) |
 
@@ -169,7 +172,7 @@ task, and reports everything wrong with them in one pass rather than failing on 
 | `--rna_splice_db`, `--rna_junctions_bed` | splice-aware human depletion for `--sample_type rna` |
 | `--hg38_db_long`, `--rna_splice_db_long`, `--t2t_phix_db_long` | the same passes for `--read_type ont`/`hifi` (index built with the long-read preset, or FASTA) |
 | `--pangenome_db` | optional extra human-read removal pass |
-| `--kraken_db` | species abundances, and the optional prefilter |
+| `--kraken_db` | read-level taxonomic support (species abundances), and the optional prefilter |
 | `--genomad_db` | prophage detection |
 | `--gtdbtk_db`, `--checkm2_db` | naming and quality-scoring draft genomes |
 

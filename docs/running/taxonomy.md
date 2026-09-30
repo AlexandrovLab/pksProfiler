@@ -2,6 +2,16 @@
 
 Taxonomy is an optional addition to alignment profiling. KrakenUniq is run only on reads aligned to the *pks* island.
 
+## What it measures
+
+Everything this mode writes is **read-level taxonomic support** (Ludmil, 26 Sep mode memo
+section 5). KrakenUniq assigns each read to the taxon its k-mers most resemble, and Bracken
+re-estimates abundance from those assignments. A species in these tables is a taxon some
+*clb*-aligned reads were assigned to — not the organism shown to carry the island. Short island
+reads are shared across hosts of a mobile element, so the same reads can support several species.
+Carrier-genome language is reserved for contig or genome-bin evidence that links *pks* to a
+reconstructed genome ([MAGs](mags.md), [assembly](assembly.md)).
+
 ## Before running
 
 1. Install the KrakenUniq/Bracken database described in the main [installation guide](../../README.md#databases).
@@ -47,7 +57,7 @@ results_taxonomy/by_sample/<sample>/figures/
 └── community_taxa_barplots.pdf     --pks_community_taxa (Bracken on the whole non-host report)
 ```
 
-`pks.clb_species_support.tsv` contains species as rows and *clb* genes as columns. Bracken reports contain re-estimated genus and species abundances.
+`pks.clb_species_support.tsv` contains species as rows and *clb* genes as columns: how many reads aligned to each gene were assigned to that species (read-level taxonomic support). Bracken reports contain re-estimated genus and species abundances, also read-level.
 
 To disable taxonomy, omit `--pks_taxa`; do not write `--pks_taxa false`.
 
