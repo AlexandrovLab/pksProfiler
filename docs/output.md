@@ -94,12 +94,16 @@ record) and writes `by_sample/<sample>/provenance/input_header.tsv`:
 | `m5_set_fingerprint` | md5 over the sorted `M5` values; `NA` unless every `@SQ` has one. Insensitive to contig renaming (`chr1` vs `1`) and order |
 | `n_contigs`, `n_contigs_with_m5` | `@SQ` count, and how many carry `M5` |
 | `chr1_name`, `chr1_length`, `build_guess` | `GRCh38` (248,956,422), `GRCh37` (249,250,621), `T2T-CHM13` (248,387,328), `unknown`, or `no_chr1` |
-| `n_pg`, `pg_chain` | `@PG` records along their `PP` links as `ID\|PN\|VN`; `CL` is never read |
+| `n_pg`, `pg_chain` | `@PG` records along their `PP` links as `ID\|PN\|VN`; `CL` is never recorded |
 | `pg_programs` | the same chain as `PN:VN` |
+| `aligner_bwa_mem` | E1: `yes` when a `@PG` command line runs `bwa mem` / `bwa-mem2 mem`, `unconfirmed` for a bwa `@PG` without one, else `no`. The `CL` is read in memory for this and for `-T`; nothing else of it is kept |
+| `bwa_min_score` | the `-T` of that `bwa mem` (`default` = 30), `NA` without one |
+| `extract_low_score_mapped` | what `--extract_low_score_mapped` resolved to for this sample: `on_auto_bwa_mem`, `off_auto_not_bwa_mem`, `on_requested`, `off_requested` |
+| `extract_min_as` | the `AS` threshold in force, `NA` when off |
 
 `cohort/provenance/input_header_summary.tsv` counts distinct fingerprints (with build and
-contig count) and distinct `PN:VN` chains, and `RUN_REPORT.txt` prints it as
-**INPUT ALIGNMENTS**. It carries no sample identifier, `@PG` ID or path.
+contig count), distinct `PN:VN` chains and inputs per `extract_low_score_mapped` state, and
+`RUN_REPORT.txt` prints it as **INPUT ALIGNMENTS**. It carries no sample identifier, `@PG` ID or path.
 
 ## runs/
 
@@ -218,7 +222,11 @@ warning.
 | `Sample` | sample identifier, as given in the sheet's `patient` column |
 | `input_alignment_records` | records in the input alignment, from its index — secondary and supplementary included. Absent for FASTQ input and when the alignment has no index |
 | `total_primary_reads` | exact count of primary records in the input alignment. Only written with `--exact_input_counts`, which costs a second decode of every input |
-| `extracted_unmapped_reads` | reads extraction wrote out |
+| `extracted_unmapped_reads` | FLAG 4 (unmapped) primary reads extraction wrote out |
+| `extracted_low_score_mapped_reads` | E1: primary *mapped* reads with `AS:i` below `--extract_min_as` (30) that extraction also wrote; 0 when `--extract_low_score_mapped` resolved off ([BAM and CRAM mode](running/bam.md#low-score-mapped-reads-bwa-mem--t-0)) |
+| `extracted_reads` | everything extraction wrote: `extracted_unmapped_reads` + `extracted_low_score_mapped_reads` (checked). This, not the FLAG 4 count, is what enters fastp and the extraction step of the attrition chain |
+| `extract_low_score_no_as_records` | mapped primary records without an `AS` tag, never added; only when low-score extraction was on |
+| `extract_low_score_mode` | `on_auto_bwa_mem`, `off_auto_not_bwa_mem`, `on_requested` or `off_requested` |
 | `filter_input_reads` | reads entering fastp. For alignment input this equals the extracted count; for FASTQ input it is the library |
 | `taxonomy_status` | why a sample is or is not in the species table: `no_pks_reads`, `below_rank_threshold`, `no_species_identified`, `species_identified`. `NA` when taxonomy did not run |
 | `clb_species_reported` | how many species that sample contributed to `pks.clb_species_support.tsv` |

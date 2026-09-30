@@ -17,13 +17,29 @@ Per sample, one row:
   m5_set_fingerprint  md5 over the sorted, de-duplicated M5 values; NA unless every @SQ has
                       M5. Name-insensitive, so chr1 vs 1 renamings of one build still match
   n_contigs, n_contigs_with_m5, chr1_name, chr1_length, build_guess (from chr1's length)
-  n_pg, pg_chain      @PG records in PP order as ID|PN|VN (CL is never read: command lines
-                      carry paths and sample names)
+  n_pg, pg_chain      @PG records in PP order as ID|PN|VN (CL is never recorded: command lines
+                      carry paths and sample names; E1 below looks at it in memory)
   pg_programs         the same chain as PN:VN only
+
+E1 (Ludmil, 25 Sep): the same step decides, per sample, whether extraction also takes
+primary mapped records with AS:i below --extract_min_as (--extract_low_score_mapped
+auto|on|off). bwa mem reports a read as unmapped only when its best local score is below
+-T (default 30); GDC ran TCGA with -T 0, so reads that -T 30 would have left unmapped
+(FLAG 4) are instead "mapped" with a short spurious hit and never reach `samtools fastq
+-f 4`. AS < 30 among those mapped reads is exactly that set. `auto` turns it on when an
+@PG record runs `bwa mem` (or `bwa-mem2 mem`), and off otherwise: the AS scale of other
+aligners (STAR, minimap2, bowtie2) is not bwa's, so the threshold means nothing there.
+Detecting `mem` needs the @PG CL; it is read in memory, only its program and subcommand
+tokens and the -T value are looked at, and none of it is written anywhere. Four more
+columns record the decision:
+  aligner_bwa_mem           yes | no | unconfirmed (a bwa @PG with no CL, or not `mem`)
+  bwa_min_score             the -T in that CL, "default" when not given, NA without bwa mem
+  extract_low_score_mapped  on_auto_bwa_mem | off_auto_not_bwa_mem | on_requested | off_requested
+  extract_min_as            the AS threshold in force (NA when off)
 
 The cohort summary (and RUN_REPORT.txt's INPUT ALIGNMENTS section, which reads it) holds
 counts only: distinct fingerprints with their build and contig count, distinct PN:VN
-chains, never an ID or a path.
+chains, how many inputs had low-score extraction on and off, never an ID or a path.
 """
 import argparse
 import collections
@@ -34,7 +50,8 @@ import sys
 from pathlib import Path
 
 FIELDS = ["sample", "sq_fingerprint", "m5_set_fingerprint", "n_contigs", "n_contigs_with_m5",
-          "chr1_name", "chr1_length", "build_guess", "n_pg", "pg_chain", "pg_programs"]
+          "chr1_name", "chr1_length", "build_guess", "n_pg", "pg_chain", "pg_programs",
+          "aligner_bwa_mem", "bwa_min_score", "extract_low_score_mapped", "extract_min_as"]
 CHR1_BUILD = {248956422: "GRCh38", 249250621: "GRCh37", 248387328: "T2T-CHM13"}
 SUMMARY_FIELDS = ["section", "key", "detail", "n_files"]
 
@@ -78,7 +95,81 @@ def pg_label(p):
     return f"{name}:{p.get('VN', '')}"
 
 
-def parse_header(text, sample):
+# E1: the programs whose `mem` subcommand is bwa's local-alignment scoring (-T default 30).
+BWA_PROGRAMS = ("bwa", "bwa-mem2")
+LOW_SCORE_REQUESTS = ("auto", "on", "off")
+# The extract_low_score_mode QC metric and the extract_low_score_mapped column: on/off
+# and why. scripts/build_qc_summary.py accepts exactly these.
+LOW_SCORE_STATES = ("on_auto_bwa_mem", "off_auto_not_bwa_mem", "on_requested", "off_requested")
+
+
+def _program(token):
+    return token.strip("'\"").rsplit("/", 1)[-1]
+
+
+def bwa_mem_evidence(text):
+    """(aligner_bwa_mem, bwa_min_score) from a header's @PG records.
+
+    yes: some @PG's CL runs `bwa mem` / `bwa-mem2 mem` (also inside a wrapper, e.g.
+    `sentieon bwa mem`); bwa_min_score is its -T, or "default". unconfirmed: a bwa @PG
+    (by PN or ID) whose CL is absent or runs another subcommand (aln/sampe/samse, which
+    write no AS tag anyway). no: nothing from bwa. The CL is never returned.
+    """
+    found, unconfirmed, scores = False, False, []
+    for line in text.splitlines():
+        if not line.startswith("@PG\t"):
+            continue
+        t = tags(line)
+        tokens = t.get("CL", "").split()
+        hit = next((i for i, tok in enumerate(tokens[:-1])
+                    if _program(tok) in BWA_PROGRAMS and tokens[i + 1] == "mem"), None)
+        if hit is not None:
+            found = True
+            score = "default"
+            rest = tokens[hit + 2:]
+            for j, tok in enumerate(rest):
+                m = re.fullmatch(r"-T(-?\d+)?", tok)
+                if m:
+                    value = m.group(1) if m.group(1) is not None else (rest[j + 1] if j + 1 < len(rest) else "")
+                    score = value if re.fullmatch(r"-?\d+", value) else "unparsed"
+                    break
+            scores.append(score)
+            continue
+        label = (t.get("PN") or re.sub(r"([.-]\d+|-[0-9A-F]{6,})$", "", t.get("ID", ""), flags=re.I)).lower()
+        if label in BWA_PROGRAMS:
+            unconfirmed = True
+    if found:
+        return "yes", ",".join(dict.fromkeys(scores))
+    return ("unconfirmed" if unconfirmed else "no"), "NA"
+
+
+def low_score_decision(request, bwa_mem):
+    """The extract_low_score_mapped state for --extract_low_score_mapped `request`."""
+    if request not in LOW_SCORE_REQUESTS:
+        raise ValueError(f"--extract_low_score_mapped must be one of {', '.join(LOW_SCORE_REQUESTS)} (got {request!r})")
+    if request == "on":
+        return "on_requested"
+    if request == "off":
+        return "off_requested"
+    return "on_auto_bwa_mem" if bwa_mem == "yes" else "off_auto_not_bwa_mem"
+
+
+def low_score_reason(state, bwa_mem, bwa_min_score, min_as):
+    """One line for the task log: what was decided and from what."""
+    seen = {"yes": f"bwa mem in the @PG chain (-T {bwa_min_score})",
+            "unconfirmed": "a bwa @PG without a `bwa mem` command line",
+            "no": "no bwa mem in the @PG chain"}[bwa_mem]
+    if state.startswith("on"):
+        text = f"on ({state}): also extracting primary mapped records with AS:i < {min_as}; {seen}"
+        effective = [30 if v == "default" else int(v) if re.fullmatch(r"-?\d+", v) else None
+                     for v in bwa_min_score.split(",")] if bwa_mem == "yes" else [None]
+        if all(t is not None and t >= min_as for t in effective):
+            text += f"; bwa already left every read scoring below {min_as} unmapped, so none should be added"
+        return text
+    return f"off ({state}): FLAG 4 records only; {seen}"
+
+
+def parse_header(text, sample, low_score_request="auto", min_as=30):
     sq, pg = [], []
     for line in text.splitlines():
         if line.startswith("@SQ\t"):
@@ -91,6 +182,8 @@ def parse_header(text, sample):
     chr1 = next((t for t in sq if t.get("SN") in ("chr1", "1")), None)
     chr1_len = int(chr1["LN"]) if chr1 and chr1.get("LN", "").isdigit() else None
     chain = pg_chain(pg)
+    bwa_mem, bwa_min_score = bwa_mem_evidence(text)
+    state = low_score_decision(low_score_request, bwa_mem)
     return {
         "sample": sample,
         "sq_fingerprint": md5([f"{t.get('SN', '')}:{t.get('LN', '')}" for t in sq]),
@@ -103,6 +196,10 @@ def parse_header(text, sample):
         "n_pg": len(pg),
         "pg_chain": " > ".join(f"{p.get('ID', '')}|{p.get('PN', '')}|{p.get('VN', '')}" for p in chain) or "NA",
         "pg_programs": " > ".join(pg_label(p) for p in chain) or "NA",
+        "aligner_bwa_mem": bwa_mem,
+        "bwa_min_score": bwa_min_score,
+        "extract_low_score_mapped": state,
+        "extract_min_as": min_as if state.startswith("on") else "NA",
     }
 
 
@@ -125,6 +222,10 @@ def summarize(rows):
                                  for r in rows)
     for chain, count in sorted(chains.items(), key=lambda kv: (-kv[1], kv[0])):
         out.append({"section": "aligner_chain", "key": chain, "detail": "", "n_files": count})
+    # E1: how many inputs had low-score mapped extraction on, and why.
+    states = collections.Counter(r.get("extract_low_score_mapped", "NA") for r in rows)
+    for state, count in sorted(states.items()):
+        out.append({"section": "extract_low_score", "key": state, "detail": "", "n_files": count})
     return out
 
 
@@ -135,6 +236,11 @@ def main():
     one.add_argument("--header", required=True, type=Path)
     one.add_argument("--sample", required=True)
     one.add_argument("--output", required=True, type=Path)
+    one.add_argument("--low-score-mode", default="auto", choices=LOW_SCORE_REQUESTS,
+                     help="E1: --extract_low_score_mapped (default auto)")
+    one.add_argument("--min-as", type=int, default=30, help="E1: --extract_min_as (default 30)")
+    one.add_argument("--decision", type=Path, default=None,
+                     help="E1: write 'on|off<TAB>state<TAB>reason' here for extractReads")
     many = sub.add_parser("summarize")
     many.add_argument("--inputs-file", required=True, type=Path,
                       help="one per-sample provenance TSV per line")
@@ -143,11 +249,18 @@ def main():
     a = ap.parse_args()
 
     if a.cmd == "sample":
+        if a.min_as < 1:
+            sys.exit(f"ERROR: {a.sample}: --min-as must be an integer >= 1 (got {a.min_as})")
         try:
-            row = parse_header(a.header.read_text(errors="replace"), a.sample)
+            row = parse_header(a.header.read_text(errors="replace"), a.sample,
+                               a.low_score_mode, a.min_as)
         except ValueError as exc:
             sys.exit(f"ERROR: {a.sample}: {exc}")
         write_rows(a.output, [row], FIELDS)
+        if a.decision:
+            state = row["extract_low_score_mapped"]
+            reason = low_score_reason(state, row["aligner_bwa_mem"], row["bwa_min_score"], a.min_as)
+            a.decision.write_text(f"{state.split('_', 1)[0]}\t{state}\t{reason}\n")
         return
 
     rows = []

@@ -41,7 +41,15 @@ OUTPUT_COLUMNS = [
     "input_unmapped_placed",
     "input_unmapped_unplaced",
     "total_primary_reads",       # exact primary count; only with --exact_input_counts
-    "extracted_unmapped_reads",  # what extraction wrote
+    # E1 (Ludmil, 25 Sep): extraction takes FLAG 4 records, plus -- when
+    # extract_low_score_mode is on -- primary mapped records with AS below
+    # --extract_min_as. extracted_reads is the sum, what extraction wrote, and what enters
+    # fastp (filter_input_reads); it is the extraction count in the attrition chain.
+    "extracted_unmapped_reads",  # FLAG 4 records extracted (the only class before E1)
+    "extracted_low_score_mapped_reads",  # primary mapped records with AS < extract_min_as
+    "extracted_reads",           # everything extraction wrote: the two above, summed
+    "extract_low_score_no_as_records",  # mapped primary records with no AS tag, never added
+    "extract_low_score_mode",    # on_auto_bwa_mem / off_auto_not_bwa_mem / on_requested / off_requested
     "filter_input_reads",        # what entered fastp
     "reads_after_fastp",
     "reads_after_hg38",
@@ -128,6 +136,9 @@ TEXT_METRICS = {
     "taxonomy_status": {"no_pks_reads", "below_rank_threshold",
                         "no_species_identified", "species_identified"},
     "evidence_outcome": set(COMPLETED_STATE),
+    # E1: scripts/header_provenance.py LOW_SCORE_STATES.
+    "extract_low_score_mode": {"on_auto_bwa_mem", "off_auto_not_bwa_mem",
+                               "on_requested", "off_requested"},
 }
 
 
@@ -224,6 +235,10 @@ def output_row(sample, values):
         "input_alignment_records": values.get("input_alignment_records"),
         "total_primary_reads": values.get("total_primary_reads"),
         "extracted_unmapped_reads": values.get("extracted_unmapped_reads"),
+        "extracted_low_score_mapped_reads": values.get("extracted_low_score_mapped_reads"),
+        "extracted_reads": values.get("extracted_reads"),
+        "extract_low_score_no_as_records": values.get("extract_low_score_no_as_records"),
+        "extract_low_score_mode": values.get("extract_low_score_mode"),
         "filter_input_reads": values.get("filter_input_reads"),
         # A6: named for its MAPQ >= 40 filter (was reads_mapped_ihe3034).
         "reads_mapped_ihe3034_mapq40": values.get("reads_mapped_ihe3034_mapq40"),
@@ -249,10 +264,16 @@ def output_row(sample, values):
 
     # Reads can only be lost down this chain. Records come first because they count
     # secondary and supplementary alignments as well, so they are >= primary reads.
+    #
+    # E1: the extraction step in the chain is extracted_reads, everything extraction wrote
+    # (FLAG 4 + low-score mapped), since that is what enters fastp. A fragment written
+    # before E1 has only extracted_unmapped_reads, and then that was everything extracted.
+    extraction_count = ("extracted_reads" if mapped["extracted_reads"] is not None
+                        else "extracted_unmapped_reads")
     count_order = [
         "input_alignment_records",
         "total_primary_reads",
-        "extracted_unmapped_reads",
+        extraction_count,
         "filter_input_reads",
         "reads_after_fastp",
         "reads_after_hg38",
@@ -302,6 +323,8 @@ def output_row(sample, values):
          [c for c in OUTPUT_COLUMNS if c.startswith(("input_mapped_", "input_unmapped_"))]),
         ("prefilter_input_reads", ["prefilter_primary_reads", "prefilter_non_target_reads"]),
         ("candidate_total_reads", ["candidate_primary_reads", "candidate_rescued_reads"]),
+        # E1: extraction's two classes add up to what it wrote.
+        ("extracted_reads", ["extracted_unmapped_reads", "extracted_low_score_mapped_reads"]),
     ):
         values_present = [mapped.get(p) for p in parts]
         total = mapped.get(total_name)

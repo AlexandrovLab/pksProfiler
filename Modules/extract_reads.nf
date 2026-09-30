@@ -68,10 +68,17 @@ process extractReads {
 		    exit 1
 		fi
 		# E3: @SQ fingerprint (md5 of ordered SN:LN), M5-set fingerprint, contig count,
-		# build guess from chr1's length, and the @PG chain (ID/PN/VN along PP, never CL).
+		# build guess from chr1's length, and the @PG chain (ID/PN/VN along PP, CL never recorded).
+		# E1 (Ludmil, 25 Sep): the same step decides whether low-score mapped records are
+		# extracted too (--extract_low_score_mapped auto|on|off; auto = on for bwa mem).
 		python "${params.scripts}/header_provenance.py" sample \
 		    --header input.header.sam --sample "${sampleID}" \
+		    --low-score-mode "${params.extract_low_score_mapped}" \
+		    --min-as "${params.extract_min_as}" \
+		    --decision extract_low_score.decision \
 		    --output "${sampleID}.header_provenance.tsv"
+		IFS=\$'\\t' read -r LOW_SCORE LOW_SCORE_STATE LOW_SCORE_REASON < extract_low_score.decision
+		echo "extractReads: ${sampleID}: low-score mapped extraction \$LOW_SCORE_REASON" >&2
 
 		REFERENCE_ARGS=()
 		if [[ "\$DETECTED" == "cram" ]]; then
@@ -102,14 +109,58 @@ process extractReads {
     # Retain every primary unmapped alignment record, regardless of
     # whether its mate is mapped, unmapped, or absent. The alignment is
     # decoded only once; the extracted-read count comes from the FASTQ.
-    # samtools fastq applies -f/-F itself, so the intermediate uncompressed-BAM
-    # pipe through samtools view is unnecessary; dropping it removes ~60 GB of
-    # pipe traffic per sample. The read count is tee'd off the live stream
-    # instead of decompressing the finished file a second time.
+    # With low-score extraction off, samtools fastq applies -f/-F itself, so the
+    # intermediate uncompressed-BAM pipe through samtools view is unnecessary;
+    # dropping it removes ~60 GB of pipe traffic per sample. (On, samtools view
+    # filters during the decode and only the selected records cross the pipe.)
+    # The read count is tee'd off the live stream instead of decompressing the
+    # finished file a second time.
     mkfifo extract.count.fifo
     awk 'END { print int(NR / 4) }' < extract.count.fifo > extract.count &
     EXTRACT_COUNTER=\$!
 
+    if [[ "\$LOW_SCORE" == "on" ]]; then
+        # E1 (Ludmil, 25 Sep): the same single decode, plus primary MAPPED records whose
+        # AS:i is below --extract_min_as. bwa mem calls a read unmapped only when its
+        # best local score is below -T; GDC aligned TCGA with -T 0, so about a third of
+        # genuine pks reads come out "mapped" to a short spurious hit and FLAG 4 alone
+        # never sees them. AS < 30 (bwa's default -T, Mutographs' setting) is exactly the
+        # set -T 30 would have left unmapped (validation/E1: synthetic 99.9-100% of the
+        # hidden reads recovered; real pilot, matched normals gained no clb read).
+        #
+        # samtools view does the decode and passes on only FLAG 4 records, records with
+        # AS below the threshold, and mapped records with no AS at all -- the last only to
+        # be counted; the awk drops them. What reaches samtools fastq is FLAG 4 plus
+        # low-score records, so read names, /1 /2 and reverse-strand orientation are
+        # samtools fastq -N's, exactly as in the off branch. The awk counts each class.
+        if ! samtools view -h \
+            -@ "${task.cpus}" \
+            -F 2304 \
+            -e '(flag & 4) || !exists([AS]) || [AS] < ${params.extract_min_as}' \
+            "\${REFERENCE_ARGS[@]}" \
+            "${alignment}" |
+        awk -F '\\t' -v min_as="${params.extract_min_as}" -v counts=extract.classes '
+            /^@/ { print; next }
+            {
+                if (int(\$2 / 4) % 2 == 1) { unmapped++; print; next }
+                score = ""
+                for (i = 12; i <= NF; i++) if (\$i ~ /^AS:[if]:/) { score = substr(\$i, 6); break }
+                if (score == "") { no_as++; next }
+                if (score + 0 < min_as + 0) { low++; print; next }
+                other++
+            }
+            END { printf "%d\\t%d\\t%d\\t%d\\n", unmapped, low, no_as, other > counts }' |
+        samtools fastq \
+            -@ "${task.cpus}" \
+            -N \
+            -F 2304 \
+            - |
+        tee extract.count.fifo |
+        bgzip -@ "${task.cpus}" -c > "\$READS"; then
+            echo "ERROR: Could not decode ${alignment}. For CRAM, provide the matching --cram_reference if it is not embedded or cached." >&2
+            exit 1
+        fi
+    else
     # No -o / -0 / -s: every category -- READ1, READ2, READ_OTHER and singletons
     # -- goes to stdout, which is captured below. -o writes only READ1/READ2 and
     # -0 only READ_OTHER, so naming either one silently drops the rest. Records
@@ -127,12 +178,28 @@ process extractReads {
 	        echo "ERROR: Could not decode ${alignment}. For CRAM, provide the matching --cram_reference if it is not embedded or cached." >&2
 	        exit 1
 	    fi
+    fi
 
 		wait "\$EXTRACT_COUNTER"
 		rm -f extract.count.fifo
 
 		bgzip -t "\$READS"
-		UNMAPPED_READS=\$(cat extract.count)
+		EXTRACTED_READS=\$(cat extract.count)
+		# extracted_reads is what extraction wrote, and what enters fastp
+		# (filter_input_reads). extracted_unmapped_reads keeps its meaning, FLAG 4 records
+		# only; extracted_low_score_mapped_reads is E1's addition. Off: all of it is FLAG 4.
+		if [[ "\$LOW_SCORE" == "on" ]]; then
+		    read -r UNMAPPED_READS LOW_SCORE_READS NO_AS_RECORDS OTHER_RECORDS < extract.classes
+		    if [[ "\$OTHER_RECORDS" != 0 || \$((UNMAPPED_READS + LOW_SCORE_READS)) != "\$EXTRACTED_READS" ]]; then
+		        echo "ERROR: ${sampleID}: extraction classes do not add up: FLAG 4 \$UNMAPPED_READS + low-score \$LOW_SCORE_READS != \$EXTRACTED_READS FASTQ reads (unclassified: \$OTHER_RECORDS)" >&2
+		        exit 1
+		    fi
+		    echo "extractReads: ${sampleID}: \$UNMAPPED_READS FLAG 4 + \$LOW_SCORE_READS low-score mapped reads (AS < ${params.extract_min_as}); \$NO_AS_RECORDS mapped primary records had no AS tag and were not added" >&2
+		else
+		    UNMAPPED_READS=\$EXTRACTED_READS
+		    LOW_SCORE_READS=0
+		    NO_AS_RECORDS=""
+		fi
 
 	# F09: a library denominator that does not come from the extraction itself. The QC
 	# summary used to fall back to the post-extraction count, so the table could not show
@@ -166,6 +233,12 @@ process extractReads {
 	    printf "%s\ttotal_primary_reads\t%s\n" "${sampleID}" "\$TOTAL_PRIMARY" >> "\$QC"
 	fi
 	printf "%s\textracted_unmapped_reads\t%s\n" "${sampleID}" "\$UNMAPPED_READS" >> "\$QC"
+	printf "%s\textracted_low_score_mapped_reads\t%s\n" "${sampleID}" "\$LOW_SCORE_READS" >> "\$QC"
+	printf "%s\textracted_reads\t%s\n" "${sampleID}" "\$EXTRACTED_READS" >> "\$QC"
+	if [[ -n "\$NO_AS_RECORDS" ]]; then
+	    printf "%s\textract_low_score_no_as_records\t%s\n" "${sampleID}" "\$NO_AS_RECORDS" >> "\$QC"
+	fi
+	printf "%s\textract_low_score_mode\t%s\n" "${sampleID}" "\$LOW_SCORE_STATE" >> "\$QC"
 	"""
 }
 

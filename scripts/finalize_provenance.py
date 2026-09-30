@@ -200,7 +200,9 @@ PARAMETER_GROUPS = (
                # Ludmil, 26 Sep mode memo section 4: RNA library type is recorded.
                "rna_library_type",
                # Owner decision, 29 Sep: long-read input.
-               "read_type")),
+               "read_type",
+               # E1 (Ludmil, 25 Sep): low-score mapped extraction from BAM/CRAM.
+               "extract_low_score_mapped", "extract_min_as")),
     ("PROFILING", ("profiling_method", "hmm_evalue", "hmm_protein_evalue", "prefilter_mode",
                    "pks_contig", "pks_start_1based", "pks_end_1based",
                    "pks_island_len_1based",
@@ -439,6 +441,13 @@ def render(record):
         lines.append(f"  distinct @PG chains     {len(chains)}   (PN:VN in PP order)")
         for r in chains:
             lines.append(f"    files={r.get('n_files'):<6} {r.get('key', '')}")
+        # E1: per-sample extraction rule, counted (on_auto_bwa_mem, off_auto_not_bwa_mem, ...).
+        low_score = [r for r in headers if r.get("section") == "extract_low_score"]
+        if low_score:
+            lines.append("  low-score mapped extraction (AS below --extract_min_as; per sample in"
+                         " input_header.tsv)")
+            for r in low_score:
+                lines.append(f"    files={r.get('n_files'):<6} {r.get('key', '')}")
 
     # ---- SOFTWARE ----
     software = record.get("software") or {}

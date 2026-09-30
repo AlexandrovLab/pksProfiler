@@ -116,6 +116,14 @@ reads kept are the ones the aligner flagged unmapped. An unaligned BAM (`samtool
 a basecaller's uBAM) is rejected by extraction's `samtools quickcheck`; convert it with
 `samtools fastq` and run it as FASTQ. See [BAM and CRAM mode](docs/running/bam.md).
 
+For a `bwa mem` alignment, extraction also takes primary *mapped* reads whose alignment score
+is below 30 (`--extract_low_score_mapped auto|on|off`, default `auto`; `--extract_min_as 30`).
+bwa calls a read unmapped only when its best local score is below `-T`, 30 by default; GDC
+aligned TCGA with `-T 0`, so about a third of genuine *pks* reads come out "mapped" to a short
+spurious hit and would never be extracted. `auto` switches this on when the input's `@PG` chain
+shows `bwa mem` and off otherwise, per sample, and records the decision in the QC summary
+(`extract_low_score_mode`) and in `provenance/input_header.tsv`.
+
 The minimum run — quantify the island and score the evidence:
 
 ```bash

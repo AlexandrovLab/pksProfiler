@@ -298,6 +298,17 @@ params.prokka_env             = "${projectDir}/conda_envs/prokka_env.yml"
 // which costs a second full decode of every input.
 params.exact_input_counts = false
 
+// E1 (Ludmil, 25 Sep): extraction also takes primary MAPPED records with AS:i below
+// extract_min_as. bwa mem reports a read as unmapped only when its best local score is
+// below -T; GDC aligned TCGA with -T 0 (Mutographs with -T 30, bwa's default), so about
+// a third of genuine pks reads come out "mapped" to a short spurious hit and FLAG 4
+// alone never extracts them. AS < 30 among the mapped reads is the set -T 30 would have
+// left unmapped. auto = on when the input's @PG chain runs bwa mem, off otherwise (the
+// AS scale of STAR, minimap2 etc. is not bwa's); decided and logged per sample, and
+// recorded in QC (extract_low_score_mode) and by_sample/<s>/provenance/input_header.tsv.
+params.extract_low_score_mapped = "auto"   // auto | on | off
+params.extract_min_as           = 30
+
 // F14: aligned bases a read must share with a clb gene to be assigned to it. One
 // value, used by the alignment QC and the taxonomy lane alike.
 params.min_gene_overlap_bp = 1
@@ -704,6 +715,16 @@ workflow {
             (has_alignment_column ? " (BAM vs CRAM is detected per file by htsfile)" : "")
     }
     def alignment_input = input_data_type in ["alignment", "bam", "cram"]
+    // E1: low-score mapped extraction (Modules/extract_reads.nf).
+    if (!(params.extract_low_score_mapped.toString() in ["auto", "on", "off"])) {
+        exit 1, "--extract_low_score_mapped must be auto, on or off (got ${params.extract_low_score_mapped})"
+    }
+    if (!(params.extract_min_as.toString() ==~ /^[0-9]+$/) || params.extract_min_as.toString().toInteger() < 1) {
+        exit 1, "--extract_min_as must be an integer >= 1 (got ${params.extract_min_as})"
+    }
+    if (!alignment_input && params.extract_low_score_mapped.toString() == "on") {
+        log.warn "--extract_low_score_mapped on applies to BAM/CRAM input only; ignored for FASTQ input"
+    }
     def required_sample_columns = alignment_input ? ["patient"] : ["patient", "fastq1"]
 
     def sample_sheet = channel
@@ -803,6 +824,18 @@ workflow {
         QC_FRAGMENTS = QC_FRAGMENTS.mix(
             EXTRACT_OUT.qc.map { _sampleID, qc_file -> qc_file }
         )
+
+        // E1: which extraction rule each sample got, and what it added, in the run log.
+        EXTRACT_OUT.qc.subscribe { sampleID, qc_file ->
+            def m = [:]
+            qc_file.readLines().drop(1).each { line ->
+                def f = line.split('\t')
+                if (f.size() == 3) { m[f[1]] = f[2] }
+            }
+            log.info "extractReads ${sampleID}: low-score mapped extraction ${m.extract_low_score_mode}" +
+                " (FLAG 4 ${m.extracted_unmapped_reads} + low-score mapped ${m.extracted_low_score_mapped_reads}" +
+                " = ${m.extracted_reads} reads extracted)"
+        }
 
         // E3 (Ludmil, 25 Sep): per-input header provenance, joined into one cohort
         // table and a counts-only summary that RUN_REPORT.txt reads.

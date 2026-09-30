@@ -145,6 +145,16 @@ check_validation \
     'recruitment classes would be misplaced' \
     --sample_type wgs --pks_recruit_flank_bp 4000
 
+echo "Checking low-score mapped extraction validation (Ludmil, 25 Sep E1)"
+check_validation \
+    low-score-mode \
+    '--extract_low_score_mapped must be auto, on or off' \
+    --sample_type wgs --extract_low_score_mapped maybe
+check_validation \
+    low-score-min-as \
+    '--extract_min_as must be an integer >= 1' \
+    --sample_type wgs --extract_min_as 0
+
 echo "Checking tumour contig tier validation"
 check_validation \
     unknown-tier \

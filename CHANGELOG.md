@@ -6,6 +6,10 @@ Extends the immutable v0.0.1 release with island reassembly, genome-resolved ana
 strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 
 **Added**
+- E1 QC and provenance (Ludmil, 25 Sep): `extracted_low_score_mapped_reads`, `extracted_reads`,
+  `extract_low_score_no_as_records` and `extract_low_score_mode` in `pks.qc.summary.tsv` (with an
+  add-up check); `aligner_bwa_mem`, `bwa_min_score`, `extract_low_score_mapped`, `extract_min_as`
+  in `provenance/input_header.tsv`; the two parameters and a per-state count in `RUN_REPORT.txt`.
 - Long-read input, `--read_type short|ont|hifi` (owner decision, 29 Sep; wgs and rna only):
   fastplong read QC (`--long_read_min_length`, QC metric names kept), map-ont/map-hifi depletion
   (splice/splice:hq for the RNA human pass) against `--hg38_db_long` / `--rna_splice_db_long` /
@@ -74,6 +78,16 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
   the pinned 2.31 in every host-depletion pass on TSCC).
 
 **Changed**
+- **Extraction from bwa mem alignments also takes low-score mapped reads** (Ludmil, 25 Sep E1):
+  `extractReads` adds primary mapped records with `AS:i` < `--extract_min_as` (30) to the FLAG 4
+  reads, in the same single decode. bwa leaves a read unmapped only below `-T` (default 30);
+  GDC aligned TCGA with `-T 0`, so about a third of genuine *pks* reads were "mapped" and never
+  extracted. `--extract_low_score_mapped auto` (default) turns this on per sample when the
+  header's `@PG` chain runs `bwa mem`, off otherwise (STAR, minimap2, no `@PG`); `on`/`off`
+  force it. `extracted_unmapped_reads` keeps its meaning (FLAG 4 only); the extraction total in
+  the attrition chain is now `extracted_reads`. Validated in `validation/E1` (synthetic: 99.9-100%
+  of hidden reads recovered; 20-sample TCGA pilot: tumours gained evidence, matched normals no
+  *clb* read). See `docs/running/bam.md`.
 - **Targeted recruitment specificity and classes** (Ludmil, 25 Sep A1/A2): recruitment Bowtie2
   drops `-k 1` (best-alignment reporting, so MAPQ is meaningful) and every read needs MAPQ >=
   `--recruit_min_mapq` (20). Reads are classed `island_internal` (query coverage >=
