@@ -367,6 +367,12 @@ def collect(inputs, expected=None, sample_type=None):
             "metaspades_cov": number(contigs.get("metaspades_reference_coverage")),
             "recruited_fragment_ids": contigs.get("recruited_fragment_ids", ""),
             "paired_fragments": contigs.get("paired_fragments", ""),
+            # Ludmil, 25 Sep A2: island-supporting = island_internal + boundary_spanning;
+            # flank-only fragments are context, never island support.
+            "island_supporting_fragments": contigs.get("island_supporting_fragments", ""),
+            "boundary_spanning_fragments": contigs.get("boundary_spanning_fragments", ""),
+            "flank_only_fragments": contigs.get("flank_only_fragments", ""),
+            "assembly_input_diagnostic": contigs.get("assembly_input_diagnostic", ""),
             # P0-5b: which figures this run made comes from the staged figure outputs,
             # not from listing figures/ in the published tree, which could still be
             # filling in -- or hold a figure an earlier run left there.
@@ -395,6 +401,17 @@ def detail_anchor(kind, sample):
     """Same :target scheme as figure_anchor, for the bins/rescue panels."""
     safe = "".join(c if c.isalnum() else "-" for c in sample)
     return f"{kind}-{safe}"
+
+
+def recruitment_classes_tip(record):
+    """Ludmil, 25 Sep A2: the assembly diagnostic counts island-supporting fragments only."""
+    supporting = record.get("island_supporting_fragments")
+    if supporting in (None, "", "NA"):
+        return ""
+    return (f' \u00b7 {supporting} island-supporting '
+            f'({record.get("boundary_spanning_fragments") or "0"} boundary-spanning), '
+            f'{record.get("flank_only_fragments") or "0"} flank-only \u00b7 '
+            f'{record.get("assembly_input_diagnostic") or "no diagnostic"}')
 
 
 def svg_matrix(records):
@@ -488,7 +505,8 @@ def svg_matrix(records):
                           f'{record["structural"] or "no call"} \u00b7 '
                           f'{record["agreement"] or "no agreement call"} \u00b7 '
                           f'{record["recruited_fragment_ids"] or "0"} fragments recruited, '
-                          f'{record["paired_fragments"] or "0"} paired')
+                          f'{record["paired_fragments"] or "0"} paired'
+                          + recruitment_classes_tip(record))
             out.append(f'<g data-tip="{esc(contig_tip)}">'
                        f'<title>{esc(contig_tip)}</title>'
                        f'<text x="{CONTIG_X}" y="{y}" class="n">'

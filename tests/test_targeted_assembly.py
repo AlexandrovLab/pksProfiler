@@ -21,15 +21,19 @@ class TargetedAssemblyContractTests(unittest.TestCase):
         self.assertIn("targetedPksMegahit(targetedPksRecruit.out.reads)", module)
         self.assertIn("targetedPksSpades(targetedPksRecruit.out.reads)", module)
 
-    def test_recruitment_uses_identity_not_mapq(self):
+    def test_recruitment_uses_identity_and_mapq(self):
+        # Ludmil, 25 Sep A1: -k 1 is gone, so MAPQ is meaningful and filtered on
+        # (tests/test_recruitment_classes.py has the full rule).
         script_path = ROOT / "scripts/recover_recruited_mates.py"
         spec = importlib.util.spec_from_file_location("recover", script_path)
         recover = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(recover)
+        rule = recover.RecruitmentRule(island_start=1, island_end=1000)
         with tempfile.TemporaryDirectory() as directory:
             sam = Path(directory) / "reads.sam"
-            sam.write_text("r/1\t0\tref\t1\t0\t90M\t*\t0\t0\t" + "A"*90 + "\t" + "I"*90 + "\tNM:i:2\n")
-            ids, alignments = recover.recruited_ids(sam, 60, .90)
+            sam.write_text("r/1\t0\tref\t1\t42\t90M\t*\t0\t0\t" + "A"*90 + "\t" + "I"*90 + "\tNM:i:2\n"
+                           "q/1\t0\tref\t1\t0\t90M\t*\t0\t0\t" + "A"*90 + "\t" + "I"*90 + "\tNM:i:0\n")
+            ids, alignments = recover.recruited_ids(sam, rule)
             self.assertEqual(ids, {"r"})
             self.assertEqual(alignments, 1)
 

@@ -107,6 +107,20 @@ params.enable_mags               = false   // MAG reconstruction; metagenome sam
 
 params.pks_recruit_min_aligned  = 60
 params.pks_recruit_min_identity = 0.90
+// Ludmil, 25 Sep A1/A2: recruitment specificity and classes (recover_recruited_mates.py).
+// Internal-island and flank-only reads need query coverage >= recruit_min_query_coverage;
+// boundary-spanning reads -- crossing an island boundary, or reaching it within
+// recruit_boundary_tolerance_bp with the soft clip pointing out of the island -- do not.
+// Recruitment Bowtie2 uses best-alignment reporting and every read needs MAPQ >=
+// recruit_min_mapq. recruit_include_flank_only keeps flank-only fragments in the assembly
+// input for context; they never count as island support.
+params.recruit_min_query_coverage    = 0.80
+params.recruit_boundary_tolerance_bp = 10
+params.recruit_min_mapq              = 20
+params.recruit_include_flank_only    = true
+// Flank either side of the island in params.pks_recruit_index (its FASTA header says
+// flank=5000). Places the canonical island inside the recruitment reference.
+params.pks_recruit_flank_bp          = 5000
 
 // Shared contig-length floor for both targeted assemblers. MEGAHIT takes it directly;
 // metaSPAdes has no equivalent option and is filtered to the same floor afterwards, so
@@ -961,6 +975,43 @@ workflow {
         }
         if (!file("${params.pks_recruit_index}.1.bt2").exists()) {
             exit 1, "PKS recruitment index not found: ${params.pks_recruit_index}.*.bt2"
+        }
+    }
+    // Ludmil, 25 Sep A1/A2: recruitment rule and classes.
+    if (!(params.recruit_min_query_coverage.toString() ==~ /^[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?$/) ||
+        params.recruit_min_query_coverage.toString().toDouble() <= 0 ||
+        params.recruit_min_query_coverage.toString().toDouble() > 1) {
+        exit 1, "--recruit_min_query_coverage must be a fraction in (0,1] (got ${params.recruit_min_query_coverage})"
+    }
+    [recruit_boundary_tolerance_bp: params.recruit_boundary_tolerance_bp,
+     recruit_min_mapq: params.recruit_min_mapq,
+     pks_recruit_flank_bp: params.pks_recruit_flank_bp].each { name, value ->
+        if (!(value.toString() ==~ /^[0-9]+$/)) {
+            exit 1, "--${name} must be a non-negative integer (got ${value})"
+        }
+    }
+    if (params.recruit_boundary_tolerance_bp.toString().toInteger() * 2 >= params.pks_recruit_min_aligned.toString().toInteger()) {
+        exit 1, "--recruit_boundary_tolerance_bp must be less than half of --pks_recruit_min_aligned (${params.pks_recruit_min_aligned}), or a boundary read could be anchored on neither side"
+    }
+    if (!(params.recruit_include_flank_only.toString() in ["true", "false"])) {
+        exit 1, "--recruit_include_flank_only must be true or false (got ${params.recruit_include_flank_only})"
+    }
+    if (params.sample_type == "wgs" && tumor_targeted_assembly_b) {
+        // The island's place in the recruitment reference comes from pks_start/end_1based and
+        // pks_recruit_flank_bp; the index FASTA's header records what it was built with.
+        def recruit_fasta = file("${params.pks_recruit_index}.fna")
+        if (recruit_fasta.exists()) {
+            def header = recruit_fasta.withReader { it.readLine() } ?: ''
+            def built = (header =~ /island=([0-9]+)-([0-9]+) flank=([0-9]+)/)
+            if (!built.find()) {
+                exit 1, "Recruitment index FASTA header has no island=START-END flank=N record: ${recruit_fasta}"
+            }
+            if (built.group(1) != params.pks_start_1based.toString() || built.group(2) != params.pks_end_1based.toString() ||
+                built.group(3) != params.pks_recruit_flank_bp.toString()) {
+                exit 1, "Recruitment index ${recruit_fasta} was built with island=${built.group(1)}-${built.group(2)} flank=${built.group(3)}, but the run has --pks_start_1based ${params.pks_start_1based} --pks_end_1based ${params.pks_end_1based} --pks_recruit_flank_bp ${params.pks_recruit_flank_bp}; recruitment classes would be misplaced"
+            }
+        } else {
+            log.warn "No ${params.pks_recruit_index}.fna beside the recruitment index; island placement is checked only against the SAM @SQ length"
         }
     }
     // pksMAG runs checkm2, gtdbtk and genomad unconditionally, so all three are required.

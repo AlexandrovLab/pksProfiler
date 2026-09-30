@@ -211,6 +211,12 @@ PARAMETER_GROUPS = (
                    "minimap2_frag_mode", "long_read_min_length")),
     ("EVIDENCE TIERS", tuple(f"tumor_{tier}_{field}" for tier in TIER_NAMES
                              for field, _label in TIER_FIELDS)),
+    # Ludmil, 25 Sep A1/A2: the targeted-recruitment rule and where the island sits in
+    # the island+flank recruitment reference.
+    ("TARGETED RECRUITMENT", ("pks_recruit_min_aligned", "pks_recruit_min_identity",
+                              "recruit_min_query_coverage", "recruit_boundary_tolerance_bp",
+                              "recruit_min_mapq", "recruit_include_flank_only",
+                              "pks_recruit_flank_bp")),
     ("STAGES", ("enable_mags", "tumor_targeted_assembly",
                 "diamond_rescue", "pks_community_taxa",
                 "enable_strain_typing", "pks_taxa")),

@@ -74,6 +74,17 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
   the pinned 2.31 in every host-depletion pass on TSCC).
 
 **Changed**
+- **Targeted recruitment specificity and classes** (Ludmil, 25 Sep A1/A2): recruitment Bowtie2
+  drops `-k 1` (best-alignment reporting, so MAPQ is meaningful) and every read needs MAPQ >=
+  `--recruit_min_mapq` (20). Reads are classed `island_internal` (query coverage >=
+  `--recruit_min_query_coverage`, 0.80), `boundary_spanning` (crosses an island boundary, or
+  reaches it within `--recruit_boundary_tolerance_bp` (10) with the clip pointing out; no coverage
+  floor) or `flank_only`; a 150 bp read with a 60 bp internal local match is now rejected.
+  `pks_recruitment.tsv` reports reads/fragments per class and `island_supporting_fragments`
+  (internal + boundary); `final_pks_evidence.tsv`, the master summary and the report carry them
+  plus `assembly_input_diagnostic`, which counts island-supporting fragments only. Flank-only
+  fragments still reach the assemblers (`--recruit_include_flank_only`). Structural confirmation
+  input only; primary evidence and positivity are unchanged.
 - **Host depletion defaults to `--frag=no`** (`--minimap2_frag_mode no`; E0, owner decision 29 Sep):
   every short read is judged on its own, so depletion no longer depends on read order / input route.
   On all 100 TCGA CRC positives the old default kept a route-dependent read set in 46 samples and

@@ -35,7 +35,8 @@ by_sample/<sample>/
 │                           the primary read-level evidence.
 ├── hmm/                    nhmmscan tblout, hmm_counts.tsv, qc       --profiling_method hmm
 ├── contigs/                                                          (step 4, tumour)
-│   ├── recruitment/        recruited read counts
+│   ├── recruitment/        pks_recruitment.tsv: reads/fragments per recruitment class,
+│   │                       island_supporting_fragments (island_internal + boundary_spanning)
 │   ├── megahit/            contigs + canonical-reference PAF
 │   ├── metaspades/         contigs + canonical-reference PAF
 │   └── final_evidence/     final_pks_evidence.tsv

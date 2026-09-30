@@ -9,6 +9,34 @@ def recruitment(path):
     """pks_recruitment.tsv is a metric/value TSV, not one row per sample."""
     return {r["metric"]: r["value"] for r in rows(path)}
 
+# Ludmil, 25 Sep A2: recruitment classes carried into final_pks_evidence.tsv. The
+# assembly-input diagnostic reads island_supporting_fragments (island_internal +
+# boundary_spanning) only; flank-only fragments may share their flank with pks-negative
+# relatives, so they never make a sample look like "island reads went in".
+RECRUITMENT_FIELDS = (("island_supporting_fragments", "island_supporting_fragments"),
+                      ("island_internal_fragments", "fragments_island_internal"),
+                      ("boundary_spanning_fragments", "fragments_boundary_spanning"),
+                      ("flank_only_fragments", "fragments_flank_only"))
+
+
+def assembly_input_diagnostic(recruit, best_coverage):
+    """Why the assembly came out as it did, from island-supporting fragments only.
+
+      recruitment_classes_unavailable   stats file predates the A2 classes
+      no_island_supporting_fragments    nothing island-derived reached the assemblers
+                                        (flank-only fragments may still have)
+      island_fragments_no_contig        island-supporting fragments went in, no island
+                                        contig came out
+      island_contigs_recovered          at least one contig covers island sequence
+    """
+    value = recruit.get("island_supporting_fragments")
+    if value in (None, "", "NA"):
+        return "recruitment_classes_unavailable"
+    if int(value) == 0:
+        return "no_island_supporting_fragments"
+    return "island_contigs_recovered" if best_coverage > 0 else "island_fragments_no_contig"
+
+
 def paf(path, start, end, min_aligned=0, min_identity=.90, min_mapq=20):
     """Every alignment passing the filters, not one per contig.
 
@@ -130,8 +158,10 @@ def main():
     supporting={k:supporting_contigs(v,a.island_start,a.island_end,a.min_aligned_bp) for k,v in hits.items()}
     bp={k:union_length(v,a.island_start,a.island_end) for k,v in hits.items()}; cov={k:v/length for k,v in bp.items()}
     call,agreement=structural_call(cov["megahit"],cov["metaspades"])
-    fields=["sample","read_evidence","pks_reads","clb_genes_detected","island_breadth_1x","island_breadth_2x","island_breadth_3x","megahit_reference_covered_bp","megahit_reference_coverage","megahit_supporting_contigs","metaspades_reference_covered_bp","metaspades_reference_coverage","metaspades_supporting_contigs","assembler_agreement","final_structural_evidence","recruited_fragment_ids","paired_fragments"]
+    fields=["sample","read_evidence","pks_reads","clb_genes_detected","island_breadth_1x","island_breadth_2x","island_breadth_3x","megahit_reference_covered_bp","megahit_reference_coverage","megahit_supporting_contigs","metaspades_reference_covered_bp","metaspades_reference_coverage","metaspades_supporting_contigs","assembler_agreement","final_structural_evidence","recruited_fragment_ids","paired_fragments"]+[name for name,_ in RECRUITMENT_FIELDS]+["assembly_input_diagnostic"]
     result=dict(ev,megahit_reference_covered_bp=bp["megahit"],megahit_reference_coverage=f'{cov["megahit"]:.6f}',megahit_supporting_contigs=len(supporting["megahit"]),metaspades_reference_covered_bp=bp["metaspades"],metaspades_reference_coverage=f'{cov["metaspades"]:.6f}',metaspades_supporting_contigs=len(supporting["metaspades"]),assembler_agreement=agreement,final_structural_evidence=call,recruited_fragment_ids=recruit["recruited_fragment_ids"],paired_fragments=recruit["paired_fragments"])
+    result.update({name: recruit.get(metric, "NA") for name, metric in RECRUITMENT_FIELDS})
+    result["assembly_input_diagnostic"] = assembly_input_diagnostic(recruit, max(cov.values()))
     with Path(a.output_tsv).open("w",newline="") as h: w=csv.DictWriter(h,fields,delimiter="\t");w.writeheader();w.writerow(result)
     W,H,L,R=1600,1100,100,35; PW=W-L-R; sx=lambda x:L+(x-a.region_start)/(a.region_end-a.region_start)*PW
     svg=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}"><rect width="100%" height="100%" fill="white"/>','<style>text{font-family:Arial,sans-serif;fill:#202124}.title{font-size:24px;font-weight:bold}.label{font-size:14px;font-weight:bold}.small{font-size:10px}.sub{font-size:13px}</style>',f'<text x="{L}" y="34" class="title">Canonical PKS-island contig validation</text>',f'<text x="{L}" y="58" class="sub">{html.escape(a.sample)} • IHE3034 {a.contig} • {ev["read_evidence"]} read evidence • final: {call}</text>',f'<text x="{L}" y="88" class="label">A  Standard reference clb genes</text>',f'<line x1="{L}" y1="112" x2="{W-R}" y2="112" stroke="#444"/>']

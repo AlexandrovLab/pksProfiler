@@ -143,12 +143,15 @@ class Pairing(unittest.TestCase):
         fastq = self.d / "in.fastq.gz"
         write_fastq(fastq, reads)
         sam = self.d / "rec.sam"
-        sam.write_text("".join(f"{n}/1\t0\tref\t1\t0\t60M\t*\t0\t0\t{a}\t{'I' * 60}\tNM:i:0\n"
+        # Ludmil, 25 Sep A1: recruitment now filters on MAPQ and needs the island's span
+        # in the recruitment reference; these alignments are unique (MAPQ 42) island hits.
+        sam.write_text("".join(f"{n}/1\t0\tref\t1\t42\t60M\t*\t0\t0\t{a}\t{'I' * 60}\tNM:i:0\n"
                                for n, a, _ in frags[:2]))
         stats_path = self.d / "stats.tsv"
         subprocess.run([sys.executable, str(SCRIPT), "--sam", str(sam), "--fastq", str(fastq),
                         "--r1", str(self.d / "r1.fq.gz"), "--r2", str(self.d / "r2.fq.gz"),
-                        "--single", str(self.d / "s.fq.gz"), "--stats", str(stats_path)], check=True)
+                        "--single", str(self.d / "s.fq.gz"), "--stats", str(stats_path),
+                        "--island-start", "1", "--island-end", "1000"], check=True)
         with stats_path.open() as fh:
             stats = {row["metric"]: row["value"] for row in csv.DictReader(fh, delimiter="\t")}
         self.assertEqual((stats["recruited_fragment_ids"], stats["paired_fragments"],

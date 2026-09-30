@@ -51,12 +51,22 @@ process targetedPksRecruit {
     tuple val(sampleID), path("${sampleID}.pks.R1.fastq.gz"), path("${sampleID}.pks.R2.fastq.gz"), path("${sampleID}.pks.single.fastq.gz"), emit: reads
     tuple val(sampleID), path("${sampleID}.pks_recruitment.tsv"), emit: stats
     script:
+    // Ludmil, 25 Sep A1/A2: the canonical island's span inside the island+flank recruitment
+    // reference (indices/pks_island: flank, island, flank). main.nf checks the index FASTA's
+    // header (island=..., flank=...) against these params; the script checks the SAM's @SQ LN.
+    def recruit_flank = params.pks_recruit_flank_bp.toString().toInteger()
+    def recruit_island_start = recruit_flank + 1
+    def recruit_island_end = recruit_flank + params.pks_island_len_1based.toString().toInteger()
+    def recruit_reference_length = recruit_island_end + recruit_flank
+    def flank_only_arg = params.recruit_include_flank_only.toString().toBoolean() ? '' : ' --exclude-flank-only'
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # pks_recruit_index ${params.dep_digest?.pks_recruit_index}  scripts ${params.dep_digest?.scripts}
     set -euo pipefail
-    bowtie2 --very-sensitive-local -k 1 --no-unal --threads ${task.cpus} -x "${params.pks_recruit_index}" -U "${reads}" -S "${sampleID}.pks_recruitment.sam"
-    python "${params.scripts}/recover_recruited_mates.py" --sam "${sampleID}.pks_recruitment.sam" --fastq "${reads}" --r1 "${sampleID}.pks.R1.fastq.gz" --r2 "${sampleID}.pks.R2.fastq.gz" --single "${sampleID}.pks.single.fastq.gz" --stats "${sampleID}.pks_recruitment.tsv" --min-aligned-bases "${params.pks_recruit_min_aligned}" --min-identity "${params.pks_recruit_min_identity}"
+    # Ludmil, 25 Sep A1: default best-alignment reporting (no -k 1), so MAPQ means something
+    # and recover_recruited_mates.py can hold every read to --min-mapq.
+    bowtie2 --very-sensitive-local --no-unal --threads ${task.cpus} -x "${params.pks_recruit_index}" -U "${reads}" -S "${sampleID}.pks_recruitment.sam"
+    python "${params.scripts}/recover_recruited_mates.py" --sam "${sampleID}.pks_recruitment.sam" --fastq "${reads}" --r1 "${sampleID}.pks.R1.fastq.gz" --r2 "${sampleID}.pks.R2.fastq.gz" --single "${sampleID}.pks.single.fastq.gz" --stats "${sampleID}.pks_recruitment.tsv" --min-aligned-bases "${params.pks_recruit_min_aligned}" --min-identity "${params.pks_recruit_min_identity}" --min-query-coverage "${params.recruit_min_query_coverage}" --min-mapq "${params.recruit_min_mapq}" --boundary-tolerance-bp "${params.recruit_boundary_tolerance_bp}" --island-start ${recruit_island_start} --island-end ${recruit_island_end} --reference-length ${recruit_reference_length}${flank_only_arg}
     """
 }
 

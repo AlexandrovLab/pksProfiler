@@ -59,7 +59,11 @@ CONTIG_COLUMNS = ["final_structural_evidence", "assembler_agreement",
                   "megahit_reference_covered_bp", "megahit_reference_coverage",
                   "megahit_supporting_contigs", "metaspades_reference_covered_bp",
                   "metaspades_reference_coverage", "metaspades_supporting_contigs",
-                  "recruited_fragment_ids", "paired_fragments"]
+                  "recruited_fragment_ids", "paired_fragments",
+                  # Ludmil, 25 Sep A2: recruitment classes; the diagnostic reads
+                  # island-supporting (island_internal + boundary_spanning) only.
+                  "island_supporting_fragments", "boundary_spanning_fragments",
+                  "flank_only_fragments", "assembly_input_diagnostic"]
 MAG_COLUMNS = ["mag_bins_total", "mag_bins_pks_positive", "pks_mag_taxonomy",
                "pks_mag_completeness", "pks_mag_clb_genes",
                # U1: the per-sample pool of contigs MetaBAT2 never placed in any bin,

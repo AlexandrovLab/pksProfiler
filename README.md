@@ -62,6 +62,9 @@ panel (taxonomy, completeness, locus tier, locus breadth).
 **Why did I get nothing for this sample?** — tumour: `contigs/recruitment/` and the Contigs
 column's hover text show how many reads were actually recruited and paired before assembly ran, so
 "no reads reached the assembler" reads differently from "reads went in, no contig came out."
+That diagnostic (`assembly_input_diagnostic`) counts island-supporting fragments only -- reads
+inside the island or across its boundary -- never reads that hit only the ±5 kb flanks, which
+pks-negative relatives can share ([recruitment classes](docs/running/assembly.md#which-reads-are-recruited)).
 Metagenome: `genomes/mag_status.tsv` distinguishes no contigs / contigs but no bins / bins but no
 pks signal / a positive bin — and even a sample with no real bins still gets an alignment check
 against MetaBAT2's pooled unbinned contigs, which shows up in the same "Genome bins" panel as a
