@@ -55,6 +55,10 @@
 #      single-end read set (see the comment above this run below for the exact
 #      numbers, which differ from their paired-end namesakes since single-end halves
 #      the bases covered).
+#  10. runs the pipeline a seventh time on bwa-mem-style BAM and CRAM input (Ludmil,
+#      25 Sep E1): some pks reads FLAG 4, some "mapped" with AS < 30 as `bwa mem -T 0`
+#      reports them. Under a bwa mem @PG the low-score reads are recovered; under a STAR
+#      @PG the same records give FLAG 4 only (tests/fixtures/assert_low_score_outputs.py).
 #
 # This is slower than the other two test tiers (real conda envs, real alignment) but
 # still small: at most ~110 reads per sample, tiny synthetic references, no
@@ -566,5 +570,89 @@ if ! python3 "$repo_dir/tests/fixtures/assert_e2e_outputs.py" \
     exit 1
 fi
 
+# ---------------------------------------------------------------------------------
+# Seventh run (Ludmil, 25 Sep E1): low-score mapped extraction. GDC aligned TCGA with
+# `bwa mem -T 0`, so a read bwa would otherwise leave unmapped (best local score < 30,
+# bwa's default -T) is instead "mapped" to a short spurious hit, and FLAG 4 extraction
+# never sees it. extractReads now also takes primary mapped records with AS:i < 30 when
+# the header's @PG chain runs bwa mem (--extract_low_score_mapped auto).
+#
+# generate_low_score_bam_fixtures.py writes the positive/negative read pairs above as
+# bwa-mem-style records against the synthetic host contig: FLAG 4, mapped with AS < 30,
+# mapped with AS >= 30, mapped without AS, plus a secondary and a supplementary record
+# (bwa -T 0 itself cannot be made to hit random synthetic host sequence, so the records
+# are hand-written; samtools and the pipeline that read them are real). One sheet, three
+# samples: the records under a `bwa mem -T 0` @PG as BAM and as CRAM (auto -> on), and
+# the same records under a STAR @PG (auto -> off). assert_low_score_outputs.py checks the
+# extracted FASTQ read for read, the QC counts, the mode, the provenance, the run log and
+# that the recovered pks reads reach the clb counts (6 reads over 3 genes on, 3 over 2 off).
+# ---------------------------------------------------------------------------------
 echo
-echo "e2e execution check passed (paired FASTQ, BAM, CRAM, single-end FASTQ, HMM profiling, and a 5-sample cohort; positive/negative/broad/extensive/borderline fixtures)"
+echo "Building bwa mem -T 0 style BAM/CRAM fixtures (E1 low-score mapped extraction)"
+low_fx="$fixtures/low_score"
+if ! python3 "$repo_dir/tests/fixtures/generate_low_score_bam_fixtures.py" \
+        --e2e-fixtures "$fixtures" --out-dir "$low_fx" > "$work/low_score_fixtures.log" 2>&1; then
+    cat "$work/low_score_fixtures.log" >&2
+    echo "ERROR: low-score fixture generation failed." >&2
+    exit 1
+fi
+cat "$work/low_score_fixtures.log"
+for name in bwa_T0 star; do
+    "$MINIMAP2_ENV_SAMTOOLS" sort -o "$low_fx/${name}.bam" "$low_fx/${name}.sam" 2> "$work/low_${name}.log" &&
+        "$MINIMAP2_ENV_SAMTOOLS" index "$low_fx/${name}.bam" 2>> "$work/low_${name}.log" || {
+        cat "$work/low_${name}.log" >&2; echo "ERROR: could not build the ${name} BAM fixture." >&2; exit 1; }
+done
+"$MINIMAP2_ENV_SAMTOOLS" view -C -T "$fixtures/synthetic_hg38.fa" -o "$low_fx/bwa_T0.cram" "$low_fx/bwa_T0.bam" \
+    2> "$work/low_cram.log" && "$MINIMAP2_ENV_SAMTOOLS" index "$low_fx/bwa_T0.cram" 2>> "$work/low_cram.log" || {
+    cat "$work/low_cram.log" >&2; echo "ERROR: could not build the bwa_T0 CRAM fixture." >&2; exit 1; }
+
+LOW_BWA_BAM=e2e_lowscore_bwa_bam
+LOW_BWA_CRAM=e2e_lowscore_bwa_cram
+LOW_STAR_BAM=e2e_lowscore_star_bam
+printf 'patient,alignment\n' > "$work/low_score_sheet.csv"
+printf '%s,%s\n' "$LOW_BWA_BAM" "$low_fx/bwa_T0.bam" >> "$work/low_score_sheet.csv"
+printf '%s,%s\n' "$LOW_BWA_CRAM" "$low_fx/bwa_T0.cram" >> "$work/low_score_sheet.csv"
+printf '%s,%s\n' "$LOW_STAR_BAM" "$low_fx/star.bam" >> "$work/low_score_sheet.csv"
+
+echo "Running the real pipeline on bwa -T 0 style input: wgs, bowtie2, low-score extraction left at its default (auto)"
+nf_low_log="$work/nextflow_low_score.log"
+(
+    cd "$work" && nextflow run "$repo_dir/main.nf" \
+        -work-dir "$work/work_low_score" \
+        -c "$work/e2e_local.config" \
+        --sample "$work/low_score_sheet.csv" \
+        --input_data_type auto \
+        --cram_reference "$fixtures/synthetic_hg38.fa" \
+        --sample_type wgs \
+        --profiling_method bowtie2 \
+        --hg38_db "$fixtures/hg38.mmi" \
+        --t2t_phix_db "$fixtures/t2t.mmi" \
+        --save_intermediates true \
+        --conda_cache_dir "$CONDA_CACHE_DIR" \
+        --outdir "$work/results_low_score"
+) > "$nf_low_log" 2>&1
+nf_low_status=$?
+
+if [[ $nf_low_status -ne 0 ]]; then
+    echo "ERROR: the real low-score extraction pipeline run failed (exit $nf_low_status). Last 60 lines:" >&2
+    tail -60 "$nf_low_log" >&2
+    echo "Full log: $nf_low_log" >&2
+    KEEP_WORK=1
+    exit 1
+fi
+
+echo "Low-score extraction pipeline finished. Checking real output values."
+if ! python3 "$repo_dir/tests/fixtures/assert_low_score_outputs.py" \
+        --results "$work/results_low_score" \
+        --expected "$low_fx/low_score_expected.json" \
+        --log "$nf_low_log" \
+        --bwa-bam "$LOW_BWA_BAM" \
+        --bwa-cram "$LOW_BWA_CRAM" \
+        --star-bam "$LOW_STAR_BAM"; then
+    echo "ERROR: low-score extraction output assertions failed. Results kept at: $work/results_low_score" >&2
+    KEEP_WORK=1
+    exit 1
+fi
+
+echo
+echo "e2e execution check passed (paired FASTQ, BAM, CRAM, single-end FASTQ, HMM profiling, a 5-sample cohort, and bwa -T 0 low-score extraction; positive/negative/broad/extensive/borderline fixtures)"
