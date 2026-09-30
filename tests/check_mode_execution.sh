@@ -25,6 +25,11 @@
 #   wgs + ont   3 kb pks and human long reads; fastplong, map-ont depletion against a FASTA,
 #               minimap2 profiling; untiered, targeted assembly switched off
 #   rna + ont   3 kb pks reads + spliced human long reads; -ax splice -j depletion
+#   normal_parity  the WES BAM under two names in one wgs run, one a tumour and one its
+#               matched normal (Ludmil, 26 Sep mode memo: "Process matched normals
+#               identically"): the same processes, byte-identical task scripts and tool
+#               records, and identical outputs and QC rows modulo the sample name
+#               (tests/fixtures/assert_normal_parity.py)
 #
 # tests/fixtures/assert_mode_outputs.py checks each run's real output: the evidence file
 # of that mode and no other, the counts, the preset the host pass really ran with (from
@@ -40,7 +45,7 @@ set -uo pipefail
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 CONDA_CACHE_DIR=${CONDA_CACHE_DIR:-/tscc/lustre/restricted/alexandrov-ddn/users/amabbasi/pksProfiler/conda_cache}
 GRCH38=${GRCH38:-/tscc/projects/ps-lalexandrov/shared/Reference_Genomes/GRCh38.d1.vd1/GRCh38.d1.vd1.fa}
-MODES=${MODES:-"wgs wgs_assembly wes rna metagenome wgs_ont rna_ont"}
+MODES=${MODES:-"wgs wgs_assembly wes rna metagenome wgs_ont rna_ont normal_parity"}
 
 for tool in nextflow python3; do
     if ! command -v "$tool" >/dev/null 2>&1; then
@@ -140,6 +145,10 @@ run_mode() {
         rna)     single_sheet "$sample" "$fixtures/rna_short.fastq.gz" > "$work/$mode.csv" ;;
         wgs_ont) single_sheet "$sample" "$fixtures/wgs_ont.fastq.gz" > "$work/$mode.csv" ;;
         rna_ont) single_sheet "$sample" "$fixtures/rna_ont.fastq.gz" > "$work/$mode.csv" ;;
+        normal_parity) printf 'patient,alignment\n%s,%s\n%s,%s\n' \
+                          parity_tumour "$fixtures/wes_input.bam" parity_normal "$fixtures/wes_input.bam" \
+                          > "$work/$mode.csv"
+                 input_type=bam ;;
     esac
     echo
     echo "=== $mode: nextflow run $*"
@@ -158,6 +167,15 @@ run_mode() {
         echo "ERROR: $mode run failed (exit $status). Last 40 lines:" >&2
         tail -40 "$work/nextflow_$mode.log" >&2
         failed+=("$mode"); KEEP_WORK=1; return
+    fi
+    if [[ "$mode" == "normal_parity" ]]; then
+        if python3 "$repo_dir/tests/fixtures/assert_normal_parity.py" --results "$work/results_$mode" \
+                --work-dir "$work/work_$mode" --tumour parity_tumour --normal parity_normal; then
+            passed+=("$mode ($((SECONDS - started))s)")
+        else
+            failed+=("$mode"); KEEP_WORK=1
+        fi
+        return
     fi
     if python3 "$repo_dir/tests/fixtures/assert_mode_outputs.py" --mode "$mode" \
             --results "$work/results_$mode" --work-dir "$work/work_$mode" --sample "$sample" \
@@ -191,6 +209,9 @@ for mode in $MODES; do
                         --rna_splice_db_long "$fixtures/human_slice.fa" \
                         --rna_junctions_bed "$fixtures/junctions.bed" \
                         --t2t_phix_db_long "$fixtures/synthetic_t2t_phix.fa" ;;
+        normal_parity) run_mode normal_parity --sample_type wgs --profiling_method bowtie2 \
+                        --save_intermediates true \
+                        --hg38_db "$fixtures/hg38.mmi" --t2t_phix_db "$fixtures/t2t.mmi" ;;
         *) echo "ERROR: unknown mode $mode" >&2; failed+=("$mode") ;;
     esac
 done

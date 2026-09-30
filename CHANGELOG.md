@@ -21,6 +21,15 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
   `RUN_REPORT.txt` (and `tool_versions` to the JSON record); it exits non-zero on a mismatch
   in strict mode. Checked on every mode and e2e execution run
   (`tests/fixtures/assert_tool_versions.py`); unit tests in `tests/test_tool_versions.py`.
+- Matched normals are processed identically to tumours, now tested (Ludmil, 26 Sep mode
+  memo). The pipeline carries no tumour/normal role: a row is `patient` plus its input, and
+  the identifier is only a name. `tests/test_matched_normal_parity.py` proves that by
+  construction (the sheet columns read, the per-sample tuple, no branch on an identifier, the
+  run-wide `tumor_*` parameters, and an enumerated list of every per-sample divergence, each
+  decided by the sample's own data under the same rule); `tests/check_mode_execution.sh`
+  mode `normal_parity` runs one synthetic BAM as a tumour and as its normal in one run and
+  requires identical processes, task scripts, tool records, outputs and QC rows modulo the
+  sample name.
 - E1 QC and provenance (Ludmil, 25 Sep): `extracted_low_score_mapped_reads`, `extracted_reads`,
   `extract_low_score_no_as_records` and `extract_low_score_mode` in `pks.qc.summary.tsv` (with an
   add-up check); `aligner_bwa_mem`, `bwa_min_score`, `extract_low_score_mapped`, `extract_min_as`

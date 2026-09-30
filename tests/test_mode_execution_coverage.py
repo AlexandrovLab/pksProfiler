@@ -37,7 +37,8 @@ class ModeExecutionCoverage(unittest.TestCase):
         self.assertNotIn("-preview", self.code)
 
     def test_every_mode_and_long_read_lane_is_run(self):
-        self.assertIn('MODES=${MODES:-"wgs wgs_assembly wes rna metagenome wgs_ont rna_ont"}', self.script)
+        self.assertIn('MODES=${MODES:-"wgs wgs_assembly wes rna metagenome wgs_ont rna_ont normal_parity"}',
+                      self.script)
         for mode, flags in (("wgs", "--sample_type wgs"), ("wes", "--sample_type wes"),
                             ("rna", "--sample_type rna"), ("metagenome", "--sample_type metagenome"),
                             ("wgs_ont", "--sample_type wgs --read_type ont"),
