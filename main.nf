@@ -362,6 +362,13 @@ params.extract_min_as           = 30
 params.min_gene_overlap_bp = 1
 params.conda_cache_dir = null   // pin conda envs outside the work dir; also read by the run report
 params.scripts = "${projectDir}/scripts"
+// F16 tool versions: every process that runs an external tool first records the version
+// and path of the binary it actually runs (scripts/record_tool_versions.sh, called via
+// lib/ToolVersions.groovy). strict stops the run (exit 78, 'terminate') when one ran
+// from outside the task's conda env or differs from its pin in conda_envs/*.yml -- the
+// minimap2 2.24-ahead-on-PATH case. warn records and reports it under TOOL VERSION
+// MISMATCH in RUN_REPORT.txt and carries on.
+params.tool_version_check = "strict"   // strict | warn
 
 // ---------------- Dependency digests (F15) ----------------
 // Nextflow hashes a task from its declared inputs and its rendered script. A reference,
@@ -521,6 +528,10 @@ def validateStageParams(Map flags) {
     // branch. wes and rna (then tumor_wes/tumor_rna) used to pass this check and match no branch,
     // so they ran generic profiling with no mode-specific handling. Refused, loudly,
     // until the WES (evidence-only) and RNA (splice-aware depletion) lanes exist.
+    def tool_version_problem = ToolVersions.validate(params.tool_version_check)
+    if (tool_version_problem) {
+        exit 1, tool_version_problem
+    }
     def valid_sample_types = ["metagenome", "wgs", "wes", "rna"]
     if (!(params.sample_type in valid_sample_types)) {
         exit 1, "Unknown --sample_type: ${params.sample_type}. Supported: ${valid_sample_types.join(', ')}"

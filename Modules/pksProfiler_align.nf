@@ -47,6 +47,8 @@ process pksProfiler_align {
     # pks_annotation ${params.dep_digest?.pks_annotation}  pks_genome ${params.dep_digest?.pks_genome}  scripts ${params.dep_digest?.scripts}
     # pks_reference_fasta ${params.dep_digest?.pks_reference_fasta}
 	    set -euo pipefail
+	    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+	    ${ToolVersions.record(task, params, (long_read ? 'minimap2' : 'bowtie2') + ' samtools featureCounts:subread bamCoverage:deeptools python')}
 
 	# Build and validate the exact manuscript-facing clbA-clbS annotation.
     awk -F '\t' '

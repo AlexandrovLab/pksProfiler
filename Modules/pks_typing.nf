@@ -17,6 +17,8 @@ process mlstTypeAssembly {
     script:
     """
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'mlst')}
     # An assembly below the floor cannot carry all seven housekeeping loci; emit an
     # empty result so downstream reports "insufficient" rather than skipping silently.
     bases=\$(grep -v '^>' "${assembly}" | tr -d '\\n' | wc -c)
@@ -47,6 +49,8 @@ process assignStrainType {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # scripts ${params.dep_digest?.scripts}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'python')}
     python "${params.scripts}/assign_strain_type.py" \\
         --mlst "${mlst_tsv}" \\
         --lookup "${params.st_phylogroup_lookup}" \\

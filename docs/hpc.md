@@ -196,10 +196,19 @@ requested resources with elapsed time, CPU utilization, peak RSS, and disk I/O.
 Nextflow executor documentation:
 <https://www.nextflow.io/docs/latest/executor.html>
 
-## Two things that catch people out
+## Three things that catch people out
 
 - **Nextflow needs Java 17 or newer on the compute nodes**, not only on the login node. A
   scheduler that exports your login environment can hide this until it suddenly does not.
 - **Give each concurrent run its own launch directory.** Nextflow keeps its session cache in
   the directory you launch from, not the work directory, so two pipelines started from one
   place will fight over the same session lock.
+- **Launch from a clean PATH.** Nextflow copies the launching shell's PATH into every task,
+  and conda activation keeps whatever sat ahead of the conda base in front of the task's
+  environment. A tool directory your `~/.bashrc` prepends -- on TSCC, a minimap2 2.24 -- then
+  runs instead of the pinned build. `nextflow.config` puts the conda base first before
+  activation, and every tool-running task checks the binaries it is about to run: with the
+  default `--tool_version_check strict` a tool from outside the task's env, or not its
+  pinned version, stops the run (exit 78) naming the binary and its path. What each task
+  ran is in `RUN_REPORT.txt` under **TOOL VERSIONS (as run)**. For an unattended driver,
+  start from `PATH=/usr/local/bin:/usr/bin:/bin`, source `conda.sh`, and add only Java.

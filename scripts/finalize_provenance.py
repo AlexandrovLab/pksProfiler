@@ -7,8 +7,8 @@ sample/data identifiers, tool versions, trace, and output checksums.
 The workflow writes the launch half (commit, parameters, reference digests,
 environment) before any task starts, so a run that dies still says what it was
 attempting. This adds what only exists afterwards -- outcome, which steps ran, the
-software conda actually installed, the samples, the output checksums -- and writes
-both forms:
+software conda installed, the tool versions each task actually ran (and whether they
+match their pins), the samples, the output checksums -- and writes both forms:
 
   runs/provenance/<sessionId>.json   authoritative, complete, machine-readable
   runs/RUN_REPORT.txt                the same run in reading order, appended per session
@@ -60,6 +60,11 @@ def parse_args():
     parser.add_argument("--cached", default=None)
     parser.add_argument("--failed", default=None)
     parser.add_argument("--ignored", default=None)
+    # F16: strict exits non-zero when a task ran a tool that is not its pinned build from
+    # its own conda env, or left no record of what it ran; warn only reports it.
+    parser.add_argument("--tool-version-check", default="strict", choices=("strict", "warn"))
+    parser.add_argument("--repo-dir", default=Path(__file__).resolve().parents[1], type=Path,
+                        help="pipeline source, to know which processes record tool versions")
     return parser.parse_args()
 
 
@@ -156,6 +161,241 @@ def conda_inventory(cache_dir):
     return inventory
 
 
+# ---------------------------------------------------------------- tool versions (F16)
+#
+# conda_inventory() above is what conda INSTALLED. What RAN is recorded by the task
+# itself: scripts/record_tool_versions.sh, rendered into every process that runs an
+# external tool by lib/ToolVersions.groovy, asks each binary on the task's PATH -- after
+# conda activation -- for its version and location, and writes the answer to the work
+# dir's .tool_versions.tsv. The two differ exactly when something earlier on PATH
+# shadows the environment: on TSCC a user minimap2 2.24 ran every host-depletion pass
+# while this report said 2.31 (29 Sep).
+
+TOOL_RECORD = ".tool_versions.tsv"
+# Statuses the task itself assigns that mean "not the pinned build from its own env".
+BLOCKING_STATUSES = ("OUTSIDE_ENV", "VERSION_MISMATCH", "NOT_FOUND", "NO_ENV")
+# A task that finished without a record, although its process records one.
+MISSING = "MISSING"
+# The binary that ran reports a version the environment's conda-meta does not hold.
+INSTALLED_MISMATCH = "INSTALLED_MISMATCH"
+RECORDED_STATUSES = ("COMPLETED", "CACHED")
+PROCESS_RE = re.compile(r"^\s*process\s+(\w+)\s*\{", re.M)
+ALIAS_RE = re.compile(r"\b(\w+)\s+as\s+(\w+)\b")
+
+
+def version_matches(observed, expected):
+    """True when `observed` is `expected` or a more specific release of it (x.y.z of x.y)."""
+    return observed == expected or observed.startswith(expected + ".")
+
+
+def conda_pins(env_file):
+    """{package: version} for the exact `- package=version` pins in a conda env yml."""
+    pins = {}
+    path = Path(env_file) if env_file else None
+    if not path or path.suffix not in (".yml", ".yaml") or not path.is_file():
+        return pins
+    for line in path.read_text().splitlines():
+        spec = line.split("#", 1)[0].strip()
+        if not spec.startswith("-"):
+            continue
+        spec = spec[1:].replace(" ", "").split("::")[-1]
+        match = re.match(r"^([A-Za-z0-9_.+-]+?)(==?)([^=<>!~,|]+)", spec)
+        if match:
+            pins[match.group(1)] = match.group(3).rstrip("*").rstrip(".")
+    return pins
+
+
+def recording_processes(repo_dir):
+    """
+    Names, as the trace shows them, of the processes that write a tool-version record:
+    the declared name of every process whose body calls ToolVersions.record, and every
+    `include { declared as alias }` of one (the trace records the alias).
+    """
+    names = set()
+    sources = sorted(Path(repo_dir).glob("Modules/*.nf")) + [Path(repo_dir) / "main.nf"]
+    texts = [p.read_text() for p in sources if p.is_file()]
+    for text in texts:
+        starts = [m for m in PROCESS_RE.finditer(text)]
+        for index, match in enumerate(starts):
+            end = starts[index + 1].start() if index + 1 < len(starts) else len(text)
+            if "ToolVersions.record(" in text[match.end():end]:
+                names.add(match.group(1))
+    for text in texts:
+        for include in re.findall(r"include\s*\{([^}]*)\}", text):
+            for declared, alias in ALIAS_RE.findall(include):
+                if declared in names:
+                    names.add(alias)
+    return names
+
+
+def task_work_dir(row, work_dir):
+    """The task's work directory: the trace's workdir column, else found from its hash."""
+    workdir = (row.get("workdir") or "").strip()
+    if workdir:
+        return Path(workdir)
+    task_hash = (row.get("hash") or "").strip()
+    if work_dir and "/" in task_hash:
+        hits = sorted(Path(work_dir).glob(f"{task_hash}*"))
+        if len(hits) == 1:
+            return hits[0]
+    return None
+
+
+def installed_version(conda_prefix, package, inventory):
+    """What conda-meta says the task's own environment holds for `package`."""
+    if not conda_prefix:
+        return None
+    name = Path(conda_prefix).name
+    if name not in inventory:
+        # Not under --conda-cache-dir (a hand run, or an env given as a path): read its
+        # own conda-meta the same way conda_inventory() does.
+        packages = {}
+        for meta in sorted((Path(conda_prefix) / "conda-meta").glob("*.json")):
+            parts = meta.stem.rsplit("-", 2)
+            if len(parts) == 3:
+                packages[parts[0]] = parts[1]
+        inventory[name] = packages
+    return inventory[name].get(package)
+
+
+def collect_tool_versions(trace_file, work_dir, repo_dir, inventory, mode="strict"):
+    """
+    Read every task's record, compare it with its pin and with what conda installed, and
+    say what does not agree.
+
+    Returns {"check", "tools", "problems", "tasks_recorded", "tasks_unreadable"}.
+    `tools` has one row per distinct (tool, version, path, environment); `problems` one
+    per distinct problem, each with the processes and task count it covers.
+    """
+    summary = {"check": mode, "tools": [], "problems": [],
+               "tasks_recorded": 0, "tasks_unreadable": 0}
+    if not trace_file or not Path(trace_file).is_file():
+        return summary
+    recording = recording_processes(repo_dir)
+    pins_by_env = {}
+    tools, problems = {}, {}
+
+    def problem(status, key, detail, process):
+        entry = problems.setdefault((status,) + key, {"status": status, "detail": detail,
+                                                      "processes": set(), "tasks": 0})
+        entry["processes"].add(process)
+        entry["tasks"] += 1
+
+    with Path(trace_file).open() as handle:
+        for row in csv.DictReader(handle, delimiter="\t"):
+            name = (row.get("name") or "").strip()
+            process = name.split(" (")[0].strip()
+            status = (row.get("status") or "").strip()
+            simple = process.rsplit(":", 1)[-1]
+            directory = task_work_dir(row, work_dir)
+            record = directory / TOOL_RECORD if directory else None
+            if record is None or not directory.is_dir():
+                if simple in recording and status in RECORDED_STATUSES:
+                    summary["tasks_unreadable"] += 1
+                continue
+            if not record.is_file():
+                if simple in recording and status in RECORDED_STATUSES:
+                    problem(MISSING, (simple,),
+                            f"{simple}: finished without a tool-version record "
+                            f"(e.g. {directory})", simple)
+                continue
+            summary["tasks_recorded"] += 1
+            with record.open(newline="") as rec:
+                for entry in csv.DictReader(rec, delimiter="\t"):
+                    tool = entry.get("tool", "")
+                    package = entry.get("package") or tool
+                    version = entry.get("version", "")
+                    path = entry.get("path", "")
+                    prefix = entry.get("conda_prefix", "")
+                    env_file = entry.get("env", "")
+                    if env_file not in pins_by_env:
+                        pins_by_env[env_file] = conda_pins(env_file)
+                    pinned = pins_by_env[env_file].get(package, entry.get("pinned", ""))
+                    installed = installed_version(prefix, package, inventory) or ""
+                    task_status = entry.get("status", "")
+
+                    # The task judged against the yml it was given; judge again here,
+                    # against the same yml, and against what conda installed.
+                    verdict = task_status
+                    if task_status not in BLOCKING_STATUSES:
+                        if pinned and version and not version_matches(version, pinned):
+                            verdict = "VERSION_MISMATCH"
+                        elif installed and version and not (version_matches(installed, version)
+                                                            or version_matches(version, installed)):
+                            verdict = INSTALLED_MISMATCH
+
+                    key = (tool, version, path, prefix)
+                    row_out = tools.setdefault(key, {
+                        "tool": tool, "package": package, "version": version,
+                        "pinned": pinned, "installed": installed, "path": path,
+                        "conda_prefix": prefix, "env": env_file, "status": verdict,
+                        "raw": entry.get("raw", ""), "processes": set(), "tasks": 0})
+                    row_out["processes"].add(simple)
+                    row_out["tasks"] += 1
+
+                    if verdict in BLOCKING_STATUSES:
+                        where = f"from {path}" if path else "not on PATH"
+                        detail = {
+                            "OUTSIDE_ENV": f"{tool} {version or '(version unread)'} ran {where}, "
+                                           f"outside the task's conda env {prefix}"
+                                           + (f"; pinned {package}={pinned}" if pinned else ""),
+                            "VERSION_MISMATCH": f"{tool} reports {version} {where}; "
+                                                f"{Path(env_file).name or 'its env'} pins "
+                                                f"{package}={pinned}",
+                            "NOT_FOUND": f"{tool} was not on the task's PATH",
+                            "NO_ENV": f"{tool} {version} ran {where} with no conda env active",
+                        }[verdict]
+                        problem(verdict, key, detail, simple)
+                    elif verdict == INSTALLED_MISMATCH:
+                        problem(verdict, key,
+                                f"{tool} reports {version} {('from ' + path) if path else ''}, "
+                                f"but conda installed {package} {installed} in {prefix}", simple)
+
+    summary["tools"] = [dict(row, processes=sorted(row["processes"]))
+                        for _key, row in sorted(tools.items())]
+    summary["problems"] = [dict(entry, processes=sorted(entry["processes"]))
+                           for _key, entry in sorted(problems.items())]
+    return summary
+
+
+def render_tool_versions(summary):
+    """RUN_REPORT's TOOL VERSIONS section, and TOOL VERSION MISMATCH when there is one."""
+    lines = section("TOOL VERSIONS (as run)")
+    tools = summary.get("tools") or []
+    if not tools:
+        lines.append("  no task left a tool-version record (a run from before F16, or no trace)")
+    else:
+        lines.append("  reported by each binary from inside its task, after conda activation"
+                     " (per task: <work dir>/.tool_versions.tsv)")
+        lines.append(f"    {'tool':<34}{'version':<11}{'pinned':<10}{'installed':<11}"
+                     f"{'tasks':>6}   ran from")
+        for row in tools:
+            prefix = row.get("conda_prefix") or ""
+            path = row.get("path") or "-"
+            where = (f"env {Path(prefix).name}" if prefix and path.startswith(prefix.rstrip("/") + "/")
+                     else path)
+            flag = "" if row["status"] in ("ok", "unpinned", "version_unread") else f"   {row['status']}"
+            lines.append(f"    {row['tool']:<34}{row['version'] or '?':<11}{row['pinned'] or '-':<10}"
+                         f"{row['installed'] or '-':<11}{row['tasks']:>6}   {where}{flag}")
+    if summary.get("tasks_unreadable"):
+        lines.append(f"  {summary['tasks_unreadable']} task(s) could not be checked: their work"
+                     " directory was not found (cleaned up, or another machine)")
+
+    problems = summary.get("problems") or []
+    if problems:
+        lines += section("TOOL VERSION MISMATCH")
+        if summary.get("check") == "strict":
+            lines.append("  --tool_version_check strict: a task that finds one of these stops the"
+                         " run (exit 78)")
+        else:
+            lines.append("  --tool_version_check warn: the run carried on; these results were NOT"
+                         " produced by the pinned tools")
+        for entry in problems:
+            lines.append(f"  {entry['status']:<20}{entry['detail']}")
+            lines.append(f"  {'':<20}{', '.join(entry['processes'])}; {entry['tasks']} task(s)")
+    return lines
+
+
 def sample_identifiers(sheet_path):
     """
     Which samples went in. F16 asks for sample/data identifiers, and the sheet path
@@ -229,7 +469,9 @@ PARAMETER_GROUPS = (
                    "hg38_db_long", "rna_splice_db_long", "t2t_phix_db_long",
                    "t2t_phix_db", "pangenome_db", "kraken_db", "genomad_db",
                    "gtdbtk_db", "checkm2_db", "bracken_read_length")),
-    ("RESOURCES", ("max_cpus", "max_memory", "max_time", "conda_cache_dir")),
+    ("RESOURCES", ("max_cpus", "max_memory", "max_time", "conda_cache_dir",
+                   # F16: what a tool-version mismatch does to the run.
+                   "tool_version_check")),
 )
 
 
@@ -479,6 +721,10 @@ def render(record):
             lines.append(f"    {key:<38}{environment[key]}")
     if software:
         lines.append(f"  ({len(software)} conda environments; every package is in the JSON record)")
+        lines.append("  what conda installed; what each task actually ran is under TOOL VERSIONS")
+
+    # ---- TOOL VERSIONS (F16) ----
+    lines += render_tool_versions(record.get("tool_versions") or {})
 
     # ---- WHAT RAN ----
     steps = record.get("steps") or []
@@ -589,6 +835,9 @@ def main():
         ("succeeded", args.succeeded), ("cached", args.cached),
         ("failed", args.failed), ("ignored", args.ignored)) if value not in (None, "")}
     record["software"] = conda_inventory(args.conda_cache_dir)
+    record["tool_versions"] = collect_tool_versions(
+        args.trace_file, invocation.get("work_dir"), args.repo_dir,
+        dict(record["software"]), args.tool_version_check)
     record["outputs"] = {"cohort_files": cohort_checksums(args.cohort_dir)}
     record["input_headers"] = input_header_summary(args.cohort_dir,
                                                    (record.get("run") or {}).get("started"))
@@ -596,9 +845,18 @@ def main():
 
     target.write_text(json.dumps(record, indent=2) + "\n")
 
+    tool_problems = record["tool_versions"]["problems"]
+    for entry in tool_problems:
+        print(f"[provenance] TOOL VERSION MISMATCH {entry['status']}: {entry['detail']}",
+              file=sys.stderr)
+    # strict: a mismatch is a failure of the run's provenance, and says so in the exit
+    # status for anyone running this by hand or from a driver script. (Nextflow ignores
+    # an onComplete handler's status; there the task itself already stopped the run.)
+    status = 1 if tool_problems and args.tool_version_check == "strict" else 0
+
     if already_recorded:
         print(f"[provenance] {target} (already reported, history not appended again)")
-        return 0
+        return status
 
     report_text = render(record)
     unknown = unknown_parameter_names((record.get("invocation") or {}).get("params") or {})
@@ -617,7 +875,7 @@ def main():
     (history_dir / f"{index:02d}-{args.session}.txt").write_text(report_text)
 
     print(f"[provenance] {(args.outdir / 'RUN_REPORT.txt') if args.outdir else history_dir}")
-    return 0
+    return status
 
 
 if __name__ == "__main__":

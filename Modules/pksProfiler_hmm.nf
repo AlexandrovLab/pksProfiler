@@ -31,6 +31,8 @@ process pksProfiler_hmm {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # hmm_model ${params.dep_digest?.hmm_model}  scripts ${params.dep_digest?.scripts}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'seqtk seqkit nhmmscan:hmmer python3:python')}
 
     if ! gzip -t "${reads}" >/dev/null 2>&1; then
         echo "ERROR: Corrupt gzip input for ${sampleID}: ${reads}" >&2

@@ -45,6 +45,8 @@ process mapReads {
     # rna_splice_db ${params.dep_digest?.rna_splice_db}  rna_junctions_bed ${params.dep_digest?.rna_junctions_bed}
     # hg38_db_long ${params.dep_digest?.hg38_db_long}  t2t_phix_db_long ${params.dep_digest?.t2t_phix_db_long}  rna_splice_db_long ${params.dep_digest?.rna_splice_db_long}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'minimap2 samtools bgzip:htslib')}
 
     if ! gzip -t "${reads_fastq}" >/dev/null 2>&1; then
         echo "ERROR: Corrupt gzip input for ${sampleID}: ${reads_fastq}" >&2

@@ -15,6 +15,9 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from assert_tool_versions import check_tool_versions  # noqa: E402
+
 FAILURES = []
 
 
@@ -264,6 +267,9 @@ def main():
     if mode == "wgs_ont" and a.log:
         check("the run logged that targeted assembly was switched off",
               "targeted recruitment and assembly switched off" in a.log.read_text(errors="replace"))
+
+    # ---- F16: what ran is what was pinned, and RUN_REPORT says so ----
+    check_tool_versions(a.results, a.work_dir, check)
 
     print()
     if FAILURES:

@@ -302,7 +302,8 @@ no JavaScript, so it also renders inside a sandboxed viewer such as JupyterLab.
 
 **What produced these numbers?** — `RUN_REPORT.txt`, at the top of the results tree: the
 commit, the flags actually typed, which stages were enabled, digests of every reference and
-database, tool versions as conda installed them, which tasks ran, cached or failed with a path
+database, the version and path of every tool each task actually ran (checked against its
+pin; a mismatch stops the run by default), which tasks ran, cached or failed with a path
 to each failure's log, and checksums of the cohort tables. Every run keeps its own copy under
 `runs/reports/`, so a `-resume`d tree carries the history of all the runs that built it.
 
@@ -311,9 +312,10 @@ to each failure's log, and checksums of the cohort tables. Every run keeps its o
 Swap `-profile local` for your scheduler and add `-resume` so an interrupted run continues rather
 than restarting. Profiles for TSCC, Biowulf, Slurm, PBS Pro, LSF and SGE are in [`conf/`](conf).
 
-Two things that catch people out: **Java 17+ must be present on the compute nodes**, not just the
-login node, and concurrent runs each need their own launch directory or they will collide on
-Nextflow's session lock. Resource requests are sized from a measured 2,000-sample run rather than
+Three things that catch people out: **Java 17+ must be present on the compute nodes**, not just the
+login node, concurrent runs each need their own launch directory or they will collide on
+Nextflow's session lock, and a tool directory your shell puts ahead of conda on PATH shadows
+the pinned environments (every task checks, and stops the run if so). Resource requests are sized from a measured 2,000-sample run rather than
 guessed, and every request keeps a `* task.attempt` multiplier so a task that genuinely needs more
 gets it on retry. See the [HPC guide](docs/hpc.md).
 

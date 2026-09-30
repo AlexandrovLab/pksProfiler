@@ -144,6 +144,8 @@ process alignConcatenatedIndex {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # v8a_panel ${params.dep_digest?.pks_specificity_panel}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'minimap2')}
     # -p 0.1 (default is 0.8): a decoy-side hit far weaker than the primary would
     # otherwise be dropped as "not a real secondary candidate", but Arm B needs
     # AS_best(decoy) reported whenever any alignment to the decoy family exists at
@@ -174,6 +176,8 @@ process alignSeparateIndices {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # v8a_panel ${params.dep_digest?.pks_specificity_panel}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'minimap2')}
     minimap2 -a -x sr -t "${task.cpus}" "${params.pks_specificity_true_index}" "${reads_fastq}" \
         > "${sampleID}.b2_true.sam"
     minimap2 -a -x sr -t "${task.cpus}" "${params.pks_specificity_decoy_index}" "${reads_fastq}" \
@@ -185,7 +189,11 @@ process scoreCompetitiveRealignment {
     label 'sample_stage'
     tag "$sampleID"
     publishDir { "${params.sample_dir}/${sampleID}/locus_specificity" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
-    conda "${params.pks_specificity_minimap2_env}"
+    // pks_align_env, not the minimap2 env of the two alignment steps above: this runs
+    // python3 (and samtools through it), and minimap2_env.yml has no python, so python3
+    // came from whatever the launching shell had on PATH. Found by the F16 tool-version
+    // record (30 Sep), which refuses exactly that.
+    conda "${params.pks_align_env}"
 
     input:
     tuple val(sampleID), path(b1_sam), path(b2_true_sam), path(b2_decoy_sam)
@@ -198,6 +206,8 @@ process scoreCompetitiveRealignment {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # scripts ${params.dep_digest?.scripts}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'python3:python samtools')}
     python3 "${params.scripts}/competitive_realign_score.py" \
         --b1-sam "${b1_sam}" \
         --b2-true-sam "${b2_true_sam}" \
@@ -237,6 +247,8 @@ process computeLocusSpecificityVerdict {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # scripts ${params.dep_digest?.scripts}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'python3:python')}
     python3 "${params.scripts}/specificity_decision.py" \
         --sample "${sampleID}" \
         --read-evidence "${read_evidence_tsv}" \

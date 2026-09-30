@@ -24,6 +24,8 @@ process plotBrackenTaxa {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # scripts ${params.dep_digest?.scripts}
   set -euo pipefail
+  # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+  ${ToolVersions.record(task, params, 'python3:python')}
   case "${scope}" in pks_island|community) ;; *) echo "unknown taxa plot scope: ${scope}" >&2; exit 1 ;; esac
 
   python3 "${params.scripts}/plot_bracken_taxa.py" \

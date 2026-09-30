@@ -236,6 +236,14 @@ if ! python3 "$repo_dir/tests/fixtures/assert_e2e_outputs.py" \
     KEEP_WORK=1
     exit 1
 fi
+# F16: every tool-running task recorded the build it ran, from its own pinned env, and
+# RUN_REPORT.txt compared them and found no mismatch.
+if ! python3 "$repo_dir/tests/fixtures/assert_tool_versions.py" \
+        --results "$work/results" --work-dir "$work/work"; then
+    echo "ERROR: runtime tool-version assertions failed. Results kept at: $work/results" >&2
+    KEEP_WORK=1
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------------
 # Second input form: the same two read sets, packaged as BAM instead of FASTQ, through

@@ -19,6 +19,8 @@ process krakenPrefilter {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # kraken_db ${params.dep_digest?.kraken_db}  scripts ${params.dep_digest?.scripts}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'krakenuniq python')}
     NODES="${params.kraken_db}/taxonomy/nodes.dmp"
     if [[ ! -s "\$NODES" ]]; then
       NODES="${params.kraken_db}/taxDB"
@@ -47,6 +49,8 @@ process buildClbDiamondDb {
     script:
     """
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'diamond')}
     diamond makedb --in "${clb_proteins}" --db clb_reference
     """
 }
@@ -70,6 +74,8 @@ process diamondRescue {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # scripts ${params.dep_digest?.scripts}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'diamond python')}
     if [[ \$(gzip -dc "${reads}" | wc -l) -eq 0 ]]; then
       : > "${sampleID}.diamond.tsv"
     else
@@ -115,6 +121,8 @@ process diamondRescueTaxonomy {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # kraken_db ${params.dep_digest?.kraken_db}  scripts ${params.dep_digest?.scripts}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'python')}
     python "${params.scripts}/summarize_diamond_rescue_taxonomy.py" \
       --sample "${sampleID}" --diamond "${diamond_matches}" \
       --kraken-output "${kraken_output}" --kraken-db "${params.kraken_db}" \
@@ -168,6 +176,8 @@ process sampleBracken {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # kraken_db ${params.dep_digest?.kraken_db}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'bracken')}
 
     # Ludmil, revised report finding 4: this called bracken -t 2 unconditionally.
     # Bracken itself fails when no taxon at the requested rank reaches its read

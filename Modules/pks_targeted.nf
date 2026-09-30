@@ -31,6 +31,8 @@ process classifyPksReadEvidence {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # scripts ${params.dep_digest?.scripts}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'samtools python')}
     # Ludmil, revised report finding 6: pks_shift+1 dropped the true first base of
     # the island. pks_start_1based/pks_end_1based are already correct 1-based
     # inclusive bounds; --island-length must match the row count this now produces
@@ -66,6 +68,8 @@ process targetedPksRecruit {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # pks_recruit_index ${params.dep_digest?.pks_recruit_index}  scripts ${params.dep_digest?.scripts}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'bowtie2 python')}
     # Ludmil, 25 Sep A1: default best-alignment reporting (no -k 1), so MAPQ means something
     # and recover_recruited_mates.py can hold every read to --min-mapq.
     bowtie2 --very-sensitive-local --no-unal --threads ${task.cpus} -x "${params.pks_recruit_index}" -U "${reads}" -S "${sampleID}.pks_recruitment.sam"
@@ -87,6 +91,8 @@ process targetedPksMegahit {
     script:
     """
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'megahit')}
     pairs=\$(gzip -dc "${r1}" | awk 'END {print int(NR/4)}')
     singles=\$(gzip -dc "${single}" | awk 'END {print int(NR/4)}')
     if [[ \$pairs -eq 0 && \$singles -eq 0 ]]; then : > "${sampleID}.targeted_megahit.contigs.fa"; exit 0; fi
@@ -112,6 +118,8 @@ process targetedPksSpades {
     script:
     """
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'metaspades.py:spades')}
     pairs=\$(gzip -dc "${r1}" | awk 'END {print int(NR/4)}')
     singles=\$(gzip -dc "${single}" | awk 'END {print int(NR/4)}')
     if [[ \$pairs -eq 0 && \$singles -eq 0 ]]; then : > "${sampleID}.targeted_metaspades.contigs.fa"; exit 0; fi
@@ -149,6 +157,8 @@ process alignTargetedContigsToCanonicalReference {
     script:
     """
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'minimap2')}
     paf="${sampleID}.${assembler}.vs_IHE3034.paf"
     if [[ -s "${contigs}" ]]; then minimap2 -x asm10 -c -t ${task.cpus} "${reference}" "${contigs}" > "\$paf"; else : > "\$paf"; fi
     """
@@ -172,6 +182,8 @@ process summarizeTargetedPksEvidence {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # pks_annotation ${params.dep_digest?.pks_annotation}  pks_reference_fasta ${params.dep_digest?.pks_reference_fasta}  scripts ${params.dep_digest?.scripts}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'python')}
     # Ludmil, revised report finding 6: island-start/-end here are 0-based half-open
     # (PAF's own convention -- summarize_tumor_pks_contigs.py takes ts/te straight
     # from PAF fields with no adjustment), so the correct conversion from the

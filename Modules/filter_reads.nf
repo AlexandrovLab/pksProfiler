@@ -59,6 +59,8 @@ process filterReads {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # adapters ${params.dep_digest?.adapters}
 	set -euo pipefail
+	# F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+	${ToolVersions.record(task, params, long_read ? 'fastplong' : 'fastp')}
 
 	FILTERED="${sampleID}.UNMAPPED.FASTP.FILTERED.fastq.gz"
 	FASTP_JSON="${sampleID}.fastp.json"

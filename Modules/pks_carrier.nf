@@ -73,6 +73,8 @@ process alignCarrierPanel {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # v8b_panel ${params.dep_digest?.pks_carrier_panel}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'minimap2')}
     # Every panel member carries the island, so a read's alignments to different carriers
     # are near-identical by construction and minimap2's default -p 0.8 secondary filter
     # would drop most of them -- leaving one arbitrary winner and no runner-up to measure
@@ -103,6 +105,8 @@ process attributeCarrier {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # scripts ${params.dep_digest?.scripts}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'python3:python')}
     python3 "${params.scripts}/carrier_attribution.py" \
         --sample "${sampleID}" \
         --sam "${carrier_sam}" \

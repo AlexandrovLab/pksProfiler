@@ -6,6 +6,21 @@ Extends the immutable v0.0.1 release with island reassembly, genome-resolved ana
 strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 
 **Added**
+- **Runtime tool versions, checked against their pins** (F16, "tool versions"). RUN_REPORT's
+  SOFTWARE section listed what conda installed; on TSCC a user minimap2 2.24 earlier on PATH
+  ran every host-depletion pass while it said 2.31. Every process that runs an external tool
+  now starts with `scripts/record_tool_versions.sh` (rendered by `lib/ToolVersions.groovy`),
+  which asks each binary on the task's PATH, after conda activation, for its version and
+  location and writes `<work dir>/.tool_versions.tsv`. `--tool_version_check strict`
+  (default) stops the run (exit 78, `terminate` in `conf/base.config`) when a tool ran from
+  outside the task's conda env, is not the version its `conda_envs/*.yml` pins, or is not on
+  PATH; `warn` records and carries on. `finalize_provenance.py` reads every task's record
+  through the trace's new `workdir` column (cached tasks included), compares it again with
+  the yml pins and the env's conda-meta, and writes **TOOL VERSIONS (as run)** and, when
+  anything disagrees or a tool-running task left no record, **TOOL VERSION MISMATCH** to
+  `RUN_REPORT.txt` (and `tool_versions` to the JSON record); it exits non-zero on a mismatch
+  in strict mode. Checked on every mode and e2e execution run
+  (`tests/fixtures/assert_tool_versions.py`); unit tests in `tests/test_tool_versions.py`.
 - E1 QC and provenance (Ludmil, 25 Sep): `extracted_low_score_mapped_reads`, `extracted_reads`,
   `extract_low_score_no_as_records` and `extract_low_score_mode` in `pks.qc.summary.tsv` (with an
   add-up check); `aligner_bwa_mem`, `bwa_min_score`, `extract_low_score_mapped`, `extract_min_as`
@@ -180,6 +195,10 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 - nf-core template placeholders and the unused `input` parameter.
 
 **Fixed**
+- `scoreCompetitiveRealignment` (V8a) ran `python3` in `minimap2_env.yml`, which has no python,
+  so it used whichever python the launching shell had. It now runs in `pks_align_env`
+  (python 3.10, samtools 1.21), like the verdict step after it. Found by the tool-version
+  record's construction test.
 - An unaligned BAM/CRAM (no `@SQ` header lines) failed extraction with `samtools quickcheck`'s
   bare "had no targets in header". `extractReads` now says it is unaligned and to run it as
   FASTQ; documented in the README input section and `docs/running/bam.md`.

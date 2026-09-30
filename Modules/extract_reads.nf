@@ -31,6 +31,8 @@ process extractReads {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # cram_reference ${params.dep_digest?.cram_reference}  scripts ${params.dep_digest?.scripts}
 	set -euo pipefail
+	# F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+	${ToolVersions.record(task, params, 'samtools bgzip:htslib python')}
 
 		READS="${sampleID}.UNMAPPED.fastq.gz"
 		QC="${sampleID}.extract.qc.tsv"
@@ -264,6 +266,8 @@ process inputHeaderSummary {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # scripts ${params.dep_digest?.scripts}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'python')}
     python "${params.scripts}/header_provenance.py" summarize \
         --inputs-file "${file_list}" \
         --table input_headers.tsv \

@@ -37,6 +37,8 @@ process pairDepletedReads {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # scripts ${params.dep_digest?.scripts}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'python')}
     python "${params.scripts}/recover_recruited_mates.py" --all-reads \\
         --fastq "${reads_list[0]}" \\
         --r1 "${sampleID}.pairs.R1.fastq.gz" --r2 "${sampleID}.pairs.R2.fastq.gz" \\
@@ -69,6 +71,8 @@ process megahitAssemble {
     // only when it has reads, since MEGAHIT refuses an empty input file.
     """
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'megahit')}
     pairs=\$(gzip -dc "${r1}" | awk 'END {print int(NR/4)}')
     singles=\$(gzip -dc "${single}" | awk 'END {print int(NR/4)}')
     args=()
@@ -105,6 +109,8 @@ process alignToContigs {
     // on their own; the two sorted BAMs are merged, so MetaBAT2's depths count every read.
     """
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'minimap2 samtools')}
     pairs=\$(gzip -dc "${r1}" | awk 'END {print int(NR/4)}')
     singles=\$(gzip -dc "${single}" | awk 'END {print int(NR/4)}')
     parts=()
@@ -146,6 +152,8 @@ process jgiContigDepths {
     script:
     """
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'jgi_summarize_bam_contig_depths:metabat2')}
     jgi_summarize_bam_contig_depths --outputDepth ${sampleID}.depth.txt ${bam}
     """
 }
@@ -188,6 +196,8 @@ process metabat2Bin {
     script:
     """
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'metabat2')}
     mkdir -p bins
 
     CONTIG_COUNT=\$(grep -c '^>' "${contigs}" || true)
@@ -232,6 +242,8 @@ process checkm2Predict {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # checkm2_db ${params.dep_digest?.checkm2_db}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'checkm2')}
     mkdir -p bin_input
     for b in ${bins}; do ln -s \$(realpath \$b) bin_input/; done
     checkm2 predict --threads ${task.cpus} \
@@ -262,6 +274,8 @@ process gtdbtkClassify {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # gtdbtk_db ${params.dep_digest?.gtdbtk_db}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'gtdbtk')}
     mkdir -p bin_input gtdbtk_out
     for b in ${bins}; do ln -s \$(realpath \$b) bin_input/; done
     GTDBTK_DATA_PATH=${params.gtdbtk_db} gtdbtk classify_wf \
@@ -332,6 +346,8 @@ process prokkaAnnotate {
     script:
     """
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'prokka')}
     prokka --outdir prokka_out --prefix ${binID} \
         --metagenome --cpus ${task.cpus} --force --quiet \
         ${bin_fa}
@@ -358,6 +374,8 @@ process hmmsearchClb {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # clb_protein_hmm ${params.dep_digest?.clb_protein_hmm}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'hmmsearch:hmmer')}
     hmmsearch --cpu ${task.cpus} \
         --tblout ${binID}.tblout \
         -E ${params.hmm_protein_evalue} \
@@ -402,6 +420,8 @@ process alignMagBinToCanonicalReference {
     script:
     """
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'minimap2')}
     paf="${unitID}.vs_IHE3034.paf"
     if [[ -s "${unit_fa}" ]]; then
         minimap2 -x asm10 -c -t ${task.cpus} "${reference}" "${unit_fa}" > "\$paf"
@@ -429,6 +449,8 @@ process magBinLocusEvidence {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # pks_annotation ${params.dep_digest?.pks_annotation}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'python')}
     # Ludmil, revised report finding 6: island-start/-end here are 0-based
     # half-open (PAF's own convention, matching summarize_tumor_pks_contigs.py) --
     # the correct conversion from the 1-based inclusive annotation is
@@ -475,6 +497,8 @@ process genomadProphages {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # genomad_db ${params.dep_digest?.genomad_db}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'genomad')}
     genomad end-to-end --cleanup --threads ${task.cpus} --splits ${task.cpus} \
         ${bin_fa} genomad_out ${params.genomad_db}
     summary=\$(find genomad_out -type f -name '*_virus_summary.tsv' -print -quit)
@@ -508,6 +532,8 @@ process communityProphageSummary {
     script:
     """
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'python')}
     mkdir -p gff_dir tblout_dir genomad_dir locus_dir
     for f in ${gffs}; do ln -s \$(realpath \$f) gff_dir/; done
     for f in ${tblouts}; do ln -s \$(realpath \$f) tblout_dir/; done
@@ -548,6 +574,8 @@ process extractGenomicContext {
     script:
     """
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'python')}
     python ${projectDir}/scripts/extract_genomic_context.py \
         --gff ${gff} \
         --tblout ${tblout} \
@@ -609,6 +637,8 @@ process magSummaryTable {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # pks_reference_fasta ${params.dep_digest?.pks_reference_fasta}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'python')}
     mkdir -p tblout_dir context_dir locus_dir
     for f in ${tblouts}; do ln -s "\$(realpath "\$f")" "tblout_dir/\$(basename "\$f")"; done
     for f in ${contexts}; do ln -s "\$(realpath "\$f")" "context_dir/\$(basename "\$f")"; done

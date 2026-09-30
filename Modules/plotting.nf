@@ -21,6 +21,8 @@ process plotPKS {
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # pks_cytoband ${params.dep_digest?.pks_cytoband}  scripts ${params.dep_digest?.scripts}
+	# F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+	${ToolVersions.record(task, params, 'Rscript:r-base')}
 	coverage_basename="\$(basename "${coverage_file}")"
 	sample_name="\${coverage_basename%.coverage.bedgraph}"
 	output_pdf="\${sample_name}.pks.circos.pdf"
@@ -54,6 +56,8 @@ process masterTableAlign {
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # scripts ${params.dep_digest?.scripts}
+	# F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+	${ToolVersions.record(task, params, 'python')}
 	echo "Building Gene-by-Sample alignment summary"
     python "${params.scripts}/mergeGeneCounts.py" \
         --manifest "${manifest}" \
@@ -80,6 +84,8 @@ process masterTableHMM {
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # scripts ${params.dep_digest?.scripts}
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'python3:python')}
     python3 "${params.scripts}/build_hmm_matrix.py" \
       --manifest "${manifest}" \
       --out pks.gene.counts.hmm.txt
@@ -107,6 +113,8 @@ process masterQCSummary {
     // limit on a cohort of this size. The fragments arrive as one list file.
     """
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'python3:python')}
 
     python3 "${qc_script}" \
         --inputs-file "${fragment_list}" \
@@ -155,6 +163,8 @@ process cohortReport {
     // row its mode, including one whose evidence file never arrived.
     """
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'python3:python')}
     python3 "${report_script}" \
         --inputs-manifest "${inputs_manifest}" \
         --output pks_cohort_report.html \
@@ -192,6 +202,8 @@ process masterSummary {
     // passes it. expected_samples filters to the run's own samples.
     """
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'python3:python')}
     python3 "${report_script}" \
         --inputs-manifest "${inputs_manifest}" \
         --output pks.master_summary.tsv \

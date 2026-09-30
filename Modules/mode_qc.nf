@@ -28,6 +28,8 @@ process wesInputQC {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # cram_reference ${params.dep_digest?.cram_reference}  wes_capture_bed ${params.dep_digest?.wes_capture_bed}  scripts ${params.dep_digest?.scripts}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'samtools python')}
 
     FORMAT="\$(htsfile "${alignment}" 2>/dev/null || true)"
     REFERENCE_ARGS=()
@@ -77,6 +79,8 @@ process wesPksDuplicates {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # scripts ${params.dep_digest?.scripts}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'samtools python')}
     samtools view -F 2308 "${bam}" \
         "${params.pks_contig}:${params.pks_start_1based}-${params.pks_end_1based}" |
         python "${params.scripts}/pks_duplicate_rate.py" --sample "${sampleID}" \
@@ -113,6 +117,8 @@ process rnaResidualHuman {
     # rna_splice_db ${params.dep_digest?.rna_splice_db}  rna_junctions_bed ${params.dep_digest?.rna_junctions_bed}
     # rna_splice_db_long ${params.dep_digest?.rna_splice_db_long}  scripts ${params.dep_digest?.scripts}
     set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'minimap2 python')}
 
     python "${params.scripts}/rna_residual_human.py" subsample --input "${reads}" \
         --cap ${params.rna_residual_human_sample_reads} \

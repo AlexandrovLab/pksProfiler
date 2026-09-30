@@ -18,6 +18,8 @@ process extractPksIslandReads {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # pks_annotation ${params.dep_digest?.pks_annotation}  scripts ${params.dep_digest?.scripts}
   set -euo pipefail
+  # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+  ${ToolVersions.record(task, params, 'samtools bedtools python3:python')}
 
   # Ludmil, revised report finding 6: this was already the correct 0-based BED
   # conversion of the 1-based annotation (pks_shift-1 .. pks_shift+len) -- the
@@ -90,6 +92,8 @@ process Bracken {
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # kraken_db ${params.dep_digest?.kraken_db}  scripts ${params.dep_digest?.scripts}
   set -euo pipefail
+  # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+  ${ToolVersions.record(task, params, 'krakenuniq bracken python')}
 
   REPORT="${sampleID}.krakenuniq.report.txt"
   OUTPUT="${sampleID}.krakenuniq.output.txt"
@@ -256,6 +260,8 @@ process process_bracken {
   // says what happened instead of "Argument list too long" from the shell.
   """
   set -euo pipefail
+  # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+  ${ToolVersions.record(task, params, 'python')}
 
   find . -maxdepth 1 -name '*.G.mpa.krakenreport.txt' -printf '%f\\n' | sort > genus.list
   find . -maxdepth 1 -name '*.S.mpa.krakenreport.txt' -printf '%f\\n' | sort > species.list
@@ -303,6 +309,8 @@ process combineClbTaxonomySupport {
   // F02: one list file rather than one argument per sample.
   """
   set -euo pipefail
+  # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+  ${ToolVersions.record(task, params, 'python')}
 
   python "${combine_script}" \
     --species-files-from "${species_file_list}" \

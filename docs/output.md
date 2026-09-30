@@ -123,7 +123,24 @@ report name previously died with `FileAlreadyExistsException` after every task h
 already succeeded.
 
 `trace.txt` carries per-process CPU time and peak RSS, which is where runtime and memory
-figures should come from.
+figures should come from, and each task's `workdir`.
+
+**Tool versions (F16).** `RUN_REPORT.txt` has two software sections. **SOFTWARE** is what
+conda installed, read from each environment's `conda-meta`. **TOOL VERSIONS (as run)** is
+what the tasks actually executed: every process that runs an external tool first records,
+from inside the task after conda activation, each binary's reported version, its path
+(`command -v`) and the task's conda environment, in `<work dir>/.tool_versions.tsv`
+(`scripts/record_tool_versions.sh`). The report lists one row per tool, version and
+location, with the pin from `conda_envs/*.yml` and the installed version beside it, and the
+number of tasks. **TOOL VERSION MISMATCH** appears when a tool ran from outside its task's
+env (`OUTSIDE_ENV`), reported a version other than its pin (`VERSION_MISMATCH`) or than
+conda installed (`INSTALLED_MISMATCH`), was not on PATH (`NOT_FOUND`), ran with no env
+active (`NO_ENV`), or a tool-running task finished without a record (`MISSING`). With the
+default `--tool_version_check strict`, `OUTSIDE_ENV`, `VERSION_MISMATCH`, `NOT_FOUND` and
+`NO_ENV` stop the run at the task that finds them (exit 78), and any mismatch makes
+`finalize_provenance.py` exit non-zero; `warn` records them and carries on. The same data is `tool_versions` in
+`runs/provenance/<session>.json`. Tasks whose work directory was cleaned up before the report
+was written are counted, not checked.
 
 ## One table with everything
 
