@@ -97,6 +97,9 @@ params.pks_specificity_island_length          = null  // required: must match --
 params.scripts = params.scripts ?: "${moduleDir}/../scripts"
 params.pks_specificity_minimap2_env = params.minimap2_env ?: "${moduleDir}/../conda_envs/minimap2_env.yml"
 params.pks_align_env = params.pks_align_env ?: "${moduleDir}/../conda_envs/pks_align_env.yml"
+// F16 tool-version record. Standalone, Nextflow loads classes from this script's own
+// lib/, which is why Modules/lib is a symlink to ../lib.
+params.tool_version_check = params.tool_version_check ?: "strict"
 
 // Staged in place of a real Arm A table when Arm A was not run. Its name is what
 // computeLocusSpecificityVerdict switches on, so an arm-B-only run is a visible, named

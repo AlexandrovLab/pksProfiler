@@ -204,6 +204,11 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 - nf-core template placeholders and the unused `input` parameter.
 
 **Fixed**
+- `tests/check_v8_lanes_execution.sh` runs `Modules/pks_specificity.nf` and `pks_carrier.nf`
+  standalone, which loads no `nextflow.config`: conda was off, so the V8 tasks ran whatever
+  minimap2/python3 the launching shell had (from a clean PATH: `minimap2: command not
+  found`). Its config now enables conda with the same cache and PATH fix; `Modules/lib` links
+  to `../lib` so the standalone modules can render the tool-version record.
 - `scoreCompetitiveRealignment` (V8a) ran `python3` in `minimap2_env.yml`, which has no python,
   so it used whichever python the launching shell had. It now runs in `pks_align_env`
   (python 3.10, samtools 1.21), like the verdict step after it. Found by the tool-version

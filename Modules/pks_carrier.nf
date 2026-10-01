@@ -40,6 +40,9 @@ params.pks_carrier_min_top_carrier_fraction = 0.8
 params.scripts = params.scripts ?: "${moduleDir}/../scripts"
 params.pks_carrier_minimap2_env = params.minimap2_env ?: "${moduleDir}/../conda_envs/minimap2_env.yml"
 params.pks_align_env = params.pks_align_env ?: "${moduleDir}/../conda_envs/pks_align_env.yml"
+// F16 tool-version record. Standalone, Nextflow loads classes from this script's own
+// lib/, which is why Modules/lib is a symlink to ../lib.
+params.tool_version_check = params.tool_version_check ?: "strict"
 
 def pksCarrierAttributionValidateParams() {
     def missing = []

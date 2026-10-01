@@ -89,7 +89,15 @@ process {
     withLabel:sample_stage   { cpus = 1 }
     withLabel:process_medium { cpus = 1; memory = 2.GB }
 }
+// A module run standalone loads no nextflow.config, so conda was off and every task ran
+// whatever minimap2/python3 the launching shell had on PATH -- from a clean PATH, none
+// ("minimap2: command not found"); from a TSCC login shell, the user's minimap2 2.24.
+// The same conda settings nextflow.config gives a main.nf run; the F16 tool-version
+// record in each task refuses anything else.
+conda.enabled = true
+process.beforeScript = 'if command -v conda >/dev/null 2>&1; then export PATH="$(conda info --base)/bin:$PATH"; fi'
 EOF
+printf 'conda.cacheDir = "%s"\n' "$CONDA_CACHE_DIR" >> "$work/local.config"
 
 # ---------------------------------------------------------------------------------
 # V8a: locus-detection specificity, through the module's own standalone entry point.

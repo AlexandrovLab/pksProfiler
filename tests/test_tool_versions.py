@@ -434,6 +434,24 @@ class EveryToolRunningProcessRecords(unittest.TestCase):
         self.assertIn("params.tool_version_check", LIB)
 
 
+class StandaloneModulesRecordToo(unittest.TestCase):
+    """pks_specificity.nf and pks_carrier.nf run on their own (tests/check_v8_lanes_execution.sh)."""
+
+    def test_standalone_modules_find_the_lib_and_default_the_mode(self):
+        link = ROOT / "Modules" / "lib"
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(Path(os.readlink(link)), Path("../lib"))
+        for name in ("pks_specificity.nf", "pks_carrier.nf"):
+            self.assertIn('params.tool_version_check = params.tool_version_check ?: "strict"', MODULES[name])
+
+    def test_the_v8_standalone_runs_use_conda(self):
+        # No nextflow.config is loaded for a module run on its own, so conda was off and
+        # the tasks ran the launching shell's tools.
+        script = (ROOT / "tests/check_v8_lanes_execution.sh").read_text()
+        self.assertIn("conda.enabled = true", script)
+        self.assertIn("conda.cacheDir", script)
+
+
 class StrictIsTheDefaultAndStopsTheRun(unittest.TestCase):
     def test_default_is_strict_in_both_places_it_is_read(self):
         self.assertRegex(MAIN, r'params\.tool_version_check\s*=\s*"strict"')
