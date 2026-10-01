@@ -703,6 +703,9 @@ def render(record):
             for r in low_score:
                 lines.append(f"    files={r.get('n_files'):<6} {r.get('key', '')}")
 
+    # ---- L4 / V2, from the cohort QC table (counts only) ----
+    lines += render_qc_rollup(record.get("qc_rollup") or {})
+
     # ---- SOFTWARE ----
     software = record.get("software") or {}
     lines += section("SOFTWARE")
@@ -786,6 +789,68 @@ def render(record):
     return "\n".join(lines) + "\n"
 
 
+# L4 (Ludmil, 1 Oct): the low-score rescue at each stage, and V2: how many tiered samples'
+# tier would move if counted as fragments or deduplicated. Summed from the cohort QC
+# table -- counts only, never a sample identifier.
+RESCUE_STAGES = (("extracted_low_score_mapped_reads", "extracted (AS below --extract_min_as)"),
+                 ("low_score_rescued_after_fastp", "after fastp"),
+                 ("low_score_rescued_after_hg38", "after hg38 depletion"),
+                 ("low_score_rescued_after_t2t_phix", "after T2T+phiX depletion"),
+                 ("low_score_rescued_profiled", "in the profiling BAM"),
+                 ("low_score_rescued_clb_assigned", "assigned to a clb gene"))
+
+
+def qc_rollup(cohort_dir, started=None):
+    """Sums over the cohort QC table's L4 columns, and the V2 tier-robustness tally."""
+    path = Path(cohort_dir) / "qc" / "pks.qc.summary.tsv"
+    if not path.is_file():
+        return {}
+    if started:
+        try:
+            if path.stat().st_mtime < datetime.datetime.fromisoformat(started).timestamp():
+                return {}
+        except (TypeError, ValueError):
+            pass
+    with path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    rollup = {}
+    if rows and "low_score_rescued_after_fastp" in rows[0]:
+        traced = [r for r in rows if (r.get("low_score_rescued_after_fastp") or "NA") != "NA"]
+        totals = {}
+        for column, _label in RESCUE_STAGES:
+            values = [r.get(column) for r in traced]
+            totals[column] = sum(int(v) for v in values if v not in (None, "", "NA"))
+        rollup["low_score_rescue"] = {"samples": len(traced), "totals": totals}
+    if rows and "tier_robustness" in rows[0]:
+        tiered = [r.get("tier_robustness") for r in rows if r.get("tier_robustness") not in (None, "", "NA")]
+        rollup["tier_robustness"] = {"tiered_samples": len(tiered),
+                                     "stable": tiered.count("stable"),
+                                     "unstable": tiered.count("unstable")}
+    return rollup
+
+
+def render_qc_rollup(rollup):
+    lines = []
+    rescue = rollup.get("low_score_rescue")
+    if rescue:
+        lines += section("LOW-SCORE RESCUE (L4)")
+        lines.append(f"  reads E1 added at extraction, and how many are left after each stage;"
+                     f" summed over the {rescue['samples']} sample(s)")
+        lines.append("  that rescued any (per sample: cohort/qc/pks.qc.summary.tsv)")
+        for column, label in RESCUE_STAGES:
+            lines.append(f"    {label:<38}{rescue['totals'].get(column, 0)}")
+    robustness = rollup.get("tier_robustness")
+    if robustness:
+        lines += section("TIER ROBUSTNESS (V2)")
+        lines.append("  read_evidence is the tier on raw reads; this is whether counting fragments,"
+                     " removing")
+        lines.append("  duplicates, or both would give the same tier (tier_if_* in read_evidence.tsv)")
+        lines.append(f"    {'tiered samples':<38}{robustness['tiered_samples']}")
+        lines.append(f"    {'same tier every way (stable)':<38}{robustness['stable']}")
+        lines.append(f"    {'tier would change (unstable)':<38}{robustness['unstable']}")
+    return lines
+
+
 def input_header_summary(cohort_dir, started=None):
     """E3: the counts-only input-header summary (header_provenance.py summarize).
 
@@ -841,6 +906,7 @@ def main():
     record["outputs"] = {"cohort_files": cohort_checksums(args.cohort_dir)}
     record["input_headers"] = input_header_summary(args.cohort_dir,
                                                    (record.get("run") or {}).get("started"))
+    record["qc_rollup"] = qc_rollup(args.cohort_dir, (record.get("run") or {}).get("started"))
     record["finalized"] = True
 
     target.write_text(json.dumps(record, indent=2) + "\n")

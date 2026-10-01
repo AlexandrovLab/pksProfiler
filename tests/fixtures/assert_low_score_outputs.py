@@ -15,10 +15,16 @@ import argparse
 import csv
 import gzip
 import json
+import re
 import sys
 from pathlib import Path
 
 FAILURES = []
+
+
+RESCUE_COLUMNS = ("low_score_rescued_after_fastp", "low_score_rescued_after_hg38",
+                  "low_score_rescued_after_t2t_phix", "low_score_rescued_profiled",
+                  "low_score_rescued_clb_assigned")
 
 
 def check(label, ok, detail=""):
@@ -80,6 +86,9 @@ def main():
         check(f"{sample}: num_clb_genes_align == {len(exp['pks_genes'])} ({', '.join(exp['pks_genes'])})",
               row.get("num_clb_genes_align") == str(len(exp["pks_genes"])),
               f"got {row.get('num_clb_genes_align')!r}")
+        # L4: how many of the rescued reads survive each stage (NA when none were rescued).
+        for column, want in (exp["rescue"] or {c: "NA" for c in RESCUE_COLUMNS}).items():
+            check(f"{sample}: {column} == {want}", row.get(column) == str(want), f"got {row.get(column)!r}")
         prov = a.results / "by_sample" / sample / "provenance" / "input_header.tsv"
         prow = read_tsv(prov)[0] if prov.exists() else {}
         check(f"{sample}: input_header.tsv aligner_bwa_mem={bwa} bwa_min_score={score} "
@@ -101,6 +110,11 @@ def main():
     check("RUN_REPORT.txt shows the low-score extraction states and parameters",
           "low-score mapped extraction" in text and "extract_low_score_mapped" in text
           and "extract_min_as" in text)
+    rescued = expected["on"]["rescue"]
+    check("RUN_REPORT.txt has LOW-SCORE RESCUE (L4) summed over the two bwa samples",
+          "LOW-SCORE RESCUE (L4)" in text and "summed over the 2 sample(s)" in text
+          and re.search(r"assigned to a clb gene\s+%d\n" % (2 * rescued["low_score_rescued_clb_assigned"]), text)
+          is not None)
 
     if FAILURES:
         print(f"{len(FAILURES)} E1 check(s) failed", file=sys.stderr)

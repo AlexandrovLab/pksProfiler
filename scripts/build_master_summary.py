@@ -33,7 +33,7 @@ from pathlib import Path
 from collections import defaultdict
 
 from mag_utils import POSITIVE_LOCUS_TIERS
-from build_qc_summary import WES_QC_COLUMNS
+from build_qc_summary import LOW_SCORE_RESCUE_COLUMNS, TIER_ROBUSTNESS_COLUMNS, WES_QC_COLUMNS
 
 # Column groups, in the order they appear. Each group is skipped entirely when the stage
 # that produces it left no files behind.
@@ -200,6 +200,37 @@ def read_wes_qc(inputs, out):
                 found = True
                 for c in WES_QC_COLUMNS:
                     out[sample][c] = row.get(c, "NA")
+    return found
+
+
+def read_low_score_rescue(inputs, out):
+    """L4: the low-score rescue survival columns, present only when the QC table has them."""
+    found = False
+    for _, path in inputs["qc_summary"]:
+        for row in rows(path):
+            sample = row.get("Sample")
+            if sample and LOW_SCORE_RESCUE_COLUMNS[0] in row:
+                found = True
+                for c in LOW_SCORE_RESCUE_COLUMNS:
+                    out[sample][c] = row.get(c, "NA")
+    return found
+
+
+def read_tier_robustness(inputs, out):
+    """
+    V2 (decision A): the fragment / deduplicated counts and the tier each would imply,
+    from read_evidence.tsv beside the raw-read tier. Present only when a tiered wgs file
+    carries them -- metagenome and long-read wgs runs have no tier to test.
+    """
+    found = False
+    for sample, path in inputs["read_evidence"]:
+        row = first(path)
+        sample = sample or row.get("sample")
+        if row and sample and row.get("tier_robustness", "NA") != "NA":
+            found = True
+        if row and sample:
+            for c in TIER_ROBUSTNESS_COLUMNS:
+                out[sample][c] = row.get(c, "NA")
     return found
 
 
@@ -461,8 +492,10 @@ def main():
     out = defaultdict(dict)
     stages = [
         ("read profiling", QC_COLUMNS, read_qc),
+        ("low-score rescue", LOW_SCORE_RESCUE_COLUMNS, read_low_score_rescue),
         ("WES QC", WES_QC_COLUMNS, read_wes_qc),
         ("evidence tier", EVIDENCE_COLUMNS, read_evidence),
+        ("tier robustness", TIER_ROBUSTNESS_COLUMNS, read_tier_robustness),
         ("WES evidence", WES_EVIDENCE_COLUMNS, read_wes_evidence),
         ("RNA evidence", RNA_EVIDENCE_COLUMNS, read_rna_evidence),
         ("contig reassembly", CONTIG_COLUMNS, read_contigs),

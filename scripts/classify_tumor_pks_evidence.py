@@ -60,8 +60,20 @@ READ_EVIDENCE_FIELDS = ["sample", "mode", "read_evidence", "pks_reads", "clb_gen
 # Ludmil, 26 Sep mode memo section 5: for metagenomes the primary quantity is pks reads per
 # million host-depleted reads (stool cohorts differ greatly in depth); the raw count stays.
 METAGENOME_FIELDS = READ_EVIDENCE_FIELDS + ["host_depleted_reads", "pks_reads_per_million"]
+# V2 robustness (decision A, 1 Oct): the tier stays on raw reads (read_evidence, pks_reads).
+# Beside it, the same evidence counted three other ways by
+# compute_fragment_support_variants.py, and the tier each count would imply with the same
+# genes and breadth rule: fragments (mates of one DNA fragment counted once), reads with
+# duplicates (0x400 from samtools markdup) removed, and both. tier_robustness is stable when
+# all three imply read_evidence, unstable otherwise. NA where there is no tier.
+ROBUSTNESS_FIELDS = ["pks_fragments", "tier_if_fragments", "pks_reads_dedup", "tier_if_dedup",
+                     "pks_fragments_dedup", "tier_if_fragments_dedup", "tier_robustness"]
+# variant name in compute_fragment_support_variants.py -> (count column, tier column)
+ROBUSTNESS_VARIANTS = {"fragment": ("pks_fragments", "tier_if_fragments"),
+                       "dup_marked": ("pks_reads_dedup", "tier_if_dedup"),
+                       "dup_collapsed": ("pks_fragments_dedup", "tier_if_fragments_dedup")}
 SCHEMAS = {
-    "wgs": READ_EVIDENCE_FIELDS,
+    "wgs": READ_EVIDENCE_FIELDS + ROBUSTNESS_FIELDS,
     "metagenome": METAGENOME_FIELDS,
     "wes": ["sample", "mode", "clb_wes_reads", "wes_clb_genes_detected",
             "wes_island_breadth_1x", "wes_island_breadth_2x", "wes_island_breadth_3x"],
@@ -150,6 +162,9 @@ def main():
     p.add_argument("--depletion-qc", default=None,
                    help="mapReads' depletion QC fragment; the metagenome reads-per-million "
                         "denominator (reads_after_pangenome, else reads_after_t2t_phix)")
+    p.add_argument("--fragment-variants", default=None,
+                   help="compute_fragment_support_variants.py's TSV for this sample (V2): fills "
+                        "pks_fragments / pks_reads_dedup / pks_fragments_dedup and tier_if_*")
     p.add_argument("--qc-fragment", default=None,
                    help="also write a Sample/Metric/Value QC fragment carrying "
                         "evidence_outcome (positive|negative|untiered) for build_qc_summary.py")
@@ -180,6 +195,9 @@ def main():
                        residual=(residual_human(a.residual_human_qc)
                                  if a.mode == "rna" else ("NA", "NA")))
 
+    if a.mode == "wgs":
+        row.update(robustness(row, a.fragment_variants))
+
     with Path(a.output).open("w", newline="") as handle:
         writer = csv.DictWriter(handle, SCHEMAS[a.mode], delimiter="\t"); writer.writeheader()
         writer.writerow(row)
@@ -187,6 +205,54 @@ def main():
         with Path(a.qc_fragment).open("w", newline="") as handle:
             handle.write("Sample\tMetric\tValue\n")
             handle.write(f"{a.sample}\tevidence_outcome\t{evidence_outcome(row)}\n")
+            if row.get("tier_robustness", "NA") != "NA":
+                for field in ROBUSTNESS_FIELDS:
+                    handle.write(f"{a.sample}\t{field}\t{row[field]}\n")
+
+
+def read_variants(path):
+    """{variant: (count, tier)} from compute_fragment_support_variants.py's report."""
+    variants = {}
+    with Path(path).open() as handle:
+        for line in handle:
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) == 6 and fields[0] != "sample" and not fields[0].startswith("#"):
+                variants[fields[1]] = (int(fields[2]), fields[5])
+    return variants
+
+
+def robustness(row, variants_path):
+    """
+    The V2 columns for a wgs row. The tier itself is never touched: read_evidence was
+    already decided from raw reads. Untiered: NA. A tiered row with no reads has nothing to
+    count another way (0, negative, stable); with reads but no variants file (a hand run
+    without one), NA.
+    """
+    tier = row.get("read_evidence")
+    if tier in (None, "untiered"):
+        return {field: "NA" for field in ROBUSTNESS_FIELDS}
+    if not variants_path:
+        if int(row["pks_reads"]) == 0:
+            out = {}
+            for count_field, tier_field in ROBUSTNESS_VARIANTS.values():
+                out.update({count_field: 0, tier_field: "negative"})
+            return dict(out, tier_robustness="stable")
+        return {field: "NA" for field in ROBUSTNESS_FIELDS}
+    variants = read_variants(variants_path)
+    raw = variants.get("raw")
+    # One computation of the raw tier, not two that could drift: the variants script reads
+    # the same counts, QC and island depth, so its raw row must be this row.
+    if raw != (int(row["pks_reads"]), tier):
+        raise SystemExit(f"{variants_path}: raw variant {raw} disagrees with read_evidence "
+                         f"({row['pks_reads']}, {tier}); the two must read the same inputs")
+    out = {}
+    for variant, (count_field, tier_field) in ROBUSTNESS_VARIANTS.items():
+        if variant not in variants:
+            raise SystemExit(f"{variants_path}: no {variant} row")
+        out[count_field], out[tier_field] = variants[variant]
+    tiers = {out[tier_field] for _count, tier_field in ROBUSTNESS_VARIANTS.values()}
+    out["tier_robustness"] = "stable" if tiers == {tier} else "unstable"
+    return out
 
 
 def depleted_reads(path):

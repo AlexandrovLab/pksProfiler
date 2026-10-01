@@ -140,6 +140,36 @@ RNA_QC_COLUMNS = [
 ]
 CAPTURE_NOT_PROVIDED = "capture_bed_not_provided"
 
+# L4 (Ludmil, 1 Oct): of the reads E1's low-score rule added at extraction
+# (extracted_low_score_mapped_reads), how many are still there after each stage: counted by
+# name in mapReads (fastp, hg38, T2T+phiX) and lowScoreRescueProfile (in the profiling BAM,
+# then featureCounts-assigned to a clb gene). Only samples that rescued a read have them;
+# the columns appear, after extract_low_score_mode, only when some sample does, so a run
+# with the rule off (or FASTQ input) writes the same table as before.
+LOW_SCORE_RESCUE_COLUMNS = [
+    "low_score_rescued_after_fastp",
+    "low_score_rescued_after_hg38",
+    "low_score_rescued_after_t2t_phix",
+    "low_score_rescued_profiled",
+    "low_score_rescued_clb_assigned",
+]
+# V2 robustness (decision A, 1 Oct): the tier the same evidence would get if counted as
+# DNA fragments, with duplicates removed, or both -- scripts/compute_fragment_support_variants.py
+# run inside classifyPksReadEvidence. read_evidence itself is still the raw-read tier. Only
+# tiered (short-read wgs) samples have them; the columns appear, before `status`, only then.
+TIER_ROBUSTNESS_COLUMNS = [
+    "pks_fragments",
+    "tier_if_fragments",
+    "pks_reads_dedup",
+    "tier_if_dedup",
+    "pks_fragments_dedup",
+    "tier_if_fragments_dedup",
+    "tier_robustness",
+]
+OPTIONAL_COLUMNS = LOW_SCORE_RESCUE_COLUMNS + TIER_ROBUSTNESS_COLUMNS
+TIER_VALUES = {"negative", "localized_indeterminate", "multi_gene", "broad_island",
+               "extensive_island"}
+
 # Pipeline stages in execution order, and the QC metrics whose presence shows the stage
 # finished for a sample. A failed sample is failed_at_<the first expected stage it is
 # missing>: stages downstream of a failure never run, so the first gap is the failure.
@@ -192,6 +222,10 @@ TEXT_METRICS = {
     "extract_low_score_mode": {"on_auto_bwa_mem", "off_auto_not_bwa_mem",
                                "on_requested", "off_requested"},
     "wes_capture_status": {"capture_bed_provided", CAPTURE_NOT_PROVIDED},
+    "tier_if_fragments": TIER_VALUES,
+    "tier_if_dedup": TIER_VALUES,
+    "tier_if_fragments_dedup": TIER_VALUES,
+    "tier_robustness": {"stable", "unstable"},
 }
 
 
@@ -250,10 +284,19 @@ def mode_qc_columns(stages):
     return columns
 
 
-def table_columns(stages):
-    """OUTPUT_COLUMNS with the run's mode QC columns just before `status`."""
+def table_columns(stages, metrics=None):
+    """
+    OUTPUT_COLUMNS with the run's mode QC columns just before `status`, and the optional
+    L4 / V2 groups when any sample carries them (L4 after extract_low_score_mode, V2
+    before the mode QC columns).
+    """
+    present = {metric for values in (metrics or {}).values() for metric in values}
+    rescue = LOW_SCORE_RESCUE_COLUMNS if present & set(LOW_SCORE_RESCUE_COLUMNS) else []
+    robustness = TIER_ROBUSTNESS_COLUMNS if present & set(TIER_ROBUSTNESS_COLUMNS) else []
+    after = OUTPUT_COLUMNS.index("extract_low_score_mode") + 1
     at = OUTPUT_COLUMNS.index("status")
-    return OUTPUT_COLUMNS[:at] + mode_qc_columns(stages) + OUTPUT_COLUMNS[at:]
+    return (OUTPUT_COLUMNS[:after] + rescue + OUTPUT_COLUMNS[after:at] + robustness
+            + mode_qc_columns(stages) + OUTPUT_COLUMNS[at:])
 
 
 def read_list_file(path):
@@ -501,6 +544,19 @@ def output_row(sample, values):
 
     check_divergence(sample, mapped)
 
+    # L4: a rescued read can only be lost down the chain, which starts with what extraction
+    # added. Two chains: reads through depletion, then alignment records in the profiling
+    # BAM (a long read's supplementary alignment is a second record of one read).
+    reads_chain = ["extracted_low_score_mapped_reads"] + LOW_SCORE_RESCUE_COLUMNS[:3]
+    for chain in (reads_chain, LOW_SCORE_RESCUE_COLUMNS[3:]):
+        present = [(name, values[name]) for name in chain if values.get(name) is not None]
+        for (upstream_name, upstream), (downstream_name, downstream) in zip(present, present[1:]):
+            if downstream > upstream:
+                raise ValueError(f"Impossible QC counts for {sample}: {downstream_name} "
+                                 f"({downstream}) exceeds {upstream_name} ({upstream})")
+    for column in OPTIONAL_COLUMNS:
+        mapped[column] = values.get(column)
+
     for field in ("num_clb_genes_align", "num_clb_genes_hmm"):
         genes_detected = mapped[field]
         if genes_detected is not None and not 0 <= genes_detected <= 19:
@@ -513,7 +569,7 @@ def output_row(sample, values):
     mapped.update(mode_qc_values(sample, values))
     return {
         column: ("NA" if mapped.get(column) is None else mapped[column])
-        for column in OUTPUT_COLUMNS + WES_QC_COLUMNS + RNA_QC_COLUMNS
+        for column in OUTPUT_COLUMNS + WES_QC_COLUMNS + RNA_QC_COLUMNS + OPTIONAL_COLUMNS
     }
 
 
@@ -571,7 +627,7 @@ def write_summary(metrics, output_path, expected=(), stages=None, excluded=None)
     if stages is None:
         stages = infer_stages(metrics)
     samples = sorted(set(metrics) | set(expected) | set(excluded))
-    columns = table_columns(stages)
+    columns = table_columns(stages, metrics)
     with output_path.open("w", newline="") as handle:
         # extrasaction: the row carries metrics the table does not show, such as
         # reads_mapped_ihe3034_mapq40, which is still used for the monotonic check above.

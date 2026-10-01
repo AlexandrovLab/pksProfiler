@@ -49,4 +49,5 @@ class MissingMetricsDoNotCrash(unittest.TestCase):
 
     def test_a_row_with_nothing_in_it_still_produces_every_column(self):
         out = bqs.output_row("S1", row())
-        self.assertEqual(set(out), set(bqs.OUTPUT_COLUMNS + bqs.WES_QC_COLUMNS + bqs.RNA_QC_COLUMNS))
+        self.assertEqual(set(out), set(bqs.OUTPUT_COLUMNS + bqs.WES_QC_COLUMNS + bqs.RNA_QC_COLUMNS
+                                       + bqs.OPTIONAL_COLUMNS))

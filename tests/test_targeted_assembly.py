@@ -122,7 +122,7 @@ class RecruitmentStatsReachFinalEvidence(unittest.TestCase):
             for name in ("megahit.fa", "metaspades.fa", "megahit.paf", "metaspades.paf", "raw_depth.tsv"):
                 (d / name).write_text("")
             (d / "ref.gff").write_text("##gff-version 3\n")
-            (d / "read_evidence.tsv").write_text("\t".join(header) + "\n" + "\t".join(values[h] for h in header) + "\n")
+            (d / "read_evidence.tsv").write_text("\t".join(header) + "\n" + "\t".join(values.get(h, "NA") for h in header) + "\n")
             (d / "stats.tsv").write_text("metric\tvalue\nrecruited_fragment_ids\t9\npaired_fragments\t9\n"
                                          "island_supporting_fragments\t0\nfragments_island_internal\t0\n"
                                          "fragments_boundary_spanning\t0\nfragments_flank_only\t9\n")

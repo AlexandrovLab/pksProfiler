@@ -413,7 +413,7 @@ params.dep_digest = [
 ]
 
 // ---------------- Modules ----------------
-include { extractReads; inputHeaderSummary } from './Modules/extract_reads.nf'
+include { extractReads; inputHeaderSummary; lowScoreRescueProfile } from './Modules/extract_reads.nf'
 include { filterReads } from './Modules/filter_reads.nf'
 include { mapReads } from './Modules/map_reads.nf'
 include { pksProfiler_align as pksProfilerAlign } from './Modules/pksProfiler_align.nf'
@@ -435,6 +435,15 @@ include { pksCarrierAttribution } from './Modules/pks_carrier.nf'
 // fills it would not be visible where cohortReport is invoked, and Nextflow's parser
 // allows no statements at the top level.
 def classifyPksReadEvidence_gate() { return channel.empty() }
+
+// L4 (Ludmil, 1 Oct): mapReads' input with each sample's low-score rescued read names, or
+// [] where there are none (FASTQ input, the rule off, nothing rescued). A sample whose
+// filterReads failed has names but no reads, and is dropped here as it would be anyway.
+def withRescueNames(reads, names) {
+    return reads.join(names, remainder: true)
+        .filter { row -> row[1] != null }
+        .map { sampleID, fastq, rescue -> tuple(sampleID, fastq, rescue ?: []) }
+}
 
 // Ludmil, 26 Sep mode memo section 6: the report-manifest kind of the per-sample evidence
 // file each sample type writes. Mirrors EVIDENCE_KIND in classify_tumor_pks_evidence.py
@@ -1102,6 +1111,7 @@ workflow {
         .collectFile(name: 'expected_samples.txt', newLine: true, sort: true)
 
     def QC_FRAGMENTS = channel.empty()
+    def RESCUE_NAMES = channel.empty()
 
     if (alignment_input) {
 
@@ -1115,6 +1125,7 @@ workflow {
 			}
 
         EXTRACT_OUT = extractReads(sample_sheet)
+        RESCUE_NAMES = EXTRACT_OUT.rescue_names
 
         EXTRACT_OUT.reads
             .map { sampleID, reads -> tuple(sampleID, [reads]) }
@@ -1191,7 +1202,7 @@ workflow {
     )
 
 	// ---------- STEP 1b: Host read depletion ----------
-	MAP_OUT = mapReads(FILTERED_UNMAPPED_READS)
+	MAP_OUT = mapReads(withRescueNames(FILTERED_UNMAPPED_READS, RESCUE_NAMES))
 
 	MAP_OUT.reads
 	    .set { MAPPED_READS }
@@ -1386,6 +1397,9 @@ workflow {
         QC_FRAGMENTS = QC_FRAGMENTS.mix(
             ALIGN_OUT.divergence.map { _sampleID, qc_file, _by_gene -> qc_file }
         )
+        // L4: of the low-score rescued reads, how many were profiled and clb-assigned.
+        lowScoreRescueProfile(RESCUE_NAMES.join(ALIGN_OUT.profile.map { s, _c, _b, _n, bam, bai -> tuple(s, bam, bai) }))
+        QC_FRAGMENTS = QC_FRAGMENTS.mix(lowScoreRescueProfile.out.qc.map { _s, qc_file -> qc_file })
 
         // Memo section 3: WES duplicate behaviour among the pks-supporting reads, by
         // position collapse on the profiling BAM (the input's flags do not survive

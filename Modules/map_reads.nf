@@ -11,7 +11,9 @@ process mapReads {
     conda "${params.minimap2_env}"
 
     input:
-    tuple val(sampleID), path(reads_fastq)
+    // rescue_names: L4, extractReads' low-score rescued read names, or [] (FASTQ input,
+    // the rule off, or nothing rescued). Only counted; the reads are untouched.
+    tuple val(sampleID), path(reads_fastq), path(rescue_names, stageAs: 'rescue/*')
 
     output:
     tuple val(sampleID), path("${sampleID}.host_depleted.fastq.gz"), emit: reads
@@ -39,6 +41,10 @@ process mapReads {
     def t2t = HostDepletion.t2tPass(params.read_type, params.minimap2_frag_mode,
                                     params.t2t_phix_db, params.t2t_phix_db_long)
     def pangenome = HostDepletion.pangenomePass(params.read_type, params.minimap2_frag_mode)
+    // L4 (Ludmil, 1 Oct): how many of the low-score rescued reads survive fastp, the hg38
+    // pass and the T2T+phiX pass. Counted by name on streams this task already reads; the
+    // counters print exactly what they printed before, so depletion is unchanged.
+    def rescue = rescue_names ? rescue_names.toString() : ''
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
     # hg38_db ${params.dep_digest?.hg38_db}  pangenome_db ${params.dep_digest?.pangenome_db}  t2t_phix_db ${params.dep_digest?.t2t_phix_db}
@@ -55,6 +61,13 @@ process mapReads {
 
     echo "Running host depletion"
 
+    if [[ -n "${rescue}" ]]; then
+        AFTER_FASTP_RESCUED=\$(gzip -dc "${reads_fastq}" | awk -v names="${rescue}" '
+            BEGIN { while ((getline n < names) > 0) want[n] = 1 }
+            NR % 4 == 1 && (substr(\$1, 2) in want) { hit++ }
+            END { print hit + 0 }')
+    fi
+
     QC="${sampleID}.depletion.qc.tsv"
 
     # The read count is taken from a tee off the live stream rather than by
@@ -62,7 +75,10 @@ process mapReads {
     # stalling a 16-thread minimap2 behind it. mkfifo + an explicit wait keeps
     # the count deterministic (process substitution is not waited on by bash).
     mkfifo hg38.count.fifo
-    awk 'END { print int(NR / 4) }' < hg38.count.fifo > hg38.count &
+    awk -v names="${rescue}" -v hits=hg38.rescued \
+        'BEGIN { if (names != "") while ((getline n < names) > 0) want[n] = 1 }
+         names != "" && NR % 4 == 1 && (substr(\$1, 2) in want) { hit++ }
+         END { print int(NR / 4); if (names != "") print hit + 0 > hits }' < hg38.count.fifo > hg38.count &
     HG38_COUNTER=\$!
 
     echo "Human pass: minimap2 -ax ${human.preset} against ${human.index}"
@@ -78,7 +94,10 @@ process mapReads {
     rm -f hg38.count.fifo
 
     mkfifo t2t.count.fifo
-    awk 'END { print int(NR / 4) }' < t2t.count.fifo > t2t.count &
+    awk -v names="${rescue}" -v hits=t2t.rescued \
+        'BEGIN { if (names != "") while ((getline n < names) > 0) want[n] = 1 }
+         names != "" && NR % 4 == 1 && (substr(\$1, 2) in want) { hit++ }
+         END { print int(NR / 4); if (names != "") print hit + 0 > hits }' < t2t.count.fifo > t2t.count &
     T2T_COUNTER=\$!
 
     minimap2 -2 -ax ${t2t.preset} ${t2t.args} --secondary=no -t "${task.cpus}" \
@@ -142,6 +161,11 @@ process mapReads {
 
     if [[ -n "${params.pangenome_db ?: ''}" ]]; then
         printf "%s\treads_after_pangenome\t%s\n" "${sampleID}" "\$AFTER_PANGENOME" >> "\$QC"
+    fi
+    if [[ -n "${rescue}" ]]; then
+        printf "%s\tlow_score_rescued_after_fastp\t%s\n" "${sampleID}" "\$AFTER_FASTP_RESCUED" >> "\$QC"
+        printf "%s\tlow_score_rescued_after_hg38\t%s\n" "${sampleID}" "\$(cat hg38.rescued)" >> "\$QC"
+        printf "%s\tlow_score_rescued_after_t2t_phix\t%s\n" "${sampleID}" "\$(cat t2t.rescued)" >> "\$QC"
     fi
     """
 }

@@ -6,6 +6,26 @@ Extends the immutable v0.0.1 release with island reassembly, genome-resolved ana
 strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 
 **Added**
+- **Tier robustness columns** (V2; Ammal's decision A, 1 Oct: the tier stays on raw reads).
+  `classifyPksReadEvidence` now runs `scripts/compute_fragment_support_variants.py` for every
+  tiered (short-read wgs) sample with reads, with the tier's own thresholds, island depth and
+  gene-overlap rule, and `read_evidence.tsv` gains `pks_fragments` / `tier_if_fragments`,
+  `pks_reads_dedup` / `tier_if_dedup`, `pks_fragments_dedup` / `tier_if_fragments_dedup` and
+  `tier_robustness` (stable | unstable). `read_evidence` and `pks_reads` are unchanged; the
+  variant script's own raw tier must equal `read_evidence` or the task fails. Carried into
+  `pks.qc.summary.tsv`, `pks.master_summary.tsv`, the cohort report (table and TSV) and
+  RUN_REPORT (counts). `NA` when untiered. `tests/test_tier_robustness.py`.
+- **Low-score rescue traced through every stage** (L4, Ludmil 1 Oct). `extractReads` lists the
+  names of the reads E1 added (optional output, absent when none); `mapReads` counts them on
+  the streams it already reads, after fastp, hg38 and T2T+phiX; the new `lowScoreRescueProfile`
+  counts them in the profiling BAM and featureCounts-assigned to *clb* with the pipeline's own
+  annotation filter and arguments. `low_score_rescued_*` columns in `pks.qc.summary.tsv` (only
+  when some sample rescued a read, so rule-off and FASTQ tables are unchanged), checked to
+  only decrease; RUN_REPORT **LOW-SCORE RESCUE (L4)**. Asserted on the bwa -T 0 e2e run;
+  `tests/test_low_score_rescue_trace.py`.
+- `tests/test_low_score_as_boundary.py` (L5): AS 29 is extracted and AS 30 is not, on both
+  mates and an unpaired record, through the module's own on-branch pipeline and the L4 name
+  list; the boundary moves with `--extract_min_as`.
 - **Runtime tool versions, checked against their pins** (F16, "tool versions"). RUN_REPORT's
   SOFTWARE section listed what conda installed; on TSCC a user minimap2 2.24 earlier on PATH
   ran every host-depletion pass while it said 2.31. Every process that runs an external tool
@@ -216,6 +236,9 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 - nf-core template placeholders and the unused `input` parameter.
 
 **Fixed**
+- `summarize_tumor_pks_contigs.py` crashed (`dict contains fields not in fieldnames`) on any
+  read_evidence column it did not repeat -- the same failure the `mode` column caused before.
+  It now ignores extra evidence columns (found by the V2 columns).
 - `tests/check_v8_lanes_execution.sh` runs `Modules/pks_specificity.nf` and `pks_carrier.nf`
   standalone, which loads no `nextflow.config`: conda was off, so the V8 tasks ran whatever
   minimap2/python3 the launching shell had (from a clean PATH: `minimap2: command not

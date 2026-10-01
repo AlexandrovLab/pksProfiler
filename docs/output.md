@@ -199,10 +199,29 @@ and every mode names them for what they can mean. Each file's second column is `
 
 | Mode | File | Columns after `sample`, `mode` | Tier? | Read as |
 |---|---|---|---|---|
-| `wgs` | `read_evidence.tsv` | `read_evidence`, `pks_reads`, `clb_genes_detected`, `island_breadth_{1,2,3}x` | yes (short reads) | genomic *pks* evidence |
+| `wgs` | `read_evidence.tsv` | `read_evidence`, `pks_reads`, `clb_genes_detected`, `island_breadth_{1,2,3}x`, then the V2 robustness columns below | yes (short reads) | genomic *pks* evidence |
 | `metagenome` | `read_evidence.tsv` | same, plus `host_depleted_reads` and **`pks_reads_per_million`**; `read_evidence` is `untiered` | no | microbial read evidence; read the rate first |
 | `wes` | `wes_evidence.tsv` | `clb_wes_reads`, `wes_clb_genes_detected`, `wes_island_breadth_{1,2,3}x` | no | exploratory off-target DNA evidence; a negative is not absence |
 | `rna` | `rna_evidence.tsv` | `clb_rna_reads`, `rna_clb_genes_detected`, `rna_expression_breadth_{1,2,3}x`, `rna_library_type` | no | expressed *clb* sequence; breadth is expression breadth, not island completeness; a negative is not genomic absence |
+
+**Tier robustness** (V2; decision A, 1 Oct). The tier is decided on raw reads -- `pks_reads`,
+the reads featureCounts assigns to a *clb* gene -- and nothing below changes it. Beside it,
+`scripts/compute_fragment_support_variants.py` (run inside `classifyPksReadEvidence` for
+every tiered sample) counts the same evidence three other ways and applies the same tier
+cascade, with the same gene and breadth criteria:
+
+| Column | Counts | Tier column |
+|---|---|---|
+| `pks_fragments` | distinct DNA fragments (read name with `/1` `/2` stripped): two mates of one fragment count once | `tier_if_fragments` |
+| `pks_reads_dedup` | reads, with PCR/optical duplicates (`samtools markdup`, 0x400) removed; breadth recomputed without them | `tier_if_dedup` |
+| `pks_fragments_dedup` | both | `tier_if_fragments_dedup` |
+| `tier_robustness` | `stable` when all three give `read_evidence`, `unstable` when any differs | |
+
+`NA` for untiered rows (long-read wgs); a sample with no *clb* reads is `0` / `negative` /
+`stable`. The same columns are in `pks.qc.summary.tsv` (before `status`, only when some
+sample has them), `pks.master_summary.tsv` (group "tier robustness"), the cohort report
+(a *Tier robustness* table, and the TSV) and, as counts, `RUN_REPORT.txt`. An `unstable`
+call depends on how the reads are counted; it is not a different call.
 
 **Metagenome abundance** (26 Sep mode memo section 5). `pks_reads_per_million` is
 `pks_reads * 1e6 / host_depleted_reads`, where `host_depleted_reads` is the final
@@ -259,6 +278,8 @@ warning.
 | `extracted_reads` | everything extraction wrote: `extracted_unmapped_reads` + `extracted_low_score_mapped_reads` (checked). This, not the FLAG 4 count, is what enters fastp and the extraction step of the attrition chain |
 | `extract_low_score_no_as_records` | mapped primary records without an `AS` tag, never added; only when low-score extraction was on |
 | `extract_low_score_mode` | `on_auto_bwa_mem`, `off_auto_not_bwa_mem`, `on_requested` or `off_requested` |
+| `low_score_rescued_after_fastp`, `_after_hg38`, `_after_t2t_phix` | L4: of the `extracted_low_score_mapped_reads`, how many are still there after fastp, the hg38 pass and the T2T+phiX pass. Extraction lists their names (`/1`, `/2` as in the FASTQ); `mapReads` counts them by name on the streams it already reads. Present (right after `extract_low_score_mode`) only when some sample rescued a read; `NA` for a sample that rescued none |
+| `low_score_rescued_profiled`, `low_score_rescued_clb_assigned` | L4: of those, alignment records in the profiling BAM (MAPQ ≥ 40) and how many featureCounts assigns to a *clb* gene with the same annotation and arguments as the sample's own counts (`lowScoreRescueProfile`). `RUN_REPORT.txt` sums the six stages under **LOW-SCORE RESCUE (L4)** |
 | `filter_input_reads` | reads entering fastp. For alignment input this equals the extracted count; for FASTQ input it is the library |
 | `taxonomy_status` | why a sample is or is not in the read-level species table: `no_pks_reads`, `below_rank_threshold`, `no_species_identified`, `species_identified` (species here are read-level KrakenUniq assignments, not carriers). `NA` when taxonomy did not run |
 | `clb_species_reported` | how many species that sample contributed to `pks.clb_species_support.tsv` — read-level taxonomic support, not carrier attribution |

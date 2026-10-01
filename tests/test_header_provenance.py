@@ -182,7 +182,7 @@ class Wiring(unittest.TestCase):
                         self.EXTRACT.index("samtools fastq"))
 
     def test_the_cohort_summary_is_built_and_rendered(self):
-        self.assertIn("include { extractReads; inputHeaderSummary }", self.MAIN)
+        self.assertIn("include { extractReads; inputHeaderSummary; lowScoreRescueProfile }", self.MAIN)
         self.assertIn("inputHeaderSummary(", self.MAIN)
         self.assertIn('publishDir "${params.cohort_dir}/provenance"', self.EXTRACT)
         self.assertIn('header_provenance.py" summarize', self.EXTRACT)

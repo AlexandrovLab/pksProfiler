@@ -98,6 +98,13 @@ EVIDENCE_FIELDS = {"read_evidence": ("pks_reads", "clb_genes_detected", "island_
                    "rna_evidence": ("clb_rna_reads", "rna_clb_genes_detected", "rna_expression_breadth")}
 
 
+# V2 robustness (decision A, 1 Oct): read_evidence.tsv's counts of the same evidence as
+# fragments / deduplicated / both, and the tier each would imply. The tier shown everywhere
+# else is still read_evidence, from raw reads. classify_tumor_pks_evidence.py ROBUSTNESS_FIELDS.
+ROBUSTNESS_FIELDS = ("pks_fragments", "tier_if_fragments", "pks_reads_dedup", "tier_if_dedup",
+                     "pks_fragments_dedup", "tier_if_fragments_dedup", "tier_robustness")
+
+
 def evidence_label(mode, read_evidence=None):
     """What a row's evidence may be read as. Mirrors build_master_summary.evidence_label."""
     if mode == "wgs":
@@ -395,6 +402,7 @@ def collect(inputs, expected=None, sample_type=None):
             # path can accidentally read one as the other.
             "locus_specificity": (read_tsv(staged.get("locus_specificity")) or [{}])[0],
             "carrier_attribution": (read_tsv(staged.get("carrier_attribution")) or [{}])[0],
+            "robustness": {field: evidence.get(field) or "NA" for field in ROBUSTNESS_FIELDS},
         })
 
     records.sort(key=lambda r: (TIER_RANK.get(r["tier"], -1), r["genes_detected"],
@@ -735,6 +743,31 @@ def species_support_section(rows):
   <thead>{header}</thead><tbody>{body}</tbody></table></div>"""
 
 
+def tier_robustness_section(records):
+    """V2: would the tier move if the same evidence were counted as fragments, or deduplicated?"""
+    rows = [r for r in records if r["robustness"]["tier_robustness"] != "NA"]
+    if not rows:
+        return ""
+    body = "".join(
+        f'<tr><td>{esc(r["sample"])}</td><td>{esc(r["tier"])} ({r["pks_reads"]} reads)</td>'
+        f'<td>{esc(r["robustness"]["tier_if_fragments"])} ({esc(r["robustness"]["pks_fragments"])})</td>'
+        f'<td>{esc(r["robustness"]["tier_if_dedup"])} ({esc(r["robustness"]["pks_reads_dedup"])})</td>'
+        f'<td>{esc(r["robustness"]["tier_if_fragments_dedup"])} '
+        f'({esc(r["robustness"]["pks_fragments_dedup"])})</td>'
+        f'<td>{esc(r["robustness"]["tier_robustness"])}</td></tr>'
+        for r in rows)
+    return f"""
+  <h2 style="font-size:15px;margin:26px 0 6px">Tier robustness (V2)</h2>
+  <p class="muted">The tier is decided on raw reads assigned to a clb gene. Beside it, the
+  tier the same genes and breadth rule would give if the reads were counted as DNA
+  fragments (two mates once), with PCR/optical duplicates removed, or both. These do not
+  change the tier; <em>unstable</em> marks a call that depends on how the reads are counted.</p>
+  <div class="scroll table-scroll"><table class="detail">
+  <thead><tr><th>Sample</th><th>Tier (raw reads)</th><th>If fragments</th>
+  <th>If deduplicated</th><th>If both</th><th>Robustness</th></tr></thead>
+  <tbody>{body}</tbody></table></div>"""
+
+
 def locus_specificity_section(records):
     """V8a. Ludmil: "This asks whether the sequence really belongs to the pks/clb locus."
     Nothing in this table names a carrier organism."""
@@ -871,6 +904,7 @@ def page(records, species_rows=()):
   <div class="scroll">{svg_matrix(records)}</div>
   {figure_panels(records)}
   {detail_panels(records)}
+  {tier_robustness_section(records)}
   {locus_specificity_section(records)}
   {carrier_attribution_section(records)}
   {species_support_section(species_rows)}
@@ -953,6 +987,10 @@ def main():
         has_rna = any(record["mode"] == "rna" for record in records)
         if has_rna:
             fields += ["clb_transcripts_detected", "rna_residual_human_fraction"]
+        # V2: only in a table with a tiered row.
+        has_robustness = any(r["robustness"]["tier_robustness"] != "NA" for r in records)
+        if has_robustness:
+            fields += list(ROBUSTNESS_FIELDS)
         with args.table.open("w", newline="") as handle:
             writer = csv.DictWriter(handle, fields, delimiter="\t")
             writer.writeheader()
@@ -975,6 +1013,7 @@ def main():
                     "final_structural_evidence": record["structural"],
                     **({"clb_transcripts_detected": record["clb_transcripts"],
                         "rna_residual_human_fraction": record["residual_human"]} if has_rna else {}),
+                    **(record["robustness"] if has_robustness else {}),
                 })
 
     print(f"[cohort report] {len(records)} samples -> {args.output}")

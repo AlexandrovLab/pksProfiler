@@ -268,6 +268,31 @@ def main():
         check("the run logged that targeted assembly was switched off",
               "targeted recruitment and assembly switched off" in a.log.read_text(errors="replace"))
 
+    # ---- V2 (decision A): robustness columns beside the raw-read tier, tiered wgs only ----
+    robustness = ("pks_fragments", "tier_if_fragments", "pks_reads_dedup", "tier_if_dedup",
+                  "pks_fragments_dedup", "tier_if_fragments_dedup", "tier_robustness")
+    tiered = mode in ("wgs", "wgs_assembly")
+    if evidence_file == "read_evidence.tsv":
+        values = [ev.get(c) for c in robustness]
+        if tiered:
+            check("read_evidence.tsv has the V2 robustness columns, filled",
+                  all(v not in (None, "", "NA") for v in values), f"got {values}")
+            check("tier_robustness is stable or unstable", ev.get("tier_robustness") in ("stable", "unstable"))
+        elif mode == "wgs_ont":
+            check("long-read wgs: robustness columns NA (no tier)", set(values) == {"NA"}, f"got {values}")
+        else:
+            check("metagenome: no robustness columns", set(values) == {None}, f"got {values}")
+    check("QC table has the V2 columns only for tiered wgs",
+          ("tier_robustness" in qc_header) == tiered)
+    if tiered:
+        check("QC tier_robustness matches read_evidence.tsv", qc.get("tier_robustness") == ev.get("tier_robustness"))
+        check("master summary carries tier_robustness", master.get("tier_robustness") == ev.get("tier_robustness"),
+              f"got {master.get('tier_robustness')!r}")
+        report_tsv = a.results / "cohort/pks_cohort_report.tsv"
+        report = rows_by(report_tsv, "sample").get(sample, {}) if report_tsv.exists() else {}
+        check("cohort report TSV carries tier_if_dedup", report.get("tier_if_dedup") == ev.get("tier_if_dedup"),
+              f"got {report.get('tier_if_dedup')!r}")
+
     # ---- F16: what ran is what was pinned, and RUN_REPORT says so ----
     check_tool_versions(a.results, a.work_dir, check)
 

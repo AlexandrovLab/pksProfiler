@@ -27,19 +27,33 @@ process classifyPksReadEvidence {
         (mode_qc ? " --residual-human-qc ${mode_qc}" : '') +
         // Long-read WGS: evidence only. The tiers were calibrated on short-read Bowtie2.
         (params.sample_type.toString() == 'wgs' && HostDepletion.isLong(params.read_type) ? ' --no-tiers' : '')
+    // V2 robustness (decision A, 1 Oct): for a tiered sample, the same evidence counted as
+    // fragments, deduplicated, and both (scripts/compute_fragment_support_variants.py), and
+    // the tier each count would imply. read_evidence stays the raw-read tier; these are
+    // extra columns. Same thresholds, island and gene-overlap rule as the tier itself, and
+    // the island depth computed just above, so the variant script's own raw tier must equal
+    // read_evidence (classify_tumor_pks_evidence.py refuses the file otherwise).
+    def tiered = params.sample_type.toString() == 'wgs' && !HostDepletion.isLong(params.read_type)
+    def thresholds = "--multi-gene-reads ${params.tumor_multi_gene_min_pks_reads} --multi-gene-genes ${params.tumor_multi_gene_min_clb_genes} --multi-gene-breadth ${params.tumor_multi_gene_min_breadth} --broad-island-reads ${params.tumor_broad_island_min_pks_reads} --broad-island-genes ${params.tumor_broad_island_min_clb_genes} --broad-island-breadth ${params.tumor_broad_island_min_breadth} --extensive-island-reads ${params.tumor_extensive_island_min_pks_reads} --extensive-island-genes ${params.tumor_extensive_island_min_clb_genes} --extensive-island-breadth ${params.tumor_extensive_island_min_breadth}"
+    def variants = "${sampleID}.fragment_support_variants.tsv"
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
-    # scripts ${params.dep_digest?.scripts}
+    # scripts ${params.dep_digest?.scripts}  pks_annotation ${params.dep_digest?.pks_annotation}
     set -euo pipefail
     # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
-    ${ToolVersions.record(task, params, 'samtools python')}
+    ${ToolVersions.record(task, params, tiered ? 'samtools bedtools python' : 'samtools python')}
     # Ludmil, revised report finding 6: pks_shift+1 dropped the true first base of
     # the island. pks_start_1based/pks_end_1based are already correct 1-based
     # inclusive bounds; --island-length must match the row count this now produces
     # (50768, not the old pks_island_len=50767), or classify_tumor_pks_evidence.py's
     # own row-count check raises rather than silently disagreeing.
     samtools depth -aa -s -Q 40 -r "${params.pks_contig}:${params.pks_start_1based}-${params.pks_end_1based}" "${bam}" > "${sampleID}.island.raw_depth.tsv"
-    python "${params.scripts}/classify_tumor_pks_evidence.py" --sample "${sampleID}" --qc "${qc}" --counts "${counts}" --depth "${sampleID}.island.raw_depth.tsv" --island-length "${params.pks_island_len_1based}" --multi-gene-reads "${params.tumor_multi_gene_min_pks_reads}" --multi-gene-genes "${params.tumor_multi_gene_min_clb_genes}" --multi-gene-breadth "${params.tumor_multi_gene_min_breadth}" --broad-island-reads "${params.tumor_broad_island_min_pks_reads}" --broad-island-genes "${params.tumor_broad_island_min_clb_genes}" --broad-island-breadth "${params.tumor_broad_island_min_breadth}" --extensive-island-reads "${params.tumor_extensive_island_min_pks_reads}" --extensive-island-genes "${params.tumor_extensive_island_min_clb_genes}" --extensive-island-breadth "${params.tumor_extensive_island_min_breadth}" ${mode_args} --depletion-qc "${depletion_qc}" --output "${evidence_file}" --qc-fragment "${sampleID}.evidence.qc.tsv"
+    VARIANT_ARGS=()
+    if [[ "${tiered}" == "true" ]] && awk -F '\t' '\$2 == "reads_clb_genes_align" && \$3 + 0 > 0 { found = 1 } END { exit !found }' "${qc}"; then
+        python "${params.scripts}/compute_fragment_support_variants.py" --sample "${sampleID}" --bam "${bam}" --counts "${counts}" --qc "${qc}" --coverage "${sampleID}.island.raw_depth.tsv" --annotation "${params.pks_genome_annotation}" --min-overlap ${params.min_gene_overlap_bp} --pks-contig "${params.pks_contig}" --pks-start ${params.pks_start_1based} --pks-end ${params.pks_end_1based} ${thresholds} --output "${variants}"
+        VARIANT_ARGS=(--fragment-variants "${variants}")
+    fi
+    python "${params.scripts}/classify_tumor_pks_evidence.py" --sample "${sampleID}" --qc "${qc}" --counts "${counts}" --depth "${sampleID}.island.raw_depth.tsv" --island-length "${params.pks_island_len_1based}" --multi-gene-reads "${params.tumor_multi_gene_min_pks_reads}" --multi-gene-genes "${params.tumor_multi_gene_min_clb_genes}" --multi-gene-breadth "${params.tumor_multi_gene_min_breadth}" --broad-island-reads "${params.tumor_broad_island_min_pks_reads}" --broad-island-genes "${params.tumor_broad_island_min_clb_genes}" --broad-island-breadth "${params.tumor_broad_island_min_breadth}" --extensive-island-reads "${params.tumor_extensive_island_min_pks_reads}" --extensive-island-genes "${params.tumor_extensive_island_min_clb_genes}" --extensive-island-breadth "${params.tumor_extensive_island_min_breadth}" ${mode_args} --depletion-qc "${depletion_qc}" --output "${evidence_file}" --qc-fragment "${sampleID}.evidence.qc.tsv" "\${VARIANT_ARGS[@]}"
     """
 }
 

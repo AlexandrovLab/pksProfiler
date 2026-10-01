@@ -25,6 +25,10 @@ process extractReads {
 	tuple val(sampleID), path("${sampleID}.UNMAPPED.fastq.gz"), emit: reads
 	tuple val(sampleID), path("${sampleID}.extract.qc.tsv"), emit: qc
 	tuple val(sampleID), path("${sampleID}.header_provenance.tsv"), emit: provenance
+	// L4 (Ludmil, 1 Oct): the names of the low-score mapped reads extraction added, as
+	// the FASTQ stream names them (/1, /2 from the mate bits, as -N adds), so later stages can count
+	// how many survive. Only when the rule is on and added any: off, nothing changes.
+	tuple val(sampleID), path("${sampleID}.low_score_rescued.names"), optional: true, emit: rescue_names
     
 	script:
 	"""
@@ -141,14 +145,21 @@ process extractReads {
             -e '(flag & 4) || !exists([AS]) || [AS] < ${params.extract_min_as}' \
             "\${REFERENCE_ARGS[@]}" \
             "${alignment}" |
-        awk -F '\\t' -v min_as="${params.extract_min_as}" -v counts=extract.classes '
+        awk -F '\\t' -v min_as="${params.extract_min_as}" -v counts=extract.classes \
+            -v names="${sampleID}.low_score_rescued.names" '
             /^@/ { print; next }
             {
                 if (int(\$2 / 4) % 2 == 1) { unmapped++; print; next }
                 score = ""
                 for (i = 12; i <= NF; i++) if (\$i ~ /^AS:[if]:/) { score = substr(\$i, 6); break }
                 if (score == "") { no_as++; next }
-                if (score + 0 < min_as + 0) { low++; print; next }
+                if (score + 0 < min_as + 0) {
+                    # L4: the name the FASTQ step (-N) will give it -- /1 or /2 only when
+                    # exactly one of the first/last-segment bits is set.
+                    first = int(\$2 / 64) % 2; last = int(\$2 / 128) % 2
+                    print \$1 (first && !last ? "/1" : last && !first ? "/2" : "") > names
+                    low++; print; next
+                }
                 other++
             }
             END { printf "%d\\t%d\\t%d\\t%d\\n", unmapped, low, no_as, other > counts }' |
@@ -272,5 +283,63 @@ process inputHeaderSummary {
         --inputs-file "${file_list}" \
         --table input_headers.tsv \
         --summary input_header_summary.tsv
+    """
+}
+
+
+// L4 (Ludmil, 1 Oct): the last two stages of the low-score rescue trace -- how many of
+// the reads E1 added at extraction (extractReads' rescue_names) are in the profiling BAM,
+// and how many of those featureCounts assigns to a clb gene. mapReads counts fastp, hg38
+// and T2T+phiX. Same annotation filter and featureCounts arguments as pksProfiler_align.nf
+// (tests/test_low_score_rescue_trace.py holds them equal), run on the rescued reads only:
+// --largestOverlap assigns each read on its own, so the subset's count is exactly how
+// many of them the sample's own counts include. Only for samples that rescued any read.
+process lowScoreRescueProfile {
+    label 'process_low'
+    tag "$sampleID"
+    conda "${params.pks_align_env}"
+
+    input:
+    tuple val(sampleID), path(rescue_names), path(bam), path(bai)
+
+    output:
+    tuple val(sampleID), path("${sampleID}.low_score_rescue.qc.tsv"), emit: qc
+
+    script:
+    def featurecounts_long = HostDepletion.isLong(params.read_type) ? "-L" : ""
+    """
+    # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
+    # pks_annotation ${params.dep_digest?.pks_annotation}
+    set -euo pipefail
+    # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
+    ${ToolVersions.record(task, params, 'samtools featureCounts:subread')}
+    awk -F '\t' '
+        BEGIN { OFS="\t" }
+        \$0 !~ /^#/ && \$3 == "gene" && \$9 ~ /(^|;)Name=clb[A-S](;|\$)/ { print }
+    ' "${params.pks_genome_annotation}" > clb_genes.gff
+
+    samtools view -b -N "${rescue_names}" -o rescued.bam "${bam}"
+    # Alignment records, as pksProfiler_align.nf counts reads_mapped_ihe3034_mapq40 (for
+    # short reads, one per read: Bowtie2 -U reports one alignment each).
+    PROFILED=\$(samtools view -c -F 4 rescued.bam)
+    CLB_ASSIGNED=0
+    if [[ "\$PROFILED" -gt 0 ]]; then
+        featureCounts \
+            -T "${task.cpus}" \
+            -a clb_genes.gff \
+            -o rescued.counts.txt \
+            -t gene \
+            -F GFF \
+            -g Name \
+            --largestOverlap ${featurecounts_long} \
+            rescued.bam
+        CLB_ASSIGNED=\$(awk -F '\t' '
+            \$1 ~ /^clb[A-S]\$/ { total += \$NF + 0 }
+            END { print total + 0 }
+        ' rescued.counts.txt)
+    fi
+    printf "Sample\\tMetric\\tValue\\n" > "${sampleID}.low_score_rescue.qc.tsv"
+    printf "%s\\tlow_score_rescued_profiled\\t%s\\n" "${sampleID}" "\$PROFILED" >> "${sampleID}.low_score_rescue.qc.tsv"
+    printf "%s\\tlow_score_rescued_clb_assigned\\t%s\\n" "${sampleID}" "\$CLB_ASSIGNED" >> "${sampleID}.low_score_rescue.qc.tsv"
     """
 }

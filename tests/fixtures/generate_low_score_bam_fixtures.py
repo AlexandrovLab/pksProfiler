@@ -155,6 +155,16 @@ def main():
                 "extracted_reads": counts["flag4"], "pks_reads": len(pks_off),
                 "pks_genes": sorted({r[0].split("/")[0].rsplit("_", 1)[-1] for r in pks_off})},
     }
+    # L4 (Ludmil, 1 Oct): every rescued read survives fastp and both synthetic host passes
+    # (none is host sequence); the rescued pks reads are profiled and clb-assigned (all
+    # three sit inside clb windows), the two rescued random reads are not.
+    low_pks = len(p_on) - len(p_off)
+    expected["on"]["rescue"] = {"low_score_rescued_after_fastp": counts["low"],
+                                "low_score_rescued_after_hg38": counts["low"],
+                                "low_score_rescued_after_t2t_phix": counts["low"],
+                                "low_score_rescued_profiled": low_pks,
+                                "low_score_rescued_clb_assigned": low_pks}
+    expected["off"]["rescue"] = None
     (a.out_dir / "low_score_expected.json").write_text(json.dumps(expected, indent=1))
     print(f"wrote bwa_T0.sam / star.sam: FLAG 4 {counts['flag4']}, low-score {counts['low']}, "
           f"no AS {counts['no_as']}; pks reads extracted on {len(pks_on)}, off {len(pks_off)}")

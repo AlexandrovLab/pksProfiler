@@ -164,7 +164,10 @@ def main():
     result=dict(ev,megahit_reference_covered_bp=bp["megahit"],megahit_reference_coverage=f'{cov["megahit"]:.6f}',megahit_supporting_contigs=len(supporting["megahit"]),metaspades_reference_covered_bp=bp["metaspades"],metaspades_reference_coverage=f'{cov["metaspades"]:.6f}',metaspades_supporting_contigs=len(supporting["metaspades"]),assembler_agreement=agreement,final_structural_evidence=call,recruited_fragment_ids=recruit["recruited_fragment_ids"],paired_fragments=recruit["paired_fragments"])
     result.update({name: recruit.get(metric, "NA") for name, metric in RECRUITMENT_FIELDS})
     result["assembly_input_diagnostic"] = assembly_input_diagnostic(recruit, max(cov.values()))
-    with Path(a.output_tsv).open("w",newline="") as h: w=csv.DictWriter(h,fields,delimiter="\t");w.writeheader();w.writerow(result)
+    # extrasaction: read_evidence.tsv carries more than this table repeats (V2's tier_if_*
+    # robustness columns stay in read_evidence.tsv only); without it a new evidence column
+    # crashes the contig summary.
+    with Path(a.output_tsv).open("w",newline="") as h: w=csv.DictWriter(h,fields,delimiter="\t",extrasaction="ignore");w.writeheader();w.writerow(result)
     W,H,L,R=1600,1100,100,35; PW=W-L-R; sx=lambda x:L+(x-a.region_start)/(a.region_end-a.region_start)*PW
     svg=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}"><rect width="100%" height="100%" fill="white"/>','<style>text{font-family:Arial,sans-serif;fill:#202124}.title{font-size:24px;font-weight:bold}.label{font-size:14px;font-weight:bold}.small{font-size:10px}.sub{font-size:13px}</style>',f'<text x="{L}" y="34" class="title">Canonical PKS-island contig validation</text>',f'<text x="{L}" y="58" class="sub">{html.escape(a.sample)} • IHE3034 {a.contig} • {ev["read_evidence"]} read evidence • final: {call}</text>',f'<text x="{L}" y="88" class="label">A  Standard reference clb genes</text>',f'<line x1="{L}" y1="112" x2="{W-R}" y2="112" stroke="#444"/>']
     for left,right,strand,name in genes(a.gff,a.contig,a.region_start,a.region_end):
