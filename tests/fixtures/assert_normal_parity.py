@@ -46,15 +46,27 @@ def check(label, condition, detail=""):
         FAILURES.append(label)
 
 
-def tasks(work_dir):
-    """{(process, tag): task dir} from each task's .command.run header."""
+def tasks(work_dir, samples):
+    """
+    {(process, sample): task dir}. The process is from each task's .command.run header;
+    the sample is the one of `samples` its .command.sh names -- not the tag, since
+    processes without a `tag` are labelled (1), (2). Cohort tasks name both, or neither.
+    """
     found = {}
     for run in work_dir.glob("*/*/.command.run"):
+        process = None
         for line in run.read_text(errors="replace").splitlines()[:6]:
             m = re.match(r"^### name: '(.+?)(?: \((.+)\))?'$", line)
             if m:
-                found[(m.group(1), m.group(2))] = run.parent
+                process = m.group(1)
                 break
+        script = (run.parent / ".command.sh").read_text(errors="replace")
+        named = [s for s in samples if s in script]
+        if process and len(named) == 1:
+            key = (process, named[0])
+            if key in found:
+                FAILURES.append(f"two {process} tasks for {named[0]}")
+            found[key] = run.parent
     return found
 
 
@@ -88,7 +100,7 @@ def main():
     print(f"[normal_parity] {tumour} vs {normal}")
 
     # ---- the same processes, with the same rendered scripts ----
-    found = tasks(a.work_dir)
+    found = tasks(a.work_dir, (tumour, normal))
     by_sample = {s: {proc: d for (proc, tag), d in found.items() if tag == s} for s in (tumour, normal)}
     t_procs, n_procs = set(by_sample[tumour]), set(by_sample[normal])
     check("processes ran for the tumour", len(t_procs) >= 5, f"{sorted(t_procs)}")
