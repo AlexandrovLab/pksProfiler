@@ -72,8 +72,11 @@ process targetedPksRecruit {
     ${ToolVersions.record(task, params, 'bowtie2 python')}
     # Ludmil, 25 Sep A1: default best-alignment reporting (no -k 1), so MAPQ means something
     # and recover_recruited_mates.py can hold every read to --min-mapq.
-    bowtie2 --very-sensitive-local --no-unal --threads ${task.cpus} -x "${params.pks_recruit_index}" -U "${reads}" -S "${sampleID}.pks_recruitment.sam"
-    python "${params.scripts}/recover_recruited_mates.py" --sam "${sampleID}.pks_recruitment.sam" --fastq "${reads}" --r1 "${sampleID}.pks.R1.fastq.gz" --r2 "${sampleID}.pks.R2.fastq.gz" --single "${sampleID}.pks.single.fastq.gz" --stats "${sampleID}.pks_recruitment.tsv" --min-aligned-bases "${params.pks_recruit_min_aligned}" --min-identity "${params.pks_recruit_min_identity}" --min-query-coverage "${params.recruit_min_query_coverage}" --min-mapq "${params.recruit_min_mapq}" --boundary-tolerance-bp "${params.recruit_boundary_tolerance_bp}" --island-start ${recruit_island_start} --island-end ${recruit_island_end} --reference-length ${recruit_reference_length}${flank_only_arg}
+    # A8 (Ludmil, 25 Sep): the SAM streams straight into the classifier, which reads it once
+    # in order; it was written uncompressed to scratch and read back. pipefail carries a
+    # bowtie2 failure.
+    bowtie2 --very-sensitive-local --no-unal --threads ${task.cpus} -x "${params.pks_recruit_index}" -U "${reads}" |
+    python "${params.scripts}/recover_recruited_mates.py" --sam - --fastq "${reads}" --r1 "${sampleID}.pks.R1.fastq.gz" --r2 "${sampleID}.pks.R2.fastq.gz" --single "${sampleID}.pks.single.fastq.gz" --stats "${sampleID}.pks_recruitment.tsv" --min-aligned-bases "${params.pks_recruit_min_aligned}" --min-identity "${params.pks_recruit_min_identity}" --min-query-coverage "${params.recruit_min_query_coverage}" --min-mapq "${params.recruit_min_mapq}" --boundary-tolerance-bp "${params.recruit_boundary_tolerance_bp}" --island-start ${recruit_island_start} --island-end ${recruit_island_end} --reference-length ${recruit_reference_length}${flank_only_arg}
     """
 }
 

@@ -25,7 +25,7 @@ printf '%s\n' \
 set +e
 validation_output=$(
     cd "$test_dir"
-    nextflow run "$repo_dir/main.nf" \
+    nextflow -log "$test_dir/nextflow-duplicate.log" run "$repo_dir/main.nf" \
         -work-dir "$test_dir/work" \
         --sample "$test_dir/duplicate.csv" \
         --input_data_type bam \
@@ -38,7 +38,9 @@ validation_status=$?
 set -e
 
 if [[ "$validation_status" -eq 0 ]] ||
-   ! grep -Fq "duplicate patient value 'duplicate'" <<< "$validation_output"; then
+   ! { grep -Fq "duplicate patient value 'duplicate'" <<< "$validation_output" ||
+       grep -F "duplicate patient value 'duplicate'" "$test_dir/nextflow-duplicate.log" 2>/dev/null |
+           grep -Fq " ERROR "; }; then
     printf '%s\n' "$validation_output" >&2
     echo "ERROR: Duplicate-sample validation regression failed." >&2
     exit 1
@@ -71,10 +73,18 @@ check_validation() {
 
     local output
     local status
+    # Each check gets its own Nextflow log. Nextflow intermittently exits after logging
+    # the validation error but before printing "ERROR ~ ..." to the console (seen with
+    # 26.04 on TSCC, base commit included: one of the ~25 checks in most full runs, a
+    # different one each time). The message is in
+    # this run's own log as "ERROR nextflow.Nextflow - <message>", written by the same
+    # exit, so either place is the run refusing with the expected message -- and the
+    # non-zero exit is still required.
+    local log_file="$test_dir/nextflow-$name.log"
     set +e
     output=$(
         cd "$test_dir"
-        nextflow run "$repo_dir/main.nf" \
+        nextflow -log "$log_file" run "$repo_dir/main.nf" \
             -work-dir "$test_dir/work-$name" \
             --sample "$test_dir/single.csv" \
             --input_data_type fastq \
@@ -87,7 +97,8 @@ check_validation() {
     status=$?
     set -e
 
-    if [[ "$status" -eq 0 ]] || ! grep -Fq -- "$expected" <<< "$output"; then
+    if [[ "$status" -eq 0 ]] || ! { grep -Fq -- "$expected" <<< "$output" ||
+                                   grep -F -- "$expected" "$log_file" 2>/dev/null | grep -Fq " ERROR "; }; then
         printf '%s\n' "$output" >&2
         echo "ERROR: $name validation regression failed." >&2
         exit 1

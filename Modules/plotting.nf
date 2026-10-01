@@ -24,7 +24,7 @@ process plotPKS {
 	# F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
 	${ToolVersions.record(task, params, 'Rscript:r-base')}
 	coverage_basename="\$(basename "${coverage_file}")"
-	sample_name="\${coverage_basename%.coverage.bedgraph}"
+	sample_name="\${coverage_basename%.coverage_50bp_bins.bedGraph}"
 	output_pdf="\${sample_name}.pks.circos.pdf"
 
     # P1 (25 Sep): the island interval is the canonical one, converted to the

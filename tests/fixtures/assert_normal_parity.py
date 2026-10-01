@@ -36,7 +36,7 @@ FAILURES = []
 PLACEHOLDER = "<SAMPLE>"
 # Text outputs compared modulo the sample name. Everything else (BAM/BAI, PDF, gzip) is
 # compared by digest, except files that embed a timestamp or an absolute path.
-TEXT_SUFFIXES = (".tsv", ".txt", ".bedgraph", ".csv")
+TEXT_SUFFIXES = (".tsv", ".txt", ".bedGraph", ".csv")
 NOT_COMPARED = (".html", ".json", ".pdf", ".svg", ".png")
 
 

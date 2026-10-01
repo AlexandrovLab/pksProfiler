@@ -58,6 +58,7 @@ Mate-tag diagnostics (A7, Ludmil 25 Sep), in the stats table either way:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import gzip
 import os
@@ -182,7 +183,9 @@ def classify_sam(sam, rule):
     """Per-fragment best class and the per-read census."""
     best, reads = {}, Counter()
     sq_lengths, checked = [], False
-    with open(sam) as handle:
+    # "-": the SAM on stdin (A8: targetedPksRecruit pipes bowtie2 straight in). It is read
+    # exactly once, in order, so a stream is all this needs.
+    with (contextlib.nullcontext(sys.stdin) if sam == "-" else open(sam)) as handle:
         for line in handle:
             if line.startswith("@"):
                 if line.startswith("@SQ"):
@@ -322,7 +325,7 @@ def pair_all(fastq, pairer, tmpdir=None, sort_memory="1G", threads=1):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--sam", help="recruitment SAM: recover only these fragments")
+    source.add_argument("--sam", help="recruitment SAM, or - for stdin: recover only these fragments")
     source.add_argument("--all-reads", action="store_true", help="pair every read (metagenome assembly)")
     parser.add_argument("--fastq", required=True)
     parser.add_argument("--r1", required=True)

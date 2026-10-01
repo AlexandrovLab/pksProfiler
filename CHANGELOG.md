@@ -131,6 +131,18 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
   count, tier or call changes, and it is not a specificity or identity measure.
 
 **Changed**
+- `targetedPksRecruit` streams Bowtie2's SAM straight into `recover_recruited_mates.py --sam -`
+  instead of writing it uncompressed to scratch and reading it back (A8, Ludmil 25 Sep).
+  Recruitment IDs and stats are byte-identical (`tests/test_recruitment_streaming.py`, and the
+  wgs_assembly mode run before and after).
+- The bamCoverage track is `alignment/coverage_50bp_bins.bedGraph` (was `coverage.bedgraph`),
+  with `--binSize 50` stated (A9, Ludmil 25 Sep): mean depth per 50 bp bin over the whole
+  IHE3034 genome, for the circos figure only; `coverage.txt` is per-base depth over the island,
+  which breadth and tiers use. `docs/output.md` says how they differ.
+- `tests/run_checks.sh`: each validation check gets its own Nextflow log and also accepts the
+  expected message from that log's ERROR line, because Nextflow intermittently exits after
+  logging the error but before printing `ERROR ~` (seen on the base commit too). The
+  non-zero exit is still required.
 - **Extraction from bwa mem alignments also takes low-score mapped reads** (Ludmil, 25 Sep E1):
   `extractReads` adds primary mapped records with `AS:i` < `--extract_min_as` (30) to the FLAG 4
   reads, in the same single decode. bwa leaves a read unmapped only below `-T` (default 30);

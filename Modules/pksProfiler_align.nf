@@ -15,7 +15,7 @@ process pksProfiler_align {
     output:
     tuple val(sampleID),
           path("${sampleID}.coverage.txt"),
-          path("${sampleID}.coverage.bedgraph"),
+          path("${sampleID}.coverage_50bp_bins.bedGraph"),
           path("${sampleID}.counts.txt"),
 	      path("${sampleID}.sorted.bam"),
 	      path("${sampleID}.sorted.bam.bai"),
@@ -27,7 +27,9 @@ process pksProfiler_align {
 
     script:
     def bedtools_cov = "${sampleID}.coverage.txt"
-    def coverage     = "${sampleID}.coverage.bedgraph"
+    // A9 (Ludmil, 25 Sep): named for what it is -- 50 bp bins, not per-base depth, which is
+    // coverage.txt below.
+    def coverage     = "${sampleID}.coverage_50bp_bins.bedGraph"
     def counts       = "${sampleID}.counts.txt"
     def bam          = "${sampleID}.sorted.bam"
 	def bai          = "${sampleID}.sorted.bam.bai"
@@ -154,10 +156,14 @@ process pksProfiler_align {
         #
         # This track feeds the circos figure only. Breadth and the evidence tiers come
         # from samtools depth in pks_targeted.nf, so no called result changes.
+        # A9 (Ludmil, 25 Sep): --binSize 50 is deepTools' default, now stated, and in the
+        # file name: each line is the mean depth over a 50 bp bin of the whole IHE3034
+        # genome, where coverage.txt is per-base depth over the island only.
         bamCoverage \
 			--numberOfProcessors "${task.cpus}" \
             -b "${bam}" \
             -o "${coverage}" \
+            --binSize 50 \
             --normalizeUsing None \
             --outFileFormat bedgraph
 

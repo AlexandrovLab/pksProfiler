@@ -75,7 +75,7 @@ if (nrow(coverage) < 1) {
 
 # Extract sample name from coverage filename (optional)
 sample_name <- basename(coverage_file)
-sample_name <- sub("\\.coverage\\.bedgraph$", "", sample_name)
+sample_name <- sub("\\.coverage_50bp_bins\\.bedGraph$", "", sample_name)
 
 # Open PDF device
 CairoPDF(output_pdf, width = 5, height = 5)

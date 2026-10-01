@@ -26,12 +26,17 @@ by_sample/<sample>/
 ├── wes_evidence.tsv        WES off-target DNA evidence, not tiered   (--sample_type wes)
 ├── rna_evidence.tsv        RNA expression evidence, not tiered       (--sample_type rna)
 ├── counts.txt              reads per clb gene
-├── coverage.txt            island coverage
-├── alignment/              sorted.bam, .bai, coverage.bedgraph, alignment.qc.tsv,
+├── coverage.txt            per-base depth over the canonical island (samtools depth -aa
+│                           -s -Q 40, one line per island base): what breadth is read from
+├── alignment/              sorted.bam, .bai, coverage_50bp_bins.bedGraph, alignment.qc.tsv,
 │                           ihe3034_divergence.qc.tsv, ihe3034_divergence_by_gene.tsv
 │                           (A5: divergence from IHE3034 of the clb-assigned reads; QC only)
-│                           coverage.bedgraph is **raw per-bin depth** over reads that
-│                           aligned to the island reference at MAPQ >= 40. It is not a
+│                           coverage_50bp_bins.bedGraph is deepTools bamCoverage
+│                           --binSize 50: **raw mean depth per 50 bp bin** across the whole
+│                           IHE3034 genome (not per base, not the island only; adjacent
+│                           equal bins merged) over reads that aligned to the IHE3034
+│                           reference at MAPQ >= 40. Breadth and tiers never read it; they
+│                           use coverage.txt / samtools depth. It is not a
 │                           library-normalised abundance and is not comparable between
 │                           samples; it drives the circos figure only. Gene counts are
 │                           the primary read-level evidence.
