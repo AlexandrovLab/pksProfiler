@@ -6,6 +6,9 @@ Extends the immutable v0.0.1 release with island reassembly, genome-resolved ana
 strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 
 **Added**
+- **Prebuilt RNA references.** `scripts/download_rna_references.sh <dir>` fetches the GRCh38.d1.vd1
+  `-x splice:sr` minimap2 index and the GENCODE v36 junction BED (~12 GB, public) from the shared Google Drive
+  folder and checks fixed MD5s; `docs/running/wes_rna.md` documents it alongside the build commands.
 - **Tier robustness columns** (V2; Ammal's decision A, 1 Oct: the tier stays on raw reads).
   `classifyPksReadEvidence` now runs `scripts/compute_fragment_support_variants.py` for every
   tiered (short-read wgs) sample with reads, with the tier's own thresholds, island depth and

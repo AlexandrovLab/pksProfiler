@@ -172,7 +172,7 @@ task, and reports everything wrong with them in one pass rather than failing on 
 | Flag | Needed for |
 |---|---|
 | `--hg38_db`, `--t2t_phix_db` | removing human reads — every run (`rna` takes `--rna_splice_db` in place of `--hg38_db`) |
-| `--rna_splice_db`, `--rna_junctions_bed` | splice-aware human depletion for `--sample_type rna` |
+| `--rna_splice_db`, `--rna_junctions_bed` | splice-aware human depletion for `--sample_type rna` (prebuilt: `bash scripts/download_rna_references.sh <dir>`, ~12 GB) |
 | `--hg38_db_long`, `--rna_splice_db_long`, `--t2t_phix_db_long` | the same passes for `--read_type ont`/`hifi` (index built with the long-read preset, or FASTA) |
 | `--pangenome_db` | optional extra human-read removal pass |
 | `--kraken_db` | read-level taxonomic support (species abundances), and the optional prefilter |

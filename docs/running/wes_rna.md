@@ -104,15 +104,24 @@ sample type is `lib/HostDepletion.groovy`; `tests/check_depletion_plan.sh` execu
 | `--rna_junctions_bed` | no | BED12 of annotated junctions, passed as `-j`; improves alignment across short exons |
 | `--rna_library_type` | no | `polyA`, `total` or `unknown` (default); recorded in `rna_evidence.tsv` and `RUN_REPORT.txt` |
 
-Building the references (public GRCh38 + GENCODE; no sample data involved):
+Getting the references (public GRCh38.d1.vd1 + GENCODE v36; no sample data involved, ~12 GB).
+Download the prebuilt files and verify their MD5s:
+
+```bash
+bash scripts/download_rna_references.sh /path/to/dbs/rna_grch38_splice_sr_gencode_v36
+```
+
+They are shared at <https://drive.google.com/drive/folders/10np5NSeAPRpHz1a22drGybs4enTP-OdR>
+(index built with minimap2 2.31). Or build them yourself:
 
 ```bash
 minimap2 -x splice:sr -d GRCh38.d1.vd1.splice_sr.mmi GRCh38.d1.vd1.fa
 paftools.js gff2bed gencode.v36.annotation.gtf > gencode.v36.junctions.bed
 ```
 
-On TSCC these are being built under
-`/tscc/lustre/restricted/alexandrov-ddn/users/amabbasi/pksProfiler/ref_indices/grch38_splice_sr/`.
+GRCh38.d1.vd1 is the GDC reference that TCGA's harmonised data use, and GENCODE v36 matches GDC's RNA
+annotation. On TSCC the built files are in
+`/tscc/lustre/restricted/alexandrov-ddn/users/amabbasi/pksProfiler/refs_public/rna_grch38_splice_sr_gencode_v36/`.
 
 **Output.**
 
