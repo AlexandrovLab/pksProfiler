@@ -31,6 +31,9 @@ visible even when the primary landed on another carrier. Per read:
     attributed               exactly one carrier in the tied set and delta_AS >= --min-delta-as
     ambiguous_multi_carrier  otherwise (several carriers explain the read equally well)
     unmapped                 no alignment to any carrier
+    off_map                  aligned, but only to contigs the carrier map does not name --
+                             the index and the map are from different panel builds, and
+                             the run is refused (see main) rather than reported as unmapped
 
 Per sample, the attributed reads are counted per carrier and per genus. The sample-level
 call is:
@@ -39,9 +42,19 @@ call is:
                            holds >= --min-top-carrier-fraction of them
     CARRIER_GENUS_ONLY     the same fraction test passes at genus level but not at strain
                            level: the organism's genus is supported, the strain is not
-    CARRIER_AMBIGUOUS      neither test passes: the read set does not separate the panel's
-                           carriers
-    CARRIER_UNDETERMINED   fewer than --min-attributed-reads attributed reads at all
+    CARRIER_AMBIGUOUS      neither test passes although >= --min-attributed-reads reads
+                           aligned to the panel: the read set does not separate the panel's
+                           carriers (including the case where EVERY read ties across
+                           genera, so nothing is attributed at all)
+    CARRIER_UNDETERMINED   fewer than --min-attributed-reads reads aligned to the panel at
+                           all: too little evidence to ask the question
+
+5 Oct 2026 (V8 real-data pilot). CARRIER_UNDETERMINED used to mean "fewer than
+--min-attributed-reads ATTRIBUTED reads", so a sample with hundreds of panel-aligned reads
+that all tie across genera -- a property of the panel's near-identical islands, i.e. a
+measured "cannot separate" -- reported the same verdict, and the same empty count
+columns, as a sample with no reads and as an index/map mismatch. The summary now carries
+n_mapped, n_off_map and tied_genus_sets so the three are told apart.
 
 Strain-level and genus-level are reported separately and always both, because most short
 reads over a mobile island shared at high identity across genera CANNOT separate strains,
@@ -67,6 +80,7 @@ FLAG_UNMAPPED = 0x4
 ATTRIBUTED = "attributed"
 AMBIGUOUS = "ambiguous_multi_carrier"
 UNMAPPED = "unmapped"
+OFF_MAP = "off_map"
 
 CARRIER_ATTRIBUTED = "CARRIER_ATTRIBUTED"
 CARRIER_GENUS_ONLY = "CARRIER_GENUS_ONLY"
@@ -81,11 +95,11 @@ PER_READ_FIELDS = [
 
 SUMMARY_FIELDS = [
     "sample", "carrier_attribution", "panel_carriers", "n_reads", "n_attributed",
-    "n_ambiguous_multi_carrier", "n_unmapped", "top_carrier", "top_carrier_organism",
+    "n_ambiguous_multi_carrier", "n_unmapped", "n_mapped", "n_off_map", "top_carrier", "top_carrier_organism",
     "top_carrier_reads", "top_carrier_fraction", "runner_up_carrier",
     "runner_up_carrier_reads", "top_genus", "top_genus_reads", "top_genus_fraction",
     "strain_level_resolved", "genus_level_resolved", "carrier_read_counts",
-    "genus_read_counts", "min_delta_as", "tie_margin",
+    "genus_read_counts", "tied_genus_sets", "min_delta_as", "tie_margin",
 ]
 
 
@@ -177,6 +191,9 @@ def attribute_reads(records, carrier_map, min_delta_as, tie_margin):
     for read_id in sorted(grouped):
         best = best_per_carrier(grouped[read_id], carrier_map)
         row = attribute_read(best, min_delta_as, tie_margin)
+        if not best and any(not (flag & FLAG_UNMAPPED) and rname not in carrier_map
+                            for _q, flag, rname, _as in grouped[read_id]):
+            row["attribution"] = OFF_MAP
         row["read_id"] = read_id
         organism, genus = "", ""
         if row["best_carrier"]:
@@ -205,12 +222,15 @@ def summarize(sample, rows, carrier_map, args):
     attributed = [r for r in rows if r["attribution"] == ATTRIBUTED]
     ambiguous = [r for r in rows if r["attribution"] == AMBIGUOUS]
     unmapped = [r for r in rows if r["attribution"] == UNMAPPED]
+    off_map = [r for r in rows if r["attribution"] == OFF_MAP]
+    n_mapped = len(attributed) + len(ambiguous)
 
     carrier_counts = defaultdict(int)
     for row in attributed:
         carrier_counts[row["best_carrier"]] += 1
 
     genus_counts = defaultdict(int)
+    tied_genus_sets = defaultdict(int)
     genus_attributed = 0
     for row in attributed + ambiguous:
         tied = [t for t in row["tied_carriers"].split(",") if t]
@@ -220,6 +240,10 @@ def summarize(sample, rows, carrier_map, args):
         if len(genera) == 1:
             genus_counts[genera.pop()] += 1
             genus_attributed += 1
+        else:
+            # Which genera a read could not separate: the reason a sample with many
+            # aligned reads can still have empty genus counts.
+            tied_genus_sets["+".join(sorted(genera))] += 1
 
     ranked_carriers = sorted(carrier_counts.items(), key=lambda kv: (-kv[1], kv[0]))
     ranked_genera = sorted(genus_counts.items(), key=lambda kv: (-kv[1], kv[0]))
@@ -240,7 +264,7 @@ def summarize(sample, rows, carrier_map, args):
         verdict = CARRIER_ATTRIBUTED
     elif genus_ok:
         verdict = CARRIER_GENUS_ONLY
-    elif n_attributed < args.min_attributed_reads and genus_attributed < args.min_attributed_reads:
+    elif n_mapped < args.min_attributed_reads:
         verdict = CARRIER_UNDETERMINED
     else:
         verdict = CARRIER_AMBIGUOUS
@@ -253,6 +277,8 @@ def summarize(sample, rows, carrier_map, args):
         "n_attributed": n_attributed,
         "n_ambiguous_multi_carrier": len(ambiguous),
         "n_unmapped": len(unmapped),
+        "n_mapped": n_mapped,
+        "n_off_map": len(off_map),
         "top_carrier": top_carrier,
         "top_carrier_organism": next(
             (e["organism"] for e in carrier_map.values() if e["carrier"] == top_carrier), ""),
@@ -267,6 +293,8 @@ def summarize(sample, rows, carrier_map, args):
         "genus_level_resolved": genus_ok,
         "carrier_read_counts": ";".join(f"{k}:{v}" for k, v in ranked_carriers),
         "genus_read_counts": ";".join(f"{k}:{v}" for k, v in ranked_genera),
+        "tied_genus_sets": ";".join(f"{k}:{v}" for k, v in
+                                     sorted(tied_genus_sets.items(), key=lambda kv: (-kv[1], kv[0]))),
         "min_delta_as": args.min_delta_as,
         "tie_margin": args.tie_margin,
     }
@@ -313,6 +341,12 @@ def main(argv=None):
     rows = attribute_reads(list(parse_sam_records(args.sam)), carrier_map,
                             args.min_delta_as, args.tie_margin)
     summary = summarize(args.sample, rows, carrier_map, args)
+    if summary["n_off_map"]:
+        raise SystemExit(
+            f"{args.sample}: {summary['n_off_map']} read(s) aligned only to contigs that "
+            f"{args.carrier_map} does not name. The index and the carrier map are from "
+            "different panel builds; rebuild both with scripts/build_specificity_panels.py "
+            "--panel v8b rather than reporting those reads as unmapped.")
     write_tsv(args.output_per_read, PER_READ_FIELDS, rows)
     write_tsv(args.output_summary, SUMMARY_FIELDS, [summary])
     print(f"{args.sample}\t{summary['carrier_attribution']}"

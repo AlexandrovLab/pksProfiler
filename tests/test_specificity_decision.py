@@ -54,6 +54,7 @@ class Args:
     absorber_fraction_threshold = 0.2
     absorber_near_threshold_margin = 5.0
     min_supporting_reads = 10
+    max_unmeasured_fraction = 0.05
 
 
 def make_reads(n, gene_cycle, overlap_bp=50):
@@ -307,6 +308,136 @@ class BootstrapCI(unittest.TestCase):
 
     def test_empty_outcomes_does_not_divide_by_zero(self):
         self.assertEqual(sd.bootstrap_ci([], iterations=100, seed=0), (0.0, 0.0))
+
+
+def unaligned_row(read_id):
+    """What competitive_realign_score.py writes for a read minimap2 left unmapped in all
+    three alignments: no score anywhere, classification ambiguous."""
+    return arm_b_row(read_id, "ambiguous")
+
+
+class UnmeasuredReadsAreNotDecoyLosses(unittest.TestCase):
+    """5 Oct 2026 V8 pilot: a read with no Arm-B row was a non-survivor whose absorbing
+    decoy was 'unknown_missing_from_arm_b', and retention was divided by the tier's read
+    count. A read the challenge never measured is not a read lost to a decoy."""
+
+    EVIDENCE = {"sample": "S1", "read_evidence": "multi_gene", "pks_reads": "100",
+                "clb_genes_detected": "7", "island_breadth_1x": "0.5",
+                "island_breadth_2x": "0.3", "island_breadth_3x": "0.1"}
+    GENES = ["clbA", "clbD", "clbG", "clbM", "clbP", "clbQ", "clbS"]
+
+    def _decide(self, arm_b, gene_assignment, **overrides):
+        args = Args()
+        for key, value in overrides.items():
+            setattr(args, key, value)
+        return sd.decide("S1", self.EVIDENCE, gene_assignment, None, arm_b, args)
+
+    def test_reads_missing_from_arm_b_are_unmeasured_not_absorbed(self):
+        reads, genes = make_reads(100, self.GENES)
+        # 70 confirmed, 30 never reached Arm B under their own name.
+        arm_b = {r: arm_b_row(r, "confirmed_true") for r in reads[:70]}
+        result = self._decide(arm_b, genes)
+        self.assertEqual(result["n_unmeasured_missing_from_arm_b"], 30)
+        self.assertEqual(result["n_measured"], 70)
+        self.assertEqual(result["n_lost"], 0)
+        self.assertEqual(result["retention"], 1.0)
+        self.assertAlmostEqual(result["retention_if_unmeasured_lost"], 0.7)
+        self.assertNotIn("unknown_missing_from_arm_b", result["absorbers"])
+        self.assertEqual(result["flagged_absorbers"], "")
+        self.assertFalse(result["manual_followup_required"])
+
+    def test_too_many_unmeasured_reads_is_incomplete_not_a_verdict(self):
+        reads, genes = make_reads(100, self.GENES)
+        arm_b = {r: arm_b_row(r, "confirmed_true") for r in reads[:70]}
+        self.assertEqual(self._decide(arm_b, genes)["verdict"], sd.INCOMPLETE)
+        # ...and it is never reported as NOT_DISTINGUISHABLE, which would claim the reads
+        # were challenged and lost.
+        arm_b = {r: arm_b_row(r, "confirmed_true") for r in reads[:40]}
+        self.assertEqual(self._decide(arm_b, genes)["verdict"], sd.INCOMPLETE)
+
+    def test_a_few_unmeasured_reads_under_the_ceiling_still_decide(self):
+        reads, genes = make_reads(100, self.GENES)
+        arm_b = {r: arm_b_row(r, "confirmed_true") for r in reads[:96]}
+        result = self._decide(arm_b, genes)
+        self.assertEqual(result["n_unmeasured"], 4)
+        self.assertEqual(result["verdict"], sd.SURVIVES)
+
+    def test_a_read_aligning_to_neither_panel_side_is_unmeasured_not_absorbed(self):
+        reads, genes = make_reads(100, self.GENES)
+        arm_b = {r: arm_b_row(r, "confirmed_true") for r in reads[:70]}
+        arm_b.update({r: unaligned_row(r) for r in reads[70:]})
+        result = self._decide(arm_b, genes)
+        self.assertEqual(result["n_unmeasured_unaligned"], 30)
+        self.assertEqual(result["n_lost"], 0)
+        self.assertEqual(result["absorbers"], {})
+        self.assertEqual(result["verdict"], sd.INCOMPLETE)
+
+    def test_real_decoy_losses_are_still_counted_and_flagged(self):
+        reads, genes = make_reads(100, self.GENES)
+        arm_b = {r: arm_b_row(r, "confirmed_true") for r in reads[:60]}
+        arm_b.update({r: arm_b_row(r, "confirmed_decoy", decoy_contig="decoyX", delta_as=-2)
+                      for r in reads[60:98]})
+        # two missing reads alongside 38 genuine losses
+        result = self._decide(arm_b, genes)
+        self.assertEqual(result["n_lost"], 38)
+        self.assertEqual(result["n_unmeasured"], 2)
+        self.assertAlmostEqual(result["retention"], 60 / 98)
+        self.assertIn("decoyX", result["flagged_absorbers"])
+        self.assertNotIn("missing", result["flagged_absorbers"])
+        self.assertEqual(result["verdict"], sd.NOT_DISTINGUISHABLE)
+
+    def test_retention_and_its_ci_use_the_same_denominator(self):
+        # pks_reads (100) is larger than the evaluated read set (50): the point estimate
+        # must not be divided by one and the CI computed over the other.
+        reads, genes = make_reads(50, self.GENES)
+        arm_b = {r: arm_b_row(r, "confirmed_true") for r in reads}
+        result = self._decide(arm_b, genes)
+        self.assertEqual(result["retention"], 1.0)
+        self.assertEqual((result["retention_ci_lower"], result["retention_ci_upper"]), (1.0, 1.0))
+        self.assertEqual(result["n_supporting"], 100)
+        self.assertEqual(result["n_evaluated"], 50)
+
+    def test_too_few_measured_reads_is_underpowered(self):
+        reads, genes = make_reads(100, self.GENES)
+        arm_b = {r: arm_b_row(r, "confirmed_true") for r in reads[:5]}
+        self.assertEqual(self._decide(arm_b, genes)["verdict"], sd.UNDERPOWERED)
+
+    def test_the_per_read_table_names_each_unmeasured_kind(self):
+        reads, genes = make_reads(20, self.GENES)
+        arm_b = {r: arm_b_row(r, "confirmed_true") for r in reads[:16]}
+        arm_b[reads[16]] = unaligned_row(reads[16])
+        arm_b[reads[17]] = arm_b_row(reads[17], "confirmed_decoy", decoy_contig="decoyX")
+        result = self._decide(arm_b, genes)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "per_read.tsv"
+            sd.write_per_read(result, {}, arm_b, path)
+            with path.open() as handle:
+                rows = {r["read_id"]: r for r in csv.DictReader(handle, delimiter="\t")}
+        self.assertEqual(rows[reads[16]]["status"], sd.UNALIGNED)
+        self.assertEqual(rows[reads[16]]["absorbing_decoy"], "")
+        self.assertEqual(rows[reads[17]]["status"], sd.LOST)
+        self.assertEqual(rows[reads[17]]["absorbing_decoy"], "decoyX")
+        self.assertEqual(rows[reads[18]]["status"], sd.MISSING_FROM_ARM_B)
+        self.assertEqual(rows[reads[18]]["absorbing_decoy"], "")
+        self.assertEqual(rows[reads[0]]["status"], sd.SURVIVED)
+
+    def test_with_arm_a_a_read_missing_from_arm_a_is_unmeasured(self):
+        reads, genes = make_reads(100, self.GENES)
+        arm_a = arm_a_all_confirm(reads[:90])
+        arm_b = {r: arm_b_row(r, "confirmed_true") for r in reads}
+        result = sd.decide("S1", self.EVIDENCE, genes, arm_a, arm_b, Args())
+        self.assertEqual(result["n_unmeasured_missing_from_arm_a"], 10)
+        self.assertEqual(result["n_lost"], 0)
+        self.assertEqual(result["verdict"], sd.INCOMPLETE)
+
+    def test_an_arm_a_rejection_is_a_loss_named_as_such(self):
+        reads, genes = make_reads(20, self.GENES)
+        arm_a = arm_a_all_confirm(reads)
+        arm_a[reads[0]]["confidence"] = "0.1"
+        arm_b = {r: arm_b_row(r, "confirmed_true") for r in reads}
+        result = sd.decide("S1", self.EVIDENCE, genes, arm_a, arm_b, Args())
+        self.assertEqual(result["n_lost"], 1)
+        self.assertIn("arm_a_not_confirmed", result["absorbers"])
 
 
 if __name__ == "__main__":

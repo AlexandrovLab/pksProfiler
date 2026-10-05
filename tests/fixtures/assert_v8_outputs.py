@@ -79,6 +79,17 @@ def check_v8a(arm_b_path, summary_path, per_read_path, expected, failures,
                         "half-true/half-homolog fixture must produce (0.2-0.8): the "
                         "challenge either did nothing or rejected everything")
 
+    # Every supporting read must have been measured under its own name: a read with no
+    # Arm-B row is the 5 Oct pilot's unknown_missing_from_arm_b (minimap2 pairing two
+    # consecutive /1 /2 records and stripping the suffix).
+    unmeasured = int(row.get("n_unmeasured") or 0)
+    if unmeasured:
+        failures.append(f"V8a: {unmeasured} supporting read(s) were never measured "
+                        f"(missing from Arm B: {row.get('n_unmeasured_missing_from_arm_b')}, "
+                        f"unaligned: {row.get('n_unmeasured_unaligned')})")
+    if "unknown_missing_from_arm_b" in (row.get("flagged_absorbers") or ""):
+        failures.append("V8a names a missing read as a decoy absorber")
+
     per_read = read_rows(per_read_path)
     if len(per_read) != len(arm_b):
         failures.append(f"V8a per-read table has {len(per_read)} rows, arm_b has "
@@ -127,7 +138,11 @@ def check_v8b(summary_path, per_read_path, expected, failures, min_fraction):
         failures.append(f"V8b call is {row.get('carrier_attribution')!r}: reads taken "
                         "straight from one carrier's own sequence should resolve at "
                         "least to its genus")
-    for banned in ("SURVIVES", "NOT_DISTINGUISHABLE", "UNDERPOWERED", "confirmed_true"):
+    if int(row.get("n_reads") or 0) != int(expected["carrier_reads"]):
+        failures.append(f"V8b counted {row.get('n_reads')} reads, expected "
+                        f"{expected['carrier_reads']}: mates were merged under one name")
+    for banned in ("SURVIVES", "NOT_DISTINGUISHABLE", "UNDERPOWERED", "INCOMPLETE_MEASUREMENT",
+                   "confirmed_true"):
         if banned in Path(summary_path).read_text():
             failures.append(f"V8b output contains {banned!r}, a V8a verdict: the two "
                             "checks are being conflated in the output")

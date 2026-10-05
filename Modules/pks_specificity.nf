@@ -74,6 +74,7 @@ params.pks_specificity_non_megasynthase_min_genes = 2
 params.pks_specificity_absorber_fraction_threshold = 0.2
 params.pks_specificity_absorber_near_threshold_margin = 5.0
 params.pks_specificity_min_supporting_reads      = 10
+params.pks_specificity_max_unmeasured_fraction   = 0.05  // above it: INCOMPLETE_MEASUREMENT
 params.pks_specificity_min_delta_as              = 0.0
 
 // Tier thresholds: must match classifyPksReadEvidence's own params exactly, or tier
@@ -154,7 +155,13 @@ process alignConcatenatedIndex {
     # AS_best(decoy) reported whenever any alignment to the decoy family exists at
     # all, not only when it is competitive. -N 5 is comfortably above a 2-family
     # (true vs decoy panel) best-per-family need.
-    minimap2 -a -x sr -N 5 -p 0.1 --secondary=yes -t "${task.cpus}" \
+    # --frag=no: with -x sr, minimap2 pairs any two CONSECUTIVE records whose names differ
+    # only by /1 and /2, and strips the suffix. The island reads come from a coordinate-
+    # sorted BAM whose names end in /1 and /2 (extraction appends them with -N), so
+    # adjacent mates were renamed and the decision script, keyed on the read_clb_gene
+    # names, found no Arm-B row for them (V8 real-data pilot, 5 Oct). Every read is
+    # scored on its own, under its own name.
+    minimap2 -a -x sr --frag=no -N 5 -p 0.1 --secondary=yes -t "${task.cpus}" \
         "${params.pks_specificity_concatenated_index}" "${reads_fastq}" \
         > "${sampleID}.b1_concatenated.sam"
     """
@@ -181,9 +188,10 @@ process alignSeparateIndices {
     set -euo pipefail
     # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
     ${ToolVersions.record(task, params, 'minimap2')}
-    minimap2 -a -x sr -t "${task.cpus}" "${params.pks_specificity_true_index}" "${reads_fastq}" \
+    # --frag=no for the same reason as alignConcatenatedIndex: names must survive intact.
+    minimap2 -a -x sr --frag=no -t "${task.cpus}" "${params.pks_specificity_true_index}" "${reads_fastq}" \
         > "${sampleID}.b2_true.sam"
-    minimap2 -a -x sr -t "${task.cpus}" "${params.pks_specificity_decoy_index}" "${reads_fastq}" \
+    minimap2 -a -x sr --frag=no -t "${task.cpus}" "${params.pks_specificity_decoy_index}" "${reads_fastq}" \
         > "${sampleID}.b2_decoy.sam"
     """
 }
@@ -277,6 +285,7 @@ process computeLocusSpecificityVerdict {
         --absorber-fraction-threshold "${params.pks_specificity_absorber_fraction_threshold}" \
         --absorber-near-threshold-margin "${params.pks_specificity_absorber_near_threshold_margin}" \
         --min-supporting-reads "${params.pks_specificity_min_supporting_reads}" \
+        --max-unmeasured-fraction "${params.pks_specificity_max_unmeasured_fraction}" \
         --output-summary "${sampleID}.locus_specificity_summary.tsv" \
         --output-per-read "${sampleID}.locus_specificity_per_read.tsv"
     """

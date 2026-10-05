@@ -110,6 +110,7 @@ class ThresholdsAreConfigurableNotHardcoded(unittest.TestCase):
         "pks_specificity_absorber_fraction_threshold",
         "pks_specificity_absorber_near_threshold_margin",
         "pks_specificity_min_supporting_reads",
+        "pks_specificity_max_unmeasured_fraction",
     )
 
     def test_every_threshold_has_a_declared_default(self):
@@ -296,6 +297,22 @@ class StandaloneEntryPoint(unittest.TestCase):
         # when this module is later imported from main.nf one directory up).
         self.assertIn("${moduleDir}/../scripts", MODULE)
         self.assertIn("${moduleDir}/../conda_envs/minimap2_env.yml", MODULE)
+
+
+class EveryV8AlignmentIsSingleEnd(unittest.TestCase):
+    """5 Oct 2026 V8 pilot: minimap2 -x sr pairs two consecutive records named X/1 and X/2
+    and writes both as X, so island reads whose mates sat next to each other in the
+    coordinate-sorted BAM had no Arm-B row under their own name. --frag=no on every V8
+    alignment keeps each read independent and its name intact."""
+
+    def test_every_minimap2_call_in_both_v8_lanes_disables_fragment_mode(self):
+        for module in ("Modules/pks_specificity.nf", "Modules/pks_carrier.nf"):
+            text = (ROOT / module).read_text()
+            calls = [line for line in text.splitlines()
+                     if line.strip().startswith("minimap2 ")]
+            self.assertTrue(calls, f"{module}: no minimap2 call found")
+            for line in calls:
+                self.assertIn("--frag=no", line, f"{module}: {line.strip()}")
 
 
 if __name__ == "__main__":
