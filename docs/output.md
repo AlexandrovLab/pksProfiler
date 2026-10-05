@@ -61,7 +61,9 @@ by_sample/<sample>/
 │   ├── pks_island_mobility.tsv
 │   └── contig_pks_context.tsv / _summary.tsv / _mobility.tsv
 ├── strain/                 ST, clonal complex, phylogroup            (step 7)
-├── taxonomy/               bracken reports, island reads             --pks_taxa
+├── taxonomy/               bracken.{G,S}.report.txt etc., island reads  --pks_taxa
+│                           community_bracken.{G,S}.report.txt /
+│                           community_bracken.{G,S}.krakenreport.txt  --pks_community_taxa
 │                           (read-level taxonomic support, not carrier attribution)
 ├── locus_specificity/      V8a: does the read belong to the pks locus?  --pks_locus_specificity
 │                           (pks-NEGATIVE decoy panel; never a carrier statement)
@@ -146,6 +148,18 @@ default `--tool_version_check strict`, `OUTSIDE_ENV`, `VERSION_MISMATCH`, `NOT_F
 `finalize_provenance.py` exit non-zero; `warn` records them and carries on. The same data is `tool_versions` in
 `runs/provenance/<session>.json`. Tasks whose work directory was cleaned up before the report
 was written are counted, not checked.
+
+A version that could not be read (`version_unread`, shown as `?`) is not a mismatch and
+never stops a task. Each read captures stdout and stderr, runs under a timeout and is
+retried up to three times with a short backoff (`PKS_TOOL_VERSION_ATTEMPTS`, default 3;
+`PKS_TOOL_VERSION_TIMEOUT`, default 60 s for the first try and more for each retry;
+`PKS_TOOL_VERSION_BACKOFF`, default 2 s), because on a busy cluster a single
+cold start can exceed the timeout. The record's `attempts` and `read_exit` columns say how
+many tries it took and how the last one ended (124 = timed out), and for `version_unread`
+`raw` holds that exit status and the first line the tool printed.
+
+No two processes publish the same path (`tests/test_unique_publish_paths.py`): Nextflow
+does not warn when two tasks publish onto one name, and the later copy silently wins.
 
 ## One table with everything
 

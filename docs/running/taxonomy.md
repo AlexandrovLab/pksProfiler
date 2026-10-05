@@ -52,6 +52,12 @@ results_taxonomy/cohort/taxonomy/
 ├── bracken.genus.mpa.report.txt
 └── bracken.species.mpa.report.txt
 
+results_taxonomy/by_sample/<sample>/taxonomy/
+├── bracken.{G,S}.report.txt                --pks_taxa (island-aligned reads)
+├── bracken.{G,S}.krakenreport.txt, .mpa.krakenreport.txt
+├── community_bracken.{G,S}.report.txt      --pks_community_taxa (whole non-host report)
+└── community_bracken.{G,S}.krakenreport.txt
+
 results_taxonomy/by_sample/<sample>/figures/
 ├── pks_island_taxa_barplots.pdf    --pks_taxa (Bracken on island-aligned reads)
 └── community_taxa_barplots.pdf     --pks_community_taxa (Bracken on the whole non-host report)

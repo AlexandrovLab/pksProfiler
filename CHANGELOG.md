@@ -5,6 +5,37 @@
 Extends the immutable v0.0.1 release with island reassembly, genome-resolved analysis and
 strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 
+**Fixed in rc1.1** (on top of `integration/v1.0.0-rc1`; the manifest version is unchanged)
+- **Tool-version capture read `?` for a few tasks** (`version_unread`). On the rc1 TCGA WES
+  run (1,304 samples) bamCoverage read `?` in 11 tasks, fastp 8, samtools 4 (one env),
+  bowtie2 3, bgzip 1, and RNA python3 in 1 of 3, while every other task of the same tool
+  and env read fine. The parse is deterministic, so in those tasks the one version call
+  printed no version line: `scripts/record_tool_versions.sh` made a single attempt under a
+  fixed 60 s `timeout`, with no retry, and threw away both the exit status and every line
+  without a version number, so the record could not say why. The most likely cause is
+  a cold start (exec, shared libraries and, for bamCoverage, ~30 Python modules from the
+  conda env on the shared filesystem) that ran past the timeout while the whole cohort
+  started at once, or a transient exec failure. Each read now captures stdout and stderr,
+  runs under `timeout -k 5` (60 s, then 120 s, 180 s), and is retried up to 3 times with
+  a 2 s / 4 s backoff when it exited non-zero or printed nothing. Output with no version
+  and exit 0 is not retried, so a fast tool still costs one call. The record gains
+  `attempts` and `read_exit`, and a `version_unread` row keeps the exit status and the
+  first line of output in `raw`. Settings: `PKS_TOOL_VERSION_ATTEMPTS`, `_TIMEOUT`,
+  `_BACKOFF`. Reading a version still never fails a task. `tests/test_tool_versions.py`
+  (`AVersionReadIsRetried`: a tool that fails its first 1 or 2 calls, a hung first call,
+  a transient exec error, a version on stderr, a tool that always fails).
+- **Two processes published onto one path.** The `taxa_barplots.pdf` fix (6a03115) is now
+  checked for every process: `tests/test_unique_publish_paths.py` works out each publishDir's
+  published path templates (directory, output names, `pattern`, `saveAs`) and fails on any
+  two that coincide, or on a process included under several aliases whose call sites
+  do not each set its published name. It found the same overwrite one stage earlier:
+  `Bracken` (`--pks_taxa`, island reads) and `sampleBracken` (`--pks_community_taxa`, whole
+  community) both published `by_sample/<s>/taxonomy/bracken.{G,S}.report.txt` and
+  `.krakenreport.txt`. sampleBracken's are now `community_bracken.*`. Nothing read those
+  per-sample files by path; `docs/output.md` and `docs/running/taxonomy.md` list both.
+- `tests/fixtures/assert_normal_parity.py` compares tool-version records without the new
+  `attempts` / `read_exit` columns: a retried read is not a different binary.
+
 **Added**
 - **Prebuilt RNA references.** `scripts/download_rna_references.sh <dir>` fetches the GRCh38.d1.vd1
   `-x splice:sr` minimap2 index and the GENCODE v36 junction BED (~12 GB, public) from the shared Google Drive
