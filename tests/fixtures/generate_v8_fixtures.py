@@ -85,6 +85,25 @@ def sample_reads(sequence, prefix, count, length, rng):
     return reads
 
 
+def revcomp(sequence):
+    return sequence[::-1].translate(str.maketrans("ACGTacgt", "TGCAtgca"))
+
+
+def sample_mate_pairs(sequence, prefix, count, length, rng, insert=350):
+    """count reads as count/2 fragments named <prefix>_<i>/1 and /2, the two mates written
+    CONSECUTIVELY -- the shape of a v0.0.1 island FASTQ (names end in /1 and /2, and a
+    coordinate-sorted BAM puts nearby mates next to each other). minimap2 -x sr pairs such
+    records and strips the suffix unless run with --frag=no, which is the 5 Oct V8 pilot's
+    unknown_missing_from_arm_b; this fixture makes the lane execution check see it."""
+    reads = []
+    for i in range(count // 2):
+        start = rng.randrange(0, len(sequence) - insert)
+        mate = start + insert - length
+        reads.append((f"{prefix}_{i}/1", sequence[start:start + length]))
+        reads.append((f"{prefix}_{i}/2", revcomp(sequence[mate:mate + length])))
+    return reads
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", required=True, type=Path)
@@ -141,12 +160,12 @@ def main():
         "klebsiella_test__clb_island\tklebsiella_test\tKlebsiella pneumoniae TEST\tGCF_TEST_K\n")
 
     # ---- reads ----------------------------------------------------------------------
-    true_reads = sample_reads(true_slice, "true", args.reads_per_source,
-                               args.read_length, rng)
+    true_reads = sample_mate_pairs(true_slice, "true", args.reads_per_source,
+                                    args.read_length, rng)
     decoy_reads = sample_reads(homolog, "decoy", args.reads_per_source,
                                 args.read_length, rng)
-    kleb_reads = sample_reads(klebsiella, "kleb", args.reads_per_source,
-                               args.read_length, rng)
+    kleb_reads = sample_mate_pairs(klebsiella, "kleb", args.reads_per_source,
+                                    args.read_length, rng)
 
     # V8a sample: true reads plus homolog reads, the mixture the check has to separate.
     v8a_reads = true_reads + decoy_reads

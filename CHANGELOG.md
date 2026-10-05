@@ -239,6 +239,23 @@ strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 - nf-core template placeholders and the unused `input` parameter.
 
 **Fixed**
+- **V8a counted reads it never measured as lost to a decoy** (V8 real-data pilot, 5 Oct).
+  minimap2 `-x sr` pairs two consecutive records named `X/1` and `X/2` and strips the
+  suffix; island reads come from a coordinate-sorted BAM whose names end in `/1` `/2`, so
+  adjacent mates had no Arm B row under their read_clb_gene name and were reported as
+  non-survivors absorbed by `unknown_missing_from_arm_b` (and, on synthetic reads, turned
+  a 100%-retention sample into NOT_DISTINGUISHABLE at R=0.66). Every V8a and V8b minimap2
+  call now runs `--frag=no`. `specificity_decision.py` defines retention (and its CI)
+  over measured reads, reports unmeasured reads by kind, keeps them out of the absorber
+  tally, adds `retention_if_unmeasured_lost`, and returns `INCOMPLETE_MEASUREMENT` above
+  `--pks_specificity_max_unmeasured_fraction` (0.05). The V8 lane fixture now writes
+  adjacent `/1` `/2` mates so `tests/check_v8_lanes_execution.sh` catches a regression.
+- **V8b CARRIER_UNDETERMINED conflated "no evidence" with "evidence that does not
+  separate carriers".** It now means fewer than the minimum reads *aligned* to the panel;
+  many aligned reads that all tie across genera are `CARRIER_AMBIGUOUS`. The summary adds
+  `n_mapped`, `n_off_map` and `tied_genus_sets`, and an alignment to a contig absent from
+  the carrier map (index and map from different builds) fails the task instead of being
+  counted as unmapped.
 - `summarize_tumor_pks_contigs.py` crashed (`dict contains fields not in fieldnames`) on any
   read_evidence column it did not repeat -- the same failure the `mode` column caused before.
   It now ignores extra evidence columns (found by the V2 columns).

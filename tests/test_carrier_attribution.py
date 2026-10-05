@@ -217,5 +217,54 @@ class CommandLine(unittest.TestCase):
             self.assertEqual(len(per_read), 8)
 
 
+class UndeterminedMeansTooLittleEvidenceNotTooManyTies(unittest.TestCase):
+    """5 Oct 2026 V8 pilot: an extensive-island sample came back CARRIER_UNDETERMINED with
+    empty count columns -- the same output as a sample with no reads, and as an index/map
+    mismatch. The three must be told apart."""
+
+    def test_many_reads_all_tied_across_genera_is_ambiguous_not_undetermined(self):
+        reads = {f"r{i}": {"ecoli_ihe3034__NC_017628.1": 100,
+                            "klebsiella_pneumoniae_sgh10__NZ_CP025080.1": 100} for i in range(50)}
+        rows = attribute(reads)
+        summary = ca.summarize("S1", rows, CARRIERS, Args())
+        self.assertEqual(summary["carrier_attribution"], ca.CARRIER_AMBIGUOUS)
+        self.assertEqual(summary["n_mapped"], 50)
+        self.assertEqual(summary["n_attributed"], 0)
+        self.assertEqual(summary["genus_read_counts"], "")
+        self.assertEqual(summary["tied_genus_sets"], "Escherichia:Klebsiella".replace(":", "+") + ":50")
+
+    def test_too_few_aligned_reads_is_still_undetermined(self):
+        reads = {f"r{i}": {"ecoli_ihe3034__NC_017628.1": 100,
+                            "klebsiella_pneumoniae_sgh10__NZ_CP025080.1": 100} for i in range(3)}
+        reads.update({f"u{i}": {} for i in range(40)})
+        summary = ca.summarize("S1", attribute(reads), CARRIERS, Args())
+        self.assertEqual(summary["carrier_attribution"], ca.CARRIER_UNDETERMINED)
+        self.assertEqual(summary["n_unmapped"], 40)
+        self.assertEqual(summary["n_mapped"], 3)
+
+    def test_a_read_aligned_only_off_the_map_is_off_map_not_unmapped(self):
+        rows = ca.attribute_reads([("r1", 0, "contig_from_another_build", 150)],
+                                  CARRIERS, 1.0, 0.0)
+        self.assertEqual(rows[0]["attribution"], ca.OFF_MAP)
+        summary = ca.summarize("S1", rows, CARRIERS, Args())
+        self.assertEqual(summary["n_off_map"], 1)
+        self.assertEqual(summary["n_unmapped"], 0)
+
+    def test_an_index_map_mismatch_refuses_the_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            (d / "map.tsv").write_text(
+                "contig\tcarrier_key\tcarrier_organism\tcarrier_accession\n"
+                "ecoli_ihe3034__NC_017628.1\tecoli_ihe3034\tEscherichia coli IHE3034\tA\n")
+            (d / "c.sam").write_text(
+                "@HD\tVN:1.6\n"
+                "r1\t0\tother_build__X\t1\t60\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\tAS:i:20\n")
+            with self.assertRaises(SystemExit) as caught:
+                ca.main(["--sample", "S", "--sam", str(d / "c.sam"), "--carrier-map",
+                         str(d / "map.tsv"), "--output-summary", str(d / "s.tsv"),
+                         "--output-per-read", str(d / "p.tsv")])
+            self.assertIn("different panel builds", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

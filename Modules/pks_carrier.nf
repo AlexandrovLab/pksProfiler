@@ -83,7 +83,11 @@ process alignCarrierPanel {
     # would drop most of them -- leaving one arbitrary winner and no runner-up to measure
     # a margin against. -N 20 -p 0.1 keeps one best alignment per carrier visible, which
     # is exactly what carrier attribution needs and what locus specificity does not.
-    minimap2 -a -x sr -N 20 -p 0.1 --secondary=yes -t "${task.cpus}" \
+    # --frag=no: with -x sr, minimap2 pairs any two CONSECUTIVE records whose names differ
+    # only by /1 and /2 and strips the suffix, so adjacent mates from the coordinate-sorted
+    # island BAM were merged into one "read" by carrier_attribution.py (V8 real-data
+    # pilot, 5 Oct). Every read is scored on its own, under its own name.
+    minimap2 -a -x sr --frag=no -N 20 -p 0.1 --secondary=yes -t "${task.cpus}" \
         "${params.pks_carrier_panel_index}" "${reads_fastq}" \
         > "${sampleID}.v8b_carrier.sam"
     """

@@ -31,12 +31,34 @@ A read survives only if BOTH arms confirm it independently:
   * Arm B: competitive_realign_score.py classified it "confirmed_true".
 
 From the surviving set:
-  N_supporting  = pks_reads from the original read_evidence.tsv (the read set Arm A/B
-                  were run on -- reads already passing the pipeline's own MAPQ>=40-vs-
-                  IHE3034 filter; this check never re-runs primary detection)
+  N_supporting  = pks_reads from the original read_evidence.tsv (the tier's own read
+                  count; reported, and the UNDERPOWERED floor, but not the denominator)
+  N_evaluated   = the reads this check is asked about: every read in
+                  --read-gene-assignment (reads already passing the pipeline's own
+                  MAPQ>=40-vs-IHE3034 filter; this check never re-runs primary detection)
+  N_unmeasured  = evaluated reads the challenge never measured, in two named kinds:
+                    missing_from_arm_b   no Arm-B row at all (the read never reached the
+                                         aligner under the name it is evaluated under --
+                                         see the 5 Oct note below)
+                    unaligned            an Arm-B row, but no alignment to EITHER side of
+                                         the panel in either architecture
+                  (and, with Arm A, missing_from_arm_a: no Arm-A row). An unmeasured read
+                  is not a read lost to a decoy, and is never counted as one.
+  N_measured    = N_evaluated - N_unmeasured
   N_survive     = reads confirmed by both arms
-  R             = N_survive / N_supporting, with a bootstrap 95% CI (resampling reads
-                  with replacement, default 1000 iterations, stdlib `random` only)
+  R             = N_survive / N_measured, with a bootstrap 95% CI over the SAME measured
+                  reads (resampling with replacement, default 1000 iterations, stdlib
+                  `random` only). retention_if_unmeasured_lost = N_survive / N_evaluated
+                  is reported beside it as the fail-closed lower bound.
+
+  5 Oct 2026 (V8 real-data pilot). Before this, R was N_survive / N_supporting while its
+  CI was over the evaluated reads, and every read without an Arm-B row was a non-survivor
+  whose "absorbing decoy" was unknown_missing_from_arm_b. minimap2 -x sr pairs any two
+  consecutive FASTQ records whose names differ only by /1 and /2 and strips the suffix,
+  so on a v0.0.1 island FASTQ (names end in /1 and /2; mates are often adjacent in a
+  coordinate-sorted BAM) a third of the reads lost their name in Arm B and were scored as
+  lost to a decoy. The lanes now run minimap2 with --frag=no; this script no longer lets
+  any such gap pass as biology.
   recomputed tier   = classify_tumor_pks_evidence.classify() on survivor reads only,
                       so tier recomputation is the pipeline's own definition, not a
                       reinvented parallel one. Needs survivor read counts, survivor
@@ -57,8 +79,13 @@ From the surviving set:
                       conserved domains) still have >=1 survivor read assigned.
 
 Verdict:
-  UNDERPOWERED                          N_supporting < --min-supporting-reads,
-                                         regardless of the point estimate.
+  UNDERPOWERED                          N_supporting < --min-supporting-reads, or
+                                         N_measured below it, regardless of the point
+                                         estimate.
+  INCOMPLETE_MEASUREMENT                more than --max-unmeasured-fraction of the
+                                         evaluated reads were never measured: the check
+                                         did not run on the read set it reports on, so
+                                         it says that rather than either verdict below.
   SURVIVES                              R >= --retention-threshold AND its CI lower
                                          bound >= --retention-ci-lower-threshold AND
                                          the recomputed tier drops by at most
@@ -67,14 +94,15 @@ Verdict:
   NOT_DISTINGUISHABLE_FROM_CROSS_MAPPING otherwise (this includes R < 0.5 as named in
                                          the spec, the tier-drop or breadth criteria
                                          failing, and the region strictly between --
-                                         there are three named outcomes in this phase,
-                                         not a fourth "maybe": failing SURVIVES without
-                                         being UNDERPOWERED is reported as not
-                                         distinguishable from cross-mapping, fail-
-                                         closed rather than silently optimistic).
+                                         there is no "maybe": failing SURVIVES on reads
+                                         that WERE measured, without being UNDERPOWERED,
+                                         is reported as not distinguishable from cross-
+                                         mapping, fail-closed rather than silently
+                                         optimistic).
 
 A single decoy genome/species is never allowed to be silently folded into a bare
-pass/fail count: every non-surviving read's absorbing decoy is in the per-read report,
+pass/fail count: every measured non-surviving read's absorbing decoy is in the per-read
+report (unmeasured reads are reported by kind, never as an absorber),
 and any decoy absorbing more than --absorber-fraction-threshold of the non-surviving
 reads at a near-threshold margin (|delta_AS| <= --absorber-near-threshold-margin, or
 an Arm-B "ambiguous" call, i.e. genuinely close calls rather than a landslide) is
@@ -102,6 +130,16 @@ TIER_ORDER = ("negative", "localized_indeterminate", "multi_gene", "broad_island
 SURVIVES = "SURVIVES"
 NOT_DISTINGUISHABLE = "NOT_DISTINGUISHABLE_FROM_CROSS_MAPPING"
 UNDERPOWERED = "UNDERPOWERED"
+INCOMPLETE = "INCOMPLETE_MEASUREMENT"
+
+# Per-read status. Only LOST reads are evidence against the locus.
+SURVIVED = "survived"
+LOST = "lost"
+MISSING_FROM_ARM_B = "unmeasured_missing_from_arm_b"
+MISSING_FROM_ARM_A = "unmeasured_missing_from_arm_a"
+UNALIGNED = "unmeasured_unaligned"
+UNMEASURED = (MISSING_FROM_ARM_B, MISSING_FROM_ARM_A, UNALIGNED)
+ARM_B_SCORE_FIELDS = ("b1_as_true", "b1_as_decoy", "b2_as_true", "b2_as_decoy")
 
 
 def read_single_row_tsv(path):
@@ -186,24 +224,56 @@ def recompute_genes(survivor_ids, gene_assignment, gene_set=None):
     return genes
 
 
-def absorber_report(non_survivors, arm_b_rows, near_threshold_margin):
-    """{decoy_name: {"count": n, "near_threshold_count": n}} over non-surviving reads."""
+def arm_b_unaligned(row):
+    """An Arm-B row with no alignment score against either side of the panel in either
+    architecture: minimap2 wrote the read as unmapped every time. Nothing was measured,
+    so nothing can be said about a decoy."""
+    return all((row.get(field) or "") == "" for field in ARM_B_SCORE_FIELDS)
+
+
+def read_status(read_id, arm_a_rows, arm_b_rows, survives):
+    """survived / lost / one of the UNMEASURED kinds, for one evaluated read."""
+    if survives:
+        return SURVIVED
+    row = arm_b_rows.get(read_id)
+    if row is None:
+        return MISSING_FROM_ARM_B
+    # competitive_realign_score.py calls a read with no alignment anywhere "ambiguous";
+    # a confirmed_* call always rests on an alignment score.
+    if row.get("classification") == "ambiguous" and arm_b_unaligned(row):
+        return UNALIGNED
+    if arm_a_rows is not None and read_id not in arm_a_rows:
+        return MISSING_FROM_ARM_A
+    return LOST
+
+
+def absorbing_decoy(row):
+    """The decoy a LOST read went to. A lost read with no decoy alignment at all lost on
+    the arm-A gate or on arm disagreement, and is labelled so, not 'unknown'."""
+    if row is None:
+        return ""
+    decoy = row.get("b1_decoy_contig") or row.get("b2_decoy_contig") or ""
+    if decoy:
+        return decoy
+    if row.get("classification") == "confirmed_true":
+        return "arm_a_not_confirmed"
+    return "no_decoy_alignment"
+
+
+def absorber_report(lost_reads, arm_b_rows, near_threshold_margin):
+    """{decoy_name: {"count": n, "near_threshold_count": n}} over LOST reads only.
+    Unmeasured reads never enter it: a read the challenge did not measure was not
+    absorbed by anything."""
     absorbers = {}
-    for read_id in non_survivors:
+    for read_id in lost_reads:
         row = arm_b_rows.get(read_id)
-        if row is None:
-            decoy = "unknown_missing_from_arm_b"
-            near = True  # cannot rule out a close call for a read we have no data on
-        else:
-            decoy = row.get("b1_decoy_contig") or row.get("b2_decoy_contig") or "unknown"
-            if not decoy:
-                decoy = "unknown"
-            delta = row.get("b1_delta_as", "")
-            is_ambiguous = row.get("classification") == "ambiguous"
-            try:
-                near = is_ambiguous or (delta != "" and abs(float(delta)) <= near_threshold_margin)
-            except ValueError:
-                near = True
+        decoy = absorbing_decoy(row)
+        delta = (row or {}).get("b1_delta_as", "")
+        is_ambiguous = (row or {}).get("classification") == "ambiguous"
+        try:
+            near = is_ambiguous or (delta != "" and abs(float(delta)) <= near_threshold_margin)
+        except ValueError:
+            near = True
         entry = absorbers.setdefault(decoy, {"count": 0, "near_threshold_count": 0})
         entry["count"] += 1
         if near:
@@ -230,7 +300,7 @@ def decide(sample, read_evidence, gene_assignment, arm_a_rows, arm_b_rows, args)
         set(arm_a_rows or {}) | set(arm_b_rows))
 
     survivors = set()
-    outcomes = []
+    status = {}
     for read_id in all_read_ids:
         arm_a_ok = True if arm_a_rows is None else arm_a_confirms(
             arm_a_rows.get(read_id), args.arm_a_target_clade,
@@ -238,12 +308,22 @@ def decide(sample, read_evidence, gene_assignment, arm_a_rows, arm_b_rows, args)
         arm_b_row = arm_b_rows.get(read_id)
         arm_b_ok = arm_b_row is not None and arm_b_row.get("classification") == "confirmed_true"
         survives = arm_a_ok and arm_b_ok
-        outcomes.append(1 if survives else 0)
+        status[read_id] = read_status(read_id, arm_a_rows, arm_b_rows, survives)
         if survives:
             survivors.add(read_id)
 
+    n_evaluated = len(all_read_ids)
+    unmeasured_counts = {kind: sum(1 for v in status.values() if v == kind) for kind in UNMEASURED}
+    n_unmeasured = sum(unmeasured_counts.values())
+    measured = [r for r in all_read_ids if status[r] not in UNMEASURED]
+    n_measured = len(measured)
+    unmeasured_fraction = (n_unmeasured / n_evaluated) if n_evaluated else 0.0
+
     n_survive = len(survivors)
-    retention = (n_survive / n_supporting) if n_supporting else 0.0
+    # Retention and its CI over the same reads: the ones the challenge measured.
+    outcomes = [1 if r in survivors else 0 for r in measured]
+    retention = (n_survive / n_measured) if n_measured else 0.0
+    retention_if_unmeasured_lost = (n_survive / n_evaluated) if n_evaluated else 0.0
     ci_lower, ci_upper = bootstrap_ci(outcomes, args.bootstrap_iterations, args.bootstrap_seed)
 
     recomputed_genes = recompute_genes(survivors, gene_assignment)
@@ -262,17 +342,21 @@ def decide(sample, read_evidence, gene_assignment, arm_a_rows, arm_b_rows, args)
     breadth_ok = len(non_mega_covered) >= args.non_megasynthase_min_genes
 
     non_survivors = [r for r in all_read_ids if r not in survivors]
-    absorbers = absorber_report(non_survivors, arm_b_rows, args.absorber_near_threshold_margin)
-    n_non_survive = len(non_survivors)
+    lost = [r for r in non_survivors if status[r] == LOST]
+    absorbers = absorber_report(lost, arm_b_rows, args.absorber_near_threshold_margin)
+    n_lost = len(lost)
     flagged = {}
     for decoy, stats in absorbers.items():
-        fraction = stats["count"] / n_non_survive if n_non_survive else 0.0
+        fraction = stats["count"] / n_lost if n_lost else 0.0
         if fraction > args.absorber_fraction_threshold and stats["near_threshold_count"] > 0:
             flagged[decoy] = {"count": stats["count"], "fraction": fraction}
     manual_followup_required = bool(flagged)
 
-    if n_supporting < args.min_supporting_reads:
+    max_unmeasured = getattr(args, "max_unmeasured_fraction", 0.05)
+    if n_supporting < args.min_supporting_reads or n_measured < args.min_supporting_reads:
         verdict = UNDERPOWERED
+    elif unmeasured_fraction > max_unmeasured:
+        verdict = INCOMPLETE
     elif (retention >= args.retention_threshold and ci_lower >= args.retention_ci_lower_threshold
           and tier_ok and breadth_ok):
         verdict = SURVIVES
@@ -286,8 +370,18 @@ def decide(sample, read_evidence, gene_assignment, arm_a_rows, arm_b_rows, args)
         "verdict": verdict,
         "arms_used": arms_used,
         "n_supporting": n_supporting,
+        "n_evaluated": n_evaluated,
+        "n_measured": n_measured,
+        "n_unmeasured": n_unmeasured,
+        "n_unmeasured_missing_from_arm_b": unmeasured_counts[MISSING_FROM_ARM_B],
+        "n_unmeasured_unaligned": unmeasured_counts[UNALIGNED],
+        "n_unmeasured_missing_from_arm_a": unmeasured_counts[MISSING_FROM_ARM_A],
+        "unmeasured_fraction": unmeasured_fraction,
+        "max_unmeasured_fraction": max_unmeasured,
         "n_survive": n_survive,
+        "n_lost": n_lost,
         "retention": retention,
+        "retention_if_unmeasured_lost": retention_if_unmeasured_lost,
         "retention_ci_lower": ci_lower,
         "retention_ci_upper": ci_upper,
         "bootstrap_iterations": args.bootstrap_iterations,
@@ -306,12 +400,16 @@ def decide(sample, read_evidence, gene_assignment, arm_a_rows, arm_b_rows, args)
             sorted(flagged.items(), key=lambda kv: -kv[1]["fraction"])),
         "survivors": survivors,
         "non_survivors": non_survivors,
+        "status": status,
         "absorbers": absorbers,
     }
 
 
 SUMMARY_FIELDS = [
-    "sample", "check", "verdict", "arms_used", "n_supporting", "n_survive", "retention", "retention_ci_lower",
+    "sample", "check", "verdict", "arms_used", "n_supporting", "n_evaluated", "n_measured",
+    "n_unmeasured", "n_unmeasured_missing_from_arm_b", "n_unmeasured_unaligned",
+    "n_unmeasured_missing_from_arm_a", "unmeasured_fraction", "max_unmeasured_fraction",
+    "n_survive", "n_lost", "retention", "retention_if_unmeasured_lost", "retention_ci_lower",
     "retention_ci_upper", "bootstrap_iterations", "original_tier", "recomputed_tier",
     "tier_drop", "recomputed_clb_genes_detected", "recomputed_island_breadth_1x",
     "breadth_source", "non_megasynthase_genes_covered", "non_megasynthase_genes",
@@ -325,6 +423,8 @@ def write_summary(result, path):
         writer.writeheader()
         row = dict(result)
         row["retention"] = f"{result['retention']:.6f}"
+        row["retention_if_unmeasured_lost"] = f"{result['retention_if_unmeasured_lost']:.6f}"
+        row["unmeasured_fraction"] = f"{result['unmeasured_fraction']:.6f}"
         row["retention_ci_lower"] = f"{result['retention_ci_lower']:.6f}"
         row["retention_ci_upper"] = f"{result['retention_ci_upper']:.6f}"
         row["recomputed_island_breadth_1x"] = f"{result['recomputed_island_breadth_1x']:.6f}"
@@ -333,21 +433,22 @@ def write_summary(result, path):
 
 def write_per_read(result, arm_a_rows, arm_b_rows, path):
     with Path(path).open("w", newline="") as handle:
-        fields = ["read_id", "survived", "arm_a_present", "arm_b_classification", "absorbing_decoy"]
+        fields = ["read_id", "survived", "status", "arm_a_present", "arm_b_classification",
+                  "absorbing_decoy"]
         writer = csv.DictWriter(handle, fields, delimiter="\t")
         writer.writeheader()
         for read_id in sorted(result["survivors"]) + sorted(result["non_survivors"]):
             survived = read_id in result["survivors"]
-            arm_b_row = arm_b_rows.get(read_id, {})
-            decoy = ""
-            if not survived:
-                decoy = arm_b_row.get("b1_decoy_contig") or arm_b_row.get("b2_decoy_contig") or "unknown"
+            status = result["status"][read_id]
+            arm_b_row = arm_b_rows.get(read_id)
             writer.writerow({
                 "read_id": read_id,
                 "survived": survived,
+                "status": status,
                 "arm_a_present": read_id in arm_a_rows,
-                "arm_b_classification": arm_b_row.get("classification", "missing"),
-                "absorbing_decoy": decoy,
+                "arm_b_classification": (arm_b_row or {}).get("classification", "missing"),
+                # Only a LOST read has an absorbing decoy; an unmeasured one has none.
+                "absorbing_decoy": absorbing_decoy(arm_b_row) if status == LOST else "",
             })
 
 
@@ -405,6 +506,11 @@ def build_parser():
                    help="|delta_AS| (AS units) at or below which a dropped read's "
                         "call is treated as a close call rather than a landslide")
     p.add_argument("--min-supporting-reads", type=int, default=10)
+    p.add_argument("--max-unmeasured-fraction", type=float, default=0.05,
+                   help="above this share of evaluated reads with no Arm-B row, no "
+                        "alignment to either panel side, or (with Arm A) no Arm-A row, the "
+                        "verdict is INCOMPLETE_MEASUREMENT rather than a pass or fail "
+                        "computed on a different read set (default: 0.05)")
     p.add_argument("--output-summary", required=True)
     p.add_argument("--output-per-read", required=True)
     return p
@@ -428,7 +534,8 @@ def main(argv=None):
     write_per_read(result, arm_a_rows or {}, arm_b_rows, args.output_per_read)
 
     print(f"{args.sample}\t{result['verdict']} ({result['arms_used']})"
-          f"\tR={result['retention']:.3f}"
+          f"\tR={result['retention']:.3f} over {result['n_measured']} measured"
+          f" ({result['n_unmeasured']} unmeasured)"
           f" [{result['retention_ci_lower']:.3f},{result['retention_ci_upper']:.3f}]"
           f"\ttier={result['recomputed_tier']} (was {result['original_tier']})")
     return 0

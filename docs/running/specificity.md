@@ -9,7 +9,7 @@ outputs, separate vocabularies.
 |---|---|---|
 | Question | Does this read really belong to the pks/clb locus? | Which organism is the likely carrier? |
 | Panel | **pks-negative**: Enterobacterales, NRPS/PKS homolog clusters, gut/oral backgrounds, GRCh38, UniVec | **pks-positive**: pks+ *E. coli* beyond IHE3034, pks+ *Klebsiella*, *Citrobacter*, *Enterobacter* |
-| Outcome | `SURVIVES` / `NOT_DISTINGUISHABLE_FROM_CROSS_MAPPING` / `UNDERPOWERED` | `CARRIER_ATTRIBUTED` / `CARRIER_GENUS_ONLY` / `CARRIER_AMBIGUOUS` / `CARRIER_UNDETERMINED` |
+| Outcome | `SURVIVES` / `NOT_DISTINGUISHABLE_FROM_CROSS_MAPPING` / `UNDERPOWERED` / `INCOMPLETE_MEASUREMENT` | `CARRIER_ATTRIBUTED` / `CARRIER_GENUS_ONLY` / `CARRIER_AMBIGUOUS` / `CARRIER_UNDETERMINED` |
 | Published to | `by_sample/<sample>/locus_specificity/` | `by_sample/<sample>/carrier_attribution/` |
 | Module | `Modules/pks_specificity.nf` | `Modules/pks_carrier.nf` |
 
@@ -37,6 +37,18 @@ Two independent arms may decide:
   against the same taxon set. Without it the lane runs Arm B alone and records
   `arms_used=arm_b_only`, so a one-arm verdict can never be read as a two-arm one.
 
+**Measured versus lost.** Retention is survivors over the reads the challenge actually
+*measured*. A supporting read with no Arm B row, or with no alignment to either side of
+the panel in any architecture (or, with Arm A, no Arm A row), is **unmeasured**: it is
+counted by kind (`n_unmeasured_missing_from_arm_b`, `n_unmeasured_unaligned`,
+`n_unmeasured_missing_from_arm_a`), never named as an absorbing decoy, and
+`retention_if_unmeasured_lost` gives the fail-closed bound beside the estimate. More than
+`--pks_specificity_max_unmeasured_fraction` (default 0.05) unmeasured makes the verdict
+`INCOMPLETE_MEASUREMENT`, because a pass or fail would describe a different read set.
+Every V8 alignment runs minimap2 with `--frag=no`: under `-x sr` it otherwise pairs two
+consecutive records named `X/1` and `X/2` and strips the suffix, which is how a third of
+a coordinate-sorted island FASTQ once lost its names (V8 pilot, 5 Oct 2026).
+
 ## Why V8b exists, and how far it can go
 
 The island is mobile and is carried at high identity by several genera. V8b asks which of
@@ -45,6 +57,13 @@ them best explains a sample's reads. It reports strain-level and genus-level att
 strains; `CARRIER_GENUS_ONLY` is the honest answer in that case and the script says so
 rather than picking one. An alignment-score margin — like NM — is a divergence metric
 relative to the panel, never proof of carrier identity.
+
+`CARRIER_UNDETERMINED` means fewer than `--pks_carrier_min_attributed_reads` reads
+aligned to the panel at all. A sample with plenty of aligned reads that do not separate
+the carriers — including every read tying across genera, so that nothing is attributed —
+is `CARRIER_AMBIGUOUS`, and `tied_genus_sets` says which genera its reads could not tell
+apart. A read aligned only to contigs the carrier map does not name means the index and
+the map are from different builds, and the task fails rather than calling it unmapped.
 
 ## Building the panels
 
