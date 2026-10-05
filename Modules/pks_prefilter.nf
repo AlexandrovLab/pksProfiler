@@ -164,7 +164,11 @@ process sampleBracken {
     tag "$sampleID"
     label 'process_high_disk'
     scratch true
-    publishDir { "${params.sample_dir}/${sampleID}/taxonomy" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
+    // rc1.1: community_ prefix. pks_taxa.nf's Bracken (--pks_taxa, island reads) publishes
+    // bracken.{G,S}.report.txt / .krakenreport.txt into the same taxonomy/ directory, so
+    // a run with both kept whichever finished last -- the taxa_barplots.pdf bug again,
+    // one stage earlier. tests/test_unique_publish_paths.py.
+    publishDir { "${params.sample_dir}/${sampleID}/taxonomy" }, mode: 'copy', saveAs: { fn -> "community_" + (fn - "${sampleID}.") }
     conda "${params.krakenuniq_bracken_env}"
     input:
     tuple val(sampleID), path(kraken_report), path(kraken_output)
