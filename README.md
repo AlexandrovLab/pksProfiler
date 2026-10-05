@@ -1,7 +1,7 @@
 # pksProfiler
 
 [![CI](https://github.com/AlexandrovLab/pksProfiler/actions/workflows/ci.yml/badge.svg)](https://github.com/AlexandrovLab/pksProfiler/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.0.2dev-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.0.0--rc1-orange.svg)](CHANGELOG.md)
 [![Nextflow](https://img.shields.io/badge/nextflow-%E2%89%A524.10-23aa62.svg)](https://www.nextflow.io/)
 [![License: BSD 2-Clause](https://img.shields.io/badge/License-BSD_2--Clause-blue.svg)](LICENSE)
 

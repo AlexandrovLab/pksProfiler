@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.0.2dev — unreleased
+## v1.0.0-rc1 — 2026-10-05
 
 Extends the immutable v0.0.1 release with island reassembly, genome-resolved analysis and
 strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
