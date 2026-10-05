@@ -89,6 +89,15 @@ def rows(path, key):
         return {r[key]: r for r in csv.DictReader(fh, delimiter="\t")}
 
 
+
+def binaries(record):
+    """A tool-version record without how many tries the read took (attempts, read_exit):
+    a retried read on one side is not a different binary."""
+    with record.open(newline="") as handle:
+        return [{k: v for k, v in row.items() if k not in ("attempts", "read_exit")}
+                for row in csv.DictReader(handle, delimiter="\t")]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", required=True, type=Path)
@@ -116,7 +125,7 @@ def main():
         t_rec, n_rec = t_dir / ".tool_versions.tsv", n_dir / ".tool_versions.tsv"
         if t_rec.exists() or n_rec.exists():
             check(f"{proc}: same tool binaries and versions",
-                  t_rec.exists() and n_rec.exists() and t_rec.read_text() == n_rec.read_text())
+                  t_rec.exists() and n_rec.exists() and binaries(t_rec) == binaries(n_rec))
 
     # ---- the same outputs ----
     t_out = outputs(a.results / "by_sample" / tumour, tumour)

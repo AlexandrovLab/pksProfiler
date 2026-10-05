@@ -51,6 +51,33 @@ def fake_tool(directory, name, output):
     return path
 
 
+def flaky_tool(directory, name, output, fail_first, failure="exit", stderr=False):
+    """
+    A tool that fails its first `fail_first` calls, then reports `output` -- the
+    version_unread cases from the rc1 TCGA WES run. failure: "exit" (status 1, no
+    output), "hang" (sleeps past the timeout), "error" (status 126 with a message and no
+    version, as a transient exec failure prints). Calls are counted in <name>.calls.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    counter = directory / f"{name}.calls"
+    counter.unlink(missing_ok=True)
+    fail = {"exit": "exit 1",
+            "hang": "sleep 30",
+            "error": "echo 'cannot execute: Stale file handle' >&2; exit 126"}[failure]
+    path = directory / name
+    path.write_text(
+        "#!/bin/sh\n"
+        f"n=$(cat '{counter}' 2>/dev/null || echo 0); n=$((n + 1)); echo $n > '{counter}'\n"
+        f"if [ $n -le {fail_first} ]; then {fail}; fi\n"
+        f"echo '{output}'{' >&2' if stderr else ''}\n")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return counter
+
+
+def calls(counter):
+    return int(counter.read_text()) if counter.exists() else 0
+
+
 def read_record(path):
     with Path(path).open(newline="") as handle:
         return {row["tool"]: row for row in csv.DictReader(handle, delimiter="\t")}
@@ -74,7 +101,8 @@ class Workspace(unittest.TestCase):
         fake_tool(self.user_bin, "minimap2", "2.24-r1122")
 
     def run_helper(self, mode="strict", path_dirs=None, env_file=MINIMAP2_YML,
-                   tools=("minimap2", "samtools", "bgzip:htslib"), conda_prefix=None):
+                   tools=("minimap2", "samtools", "bgzip:htslib"), conda_prefix=None,
+                   extra_env=None):
         out = self.root / "work" / ".tool_versions.tsv"
         out.parent.mkdir(parents=True, exist_ok=True)
         dirs = path_dirs if path_dirs is not None else [self.env / "bin"]
@@ -83,6 +111,7 @@ class Workspace(unittest.TestCase):
         prefix = self.env if conda_prefix is None else conda_prefix
         if prefix:
             environ["CONDA_PREFIX"] = str(prefix)
+        environ.update(extra_env or {})
         result = subprocess.run(
             ["bash", str(HELPER), mode, str(env_file), "mapReads", str(out), *tools],
             capture_output=True, text=True, env=environ)
@@ -192,6 +221,114 @@ class TheTaskRecordsWhatItRuns(Workspace):
         result, _record = self.run_helper(mode="lenient")
         self.assertEqual(result.returncode, 2)
         self.assertIn("MODE must be strict or warn", result.stderr)
+
+
+class AVersionReadIsRetried(Workspace):
+    """
+    rc1.1: on the rc1 TCGA WES run (1,304 samples) a few tasks per tool recorded
+    version_unread -- bamCoverage 11, fastp 8, samtools 4, bowtie2 3, bgzip 1 -- while
+    every other task of the same tool and env read fine. One call, a fixed 60 s timeout,
+    no retry, and no record of why it failed. Here a tool fails its first N calls.
+    """
+    FAST = {"PKS_TOOL_VERSION_BACKOFF": "0"}
+
+    def run_one(self, tool="bamCoverage", extra_env=None, **flaky):
+        counter = flaky_tool(self.env / "bin", tool, f"{tool} 3.5.6", **flaky)
+        result, record = self.run_helper(tools=(tool,), env_file="",
+                                         extra_env=dict(self.FAST, **(extra_env or {})))
+        return result, record[tool], calls(counter)
+
+    def test_a_tool_that_fails_once_is_read_on_the_second_call(self):
+        result, row, n = self.run_one(fail_first=1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((row["status"], row["version"]), ("unpinned", "3.5.6"))
+        self.assertEqual((row["attempts"], row["read_exit"], n), ("2", "0", 2))
+
+    def test_a_tool_that_fails_twice_is_read_on_the_third(self):
+        result, row, n = self.run_one(fail_first=2)
+        self.assertEqual(row["version"], "3.5.6")
+        self.assertEqual((row["attempts"], n), ("3", 3))
+        self.assertEqual(result.stderr, "")
+
+    def test_a_transient_exec_error_is_retried(self):
+        _result, row, n = self.run_one(fail_first=1, failure="error")
+        self.assertEqual((row["version"], row["attempts"], n), ("3.5.6", "2", 2))
+
+    def test_a_hung_first_call_is_timed_out_and_retried(self):
+        # The bamCoverage case: a cold start that outlives the timeout.
+        _result, row, n = self.run_one(fail_first=1, failure="hang",
+                                       extra_env={"PKS_TOOL_VERSION_TIMEOUT": "1"})
+        self.assertEqual((row["version"], row["attempts"], n), ("3.5.6", "2", 2))
+
+    def test_a_version_printed_on_stderr_is_read(self):
+        # fastp prints its version on stderr.
+        _result, row, n = self.run_one(tool="fastp", fail_first=0, stderr=True)
+        self.assertEqual((row["version"], row["attempts"], n), ("3.5.6", "1", 1))
+
+    def test_a_tool_that_always_fails_is_version_unread_and_never_fails_the_task(self):
+        for mode in ("strict", "warn"):
+            with self.subTest(mode=mode):
+                counter = flaky_tool(self.env / "bin", "samtools", "samtools 1.21", fail_first=99)
+                result, record = self.run_helper(mode=mode, tools=("samtools",),
+                                                 extra_env=self.FAST)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                row = record["samtools"]
+                self.assertEqual((row["status"], row["version"]), ("version_unread", ""))
+                self.assertEqual((row["attempts"], row["read_exit"], calls(counter)), ("3", "1", 3))
+                # Diagnosable next time: why it failed is in the record.
+                self.assertEqual(row["raw"], "exit 1 after 3 attempt(s)")
+
+    def test_an_unread_failure_keeps_its_message_and_timeout_is_named(self):
+        _result, row, _n = self.run_one(fail_first=99, failure="error")
+        self.assertEqual(row["raw"], "exit 126 after 3 attempt(s): cannot execute: Stale file handle")
+        _result, row, _n = self.run_one(tool="fastp", fail_first=99, failure="hang",
+                                        extra_env={"PKS_TOOL_VERSION_TIMEOUT": "1",
+                                                   "PKS_TOOL_VERSION_ATTEMPTS": "2"})
+        self.assertEqual((row["read_exit"], row["attempts"]), ("124", "2"))
+        self.assertIn("(timed out)", row["raw"])
+
+    def test_output_without_a_version_that_exited_0_is_not_retried(self):
+        # Deterministic: asking again costs time and gives the same answer.
+        fake_tool(self.env / "bin", "noversion", "usage: noversion [options]")
+        _result, record = self.run_helper(tools=("noversion",), env_file="", extra_env=self.FAST)
+        row = record["noversion"]
+        self.assertEqual((row["status"], row["attempts"], row["read_exit"]), ("version_unread", "1", "0"))
+        self.assertIn("usage: noversion", row["raw"])
+
+    def test_a_good_read_is_one_call(self):
+        # Cheap: the common case is unchanged.
+        _result, row, n = self.run_one(fail_first=0)
+        self.assertEqual((row["attempts"], n), ("1", 1))
+
+    def test_attempts_setting_and_bad_values_fall_back_to_the_default(self):
+        _result, row, n = self.run_one(fail_first=99, extra_env={"PKS_TOOL_VERSION_ATTEMPTS": "1"})
+        self.assertEqual((row["attempts"], n), ("1", 1))
+        _result, row, n = self.run_one(fail_first=99, extra_env={"PKS_TOOL_VERSION_ATTEMPTS": "x"})
+        self.assertEqual((row["attempts"], n), ("3", 3))
+
+    def test_the_defaults_stay_cheap(self):
+        code = HELPER.read_text()
+        self.assertIn("setting PKS_TOOL_VERSION_ATTEMPTS 3", code)
+        self.assertIn("setting PKS_TOOL_VERSION_TIMEOUT 60", code)
+        self.assertIn("setting PKS_TOOL_VERSION_BACKOFF 2", code)
+        self.assertIn("timeout -k 5", code)
+
+    def test_the_report_still_reads_a_record_with_the_new_columns(self):
+        flaky_tool(self.env / "bin", "minimap2", "2.31-r1297", fail_first=1)
+        self.run_helper(extra_env=self.FAST)
+        directory = self.root / "tasks" / "a"
+        directory.mkdir(parents=True)
+        (self.root / "work" / ".tool_versions.tsv").rename(directory / fp.TOOL_RECORD)
+        summary = fp.collect_tool_versions(self._trace(directory), None, ROOT, {})
+        minimap2 = next(t for t in summary["tools"] if t["tool"] == "minimap2")
+        self.assertEqual((minimap2["version"], minimap2["status"]), ("2.31", "ok"))
+        self.assertEqual(summary["problems"], [])
+
+    def _trace(self, directory):
+        trace = self.root / "trace.txt"
+        trace.write_text("task_id\thash\tname\tstatus\texit\tworkdir\n"
+                         f"1\t01/abcdef\tmapReads (S1)\tCOMPLETED\t0\t{directory}\n")
+        return trace
 
 
 class TheReportComparesWhatRanWithThePins(Workspace):
