@@ -91,11 +91,11 @@ class Workspace(unittest.TestCase):
         # A conda env as Nextflow's cache lays it out: <cache>/env-<hash>/{bin,conda-meta}.
         self.env = self.root / "conda_cache" / "env-0123456789abcdef"
         (self.env / "conda-meta").mkdir(parents=True)
-        for package, version in (("minimap2", "2.31"), ("samtools", "1.21"), ("htslib", "1.21")):
+        for package, version in (("minimap2", "2.31"), ("samtools", "1.24"), ("htslib", "1.24")):
             (self.env / "conda-meta" / f"{package}-{version}-h0_0.json").write_text("{}")
         fake_tool(self.env / "bin", "minimap2", "2.31-r1297")
-        fake_tool(self.env / "bin", "samtools", "samtools 1.21\nUsing htslib 1.21")
-        fake_tool(self.env / "bin", "bgzip", "bgzip (htslib) 1.21")
+        fake_tool(self.env / "bin", "samtools", "samtools 1.24\nUsing htslib 1.24")
+        fake_tool(self.env / "bin", "bgzip", "bgzip (htslib) 1.24")
         # The TSCC trap: a user build earlier on PATH than the environment.
         self.user_bin = self.root / "home" / "tools" / "minimap2"
         fake_tool(self.user_bin, "minimap2", "2.24-r1122")
@@ -128,7 +128,7 @@ class TheTaskRecordsWhatItRuns(Workspace):
         self.assertEqual(record["minimap2"]["path"], str(self.env / "bin" / "minimap2"))
         self.assertEqual(record["minimap2"]["conda_prefix"], str(self.env))
         self.assertEqual(record["samtools"]["status"], "ok")
-        self.assertEqual(record["samtools"]["version"], "1.21")
+        self.assertEqual(record["samtools"]["version"], "1.24")
         # htslib is listed without a version in minimap2_env.yml.
         self.assertEqual(record["bgzip"]["package"], "htslib")
         self.assertEqual(record["bgzip"]["status"], "unpinned")
@@ -160,7 +160,7 @@ class TheTaskRecordsWhatItRuns(Workspace):
         self.assertIn("pins minimap2=2.31", result.stderr)
 
     def test_a_more_specific_release_of_the_pin_matches(self):
-        fake_tool(self.env / "bin", "samtools", "samtools 1.21.1")
+        fake_tool(self.env / "bin", "samtools", "samtools 1.24.1")
         result, record = self.run_helper()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(record["samtools"]["status"], "ok")
@@ -172,6 +172,30 @@ class TheTaskRecordsWhatItRuns(Workspace):
         result, record = self.run_helper(env_file=env_file, tools=("minimap2",))
         self.assertEqual(record["minimap2"]["status"], "VERSION_MISMATCH")
         self.assertEqual(result.returncode, 78)
+
+    def test_a_listed_self_report_satisfies_its_pin(self):
+        # Tool bump, Oct 2026: bioconda bracken 3.1p1 prints "Bracken v3.0.1" (the upstream
+        # v3.1 tag never updated VERSION). Without the alias every Bracken task stops (78).
+        fake_tool(self.env / "bin", "bracken", "Bracken v3.0.1")
+        env_file = self.root / "env.yml"
+        env_file.write_text("dependencies:\n  - bracken=3.1p1\n")
+        result, record = self.run_helper(env_file=env_file, tools=("bracken",))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((record["bracken"]["status"], record["bracken"]["version"],
+                          record["bracken"]["pinned"]), ("ok", "3.0.1", "3.1p1"))
+
+    def test_an_alias_covers_only_its_own_conda_version(self):
+        # The alias is for 3.1p1 only: a stale 2.9 binary under the same pin, or 3.0.1
+        # under a different pin, is still a mismatch.
+        env_file = self.root / "env.yml"
+        env_file.write_text("dependencies:\n  - bracken=3.1p1\n")
+        fake_tool(self.env / "bin", "bracken", "Bracken v2.9")
+        result, record = self.run_helper(env_file=env_file, tools=("bracken",))
+        self.assertEqual((result.returncode, record["bracken"]["status"]), (78, "VERSION_MISMATCH"))
+        fake_tool(self.env / "bin", "bracken", "Bracken v3.0.1")
+        env_file.write_text("dependencies:\n  - bracken=3.1\n")
+        result, record = self.run_helper(env_file=env_file, tools=("bracken",))
+        self.assertEqual((result.returncode, record["bracken"]["status"]), (78, "VERSION_MISMATCH"))
 
     def test_a_tool_not_on_path(self):
         result, record = self.run_helper(tools=("minimap2", "featureCounts:subread"))
@@ -194,16 +218,16 @@ class TheTaskRecordsWhatItRuns(Workspace):
         env_file.write_text(
             "name: x\nchannels:\n  - bioconda\ndependencies:\n"
             "  - bioconda::minimap2==2.31   # channel prefix, double equals\n"
-            "  - samtools=1.21=h50ea8bc_0\n"
+            "  - samtools=1.24=h9dcdb79_1\n"
             "  - htslib>=1.20\n")
         result, record = self.run_helper(env_file=env_file)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(record["minimap2"]["pinned"], "2.31")
-        self.assertEqual(record["samtools"]["pinned"], "1.21")
+        self.assertEqual(record["samtools"]["pinned"], "1.24")
         # A range is not a pin; only the path is checked.
         self.assertEqual(record["bgzip"]["pinned"], "")
         self.assertEqual(fp.conda_pins(env_file),
-                         {"minimap2": "2.31", "samtools": "1.21"})
+                         {"minimap2": "2.31", "samtools": "1.24"})
 
     def test_a_path_in_the_version_output_is_not_read_as_the_version(self):
         # bowtie2 prints its own absolute path first; an env dir named python3.10 must not win.
@@ -385,6 +409,32 @@ class TheReportComparesWhatRanWithThePins(Workspace):
         self.assertIn("TOOL VERSIONS (as run)", report)
         self.assertRegex(report, r"minimap2\s+2\.31\s+2\.31\s+2\.31\s+2\s+env env-0123456789abcdef")
         self.assertNotIn("TOOL VERSION MISMATCH", report)
+
+    def test_a_listed_self_report_passes_the_pin_and_conda_meta(self):
+        # bracken 3.1p1 prints 3.0.1: neither VERSION_MISMATCH against the yml nor
+        # INSTALLED_MISMATCH against conda-meta's bracken-3.1p1.
+        fake_tool(self.env / "bin", "bracken", "Bracken v3.0.1")
+        (self.env / "conda-meta" / "bracken-3.1p1-hc52dbad_0.json").write_text("{}")
+        env_file = self.root / "kraken.yml"
+        env_file.write_text("dependencies:\n  - bracken=3.1p1\n")
+        one, _ = self.task_dir("a", env_file=env_file, tools=("bracken",))
+        result, record, report = self.make_run([("sampleBracken (S1)", "COMPLETED", one)])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(record["tool_versions"]["problems"], [])
+        bracken = next(t for t in record["tool_versions"]["tools"] if t["tool"] == "bracken")
+        self.assertEqual((bracken["version"], bracken["pinned"], bracken["installed"],
+                          bracken["status"]), ("3.0.1", "3.1p1", "3.1p1", "ok"))
+
+    def test_every_alias_names_a_version_some_env_pins(self):
+        # A row for a version nothing pins any more is a stale exemption: remove it.
+        pins = {}
+        for yml in sorted((ROOT / "conda_envs").glob("*.yml")):
+            for package, version in fp.conda_pins(yml).items():
+                pins.setdefault(package, set()).add(version)
+        for (package, conda_version), reported in fp.version_aliases().items():
+            self.assertIn(conda_version, pins.get(package, set()),
+                          f"tool_version_aliases.tsv: {package} {conda_version} -> {reported} "
+                          "is pinned by no conda_envs/*.yml")
 
     def test_path_outside_env_fails_the_report_the_224_scenario(self):
         # warn, so the task carried on and the report is the only place this shows.

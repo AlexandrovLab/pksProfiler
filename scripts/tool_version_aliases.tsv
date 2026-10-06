@@ -1,0 +1,8 @@
+# Conda builds whose binary reports a version other than the conda package version.
+# Read by scripts/record_tool_versions.sh (task-side check) and scripts/finalize_provenance.py
+# (RUN_REPORT TOOL VERSIONS). A row makes `reports` an accepted self-report for exactly that
+# package at exactly that conda version; every other version still has to match its pin.
+# Add a row only after checking the build's own source, and say where the string comes from.
+#
+# package	conda_version	reports	why
+bracken	3.1p1	3.0.1	upstream v3.1 tag still sets VERSION="3.0.1" in the bracken script; bioconda 3.1p1 builds that tag (checked 2026-10-06)

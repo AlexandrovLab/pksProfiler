@@ -123,6 +123,26 @@ pin_for() {
     return 0
 }
 
+# Tool-bump (Oct 2026): a few conda builds print a version other than their package
+# version -- bracken 3.1p1 says "Bracken v3.0.1", because the upstream v3.1 tag never
+# updated its VERSION string. scripts/tool_version_aliases.tsv lists each such build;
+# finalize_provenance.py reads the same file, so the task and RUN_REPORT agree.
+ALIASES="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tool_version_aliases.tsv"
+
+# The version PACKAGE's binary is known to print at conda version PIN, or "".
+alias_for() {
+    [[ -n "$2" && -f "$ALIASES" ]] || return 0
+    awk -F '\t' -v p="$1" -v v="$2" '!/^#/ && $1 == p && $2 == v { print $3; exit }' "$ALIASES"
+}
+
+# True when VERSION satisfies PIN: the pin, a more specific release of it, or its alias.
+satisfies() {
+    local version=$1 pin=$2 package=$3 alias
+    [[ "$version" == "$pin" || "$version" == "$pin".* ]] && return 0
+    alias=$(alias_for "$package" "$pin")
+    [[ -n "$alias" && ( "$version" == "$alias" || "$version" == "$alias".* ) ]]
+}
+
 # What the tool says about its own version. Most take --version; these do not.
 version_output() {
     local tool=$1
@@ -131,6 +151,10 @@ version_output() {
         seqkit|diamond)                 "${TIMEOUT[@]}" "$tool" version ;;
         seqtk)                          "${TIMEOUT[@]}" seqtk ;;
         bracken)                        "${TIMEOUT[@]}" bracken -v ;;
+        # MetaBAT2 (2.17 and 2.18) aborts on --version; -h prints "(version 2:2.18; ...)"
+        # and the depth tool prints "jgi_summarize_bam_contig_depths 2.18 ..." with no args.
+        metabat2)                       "${TIMEOUT[@]}" metabat2 -h ;;
+        jgi_summarize_bam_contig_depths) "${TIMEOUT[@]}" jgi_summarize_bam_contig_depths ;;
         hmmsearch|hmmscan|nhmmscan|nhmmer|hmmpress|hmmbuild)
                                         "${TIMEOUT[@]}" "$tool" -h ;;
         *)                              "${TIMEOUT[@]}" "$tool" --version ;;
@@ -194,7 +218,7 @@ for entry in "$@"; do
             status=NO_ENV
         elif [[ "$path" != "$PREFIX"/* ]]; then
             status=OUTSIDE_ENV
-        elif [[ -n "$pinned" && -n "$version" && "$version" != "$pinned" && "$version" != "$pinned".* ]]; then
+        elif [[ -n "$pinned" && -n "$version" ]] && ! satisfies "$version" "$pinned" "$package"; then
             status=VERSION_MISMATCH
         elif [[ -z "$version" ]]; then
             status=version_unread

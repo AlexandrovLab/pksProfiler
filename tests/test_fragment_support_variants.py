@@ -49,7 +49,7 @@ ISLAND_END = 200  # island_length = 200; clbA/clbB/clbC (the only genes any read
 def _resolve_bin(tool, env_yml):
     """Prefer an explicit override, then the pinned pks_align_env conda build
     already cached for this repo (conda_envs/pks_align_env.yml -- samtools
-    1.21, bedtools 2.31.1, subread/featureCounts 2.1.1), then PATH. Mirrors
+    1.24, bedtools 2.31.1, subread/featureCounts 2.1.1), then PATH. Mirrors
     tests/check_e2e_execution.sh's resolve_minimap2()."""
     override = os.environ.get(f"{tool.upper()}_BIN")
     if override and os.path.isfile(override):

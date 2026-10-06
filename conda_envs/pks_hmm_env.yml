@@ -8,6 +8,6 @@ channels:
 dependencies:
   - python=3.10
   - pandas=2.3
-  - hmmer=3.3.2
-  - seqtk=1.4
-  - seqkit=2.6.1
+  - hmmer=3.4
+  - seqtk=1.5
+  - seqkit=2.14.0

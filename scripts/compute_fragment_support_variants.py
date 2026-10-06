@@ -101,7 +101,7 @@ the BAM+qc.tsv, ${sample_dir}/${sampleID}/ for counts.txt+coverage.txt) --
 nothing here is regenerated for variant 1. --annotation is the same
 --pks_genome_annotation GFF the pipeline already uses. samtools and bedtools
 default to whatever is on PATH; pass --samtools/--bedtools to pin the exact
-binaries from conda_envs/pks_align_env.yml (samtools 1.21, bedtools 2.31.1)
+binaries from conda_envs/pks_align_env.yml (samtools 1.24, bedtools 2.31.1)
 if PATH does not already resolve to them.
 """
 import argparse

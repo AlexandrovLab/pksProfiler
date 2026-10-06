@@ -5,4 +5,4 @@ channels:
   - defaults
 dependencies:
   - python=3.11
-  - bowtie2=2.5.4
+  - bowtie2=2.5.5

@@ -188,6 +188,33 @@ def version_matches(observed, expected):
     return observed == expected or observed.startswith(expected + ".")
 
 
+# Tool-bump (Oct 2026): conda builds whose binary prints another version than the package
+# (bracken 3.1p1 prints 3.0.1). The same file scripts/record_tool_versions.sh reads.
+ALIASES_FILE = Path(__file__).resolve().parent / "tool_version_aliases.tsv"
+
+
+def version_aliases(path=ALIASES_FILE):
+    """{(package, conda_version): reported_version} from tool_version_aliases.tsv."""
+    aliases = {}
+    if not Path(path).is_file():
+        return aliases
+    for line in Path(path).read_text().splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        fields = line.split("\t")
+        if len(fields) >= 3 and fields[0] and fields[1] and fields[2]:
+            aliases[(fields[0], fields[1])] = fields[2]
+    return aliases
+
+
+def version_satisfies(observed, expected, package, aliases):
+    """version_matches, or the known self-report of `package` at conda version `expected`."""
+    if version_matches(observed, expected):
+        return True
+    alias = aliases.get((package, expected))
+    return bool(alias) and version_matches(observed, alias)
+
+
 def conda_pins(env_file):
     """{package: version} for the exact `- package=version` pins in a conda env yml."""
     pins = {}
@@ -272,6 +299,7 @@ def collect_tool_versions(trace_file, work_dir, repo_dir, inventory, mode="stric
     if not trace_file or not Path(trace_file).is_file():
         return summary
     recording = recording_processes(repo_dir)
+    aliases = version_aliases()
     pins_by_env = {}
     tools, problems = {}, {}
 
@@ -318,10 +346,12 @@ def collect_tool_versions(trace_file, work_dir, repo_dir, inventory, mode="stric
                     # against the same yml, and against what conda installed.
                     verdict = task_status
                     if task_status not in BLOCKING_STATUSES:
-                        if pinned and version and not version_matches(version, pinned):
+                        if pinned and version and not version_satisfies(version, pinned,
+                                                                        package, aliases):
                             verdict = "VERSION_MISMATCH"
-                        elif installed and version and not (version_matches(installed, version)
-                                                            or version_matches(version, installed)):
+                        elif installed and version and not (
+                                version_matches(installed, version)
+                                or version_satisfies(version, installed, package, aliases)):
                             verdict = INSTALLED_MISMATCH
 
                     key = (tool, version, path, prefix)

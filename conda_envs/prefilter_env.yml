@@ -6,4 +6,4 @@ channels:
 dependencies:
   - python=3.11
   - krakenuniq=1.0.4
-  - diamond=2.1.10
+  - diamond=2.2.8
