@@ -15,7 +15,7 @@
 #   - truncated.bam -- a real BAM cut off partway through. Its leading BGZF magic is
 #     intact, so extractReads.nf's htsfile-based format detection passes it through to
 #     `samtools quickcheck -v`, which is the check that must (and empirically does,
-#     samtools 1.21) fail it with "was missing EOF block when one should be present.";
+#     samtools 1.21 and 1.24) fail it with "was missing EOF block when one should be present.";
 #   - bad_magic.bam -- a real BAM with its first 4 bytes overwritten, so `htsfile`
 #     reports "unknown data" and extractReads.nf's own explicit branch fires: "input is
 #     neither BAM nor CRAM according to htsfile: ...".

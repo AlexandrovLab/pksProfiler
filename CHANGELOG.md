@@ -5,6 +5,29 @@
 Extends the immutable v0.0.1 release with island reassembly, genome-resolved analysis and
 strain typing. Full detail in `RELEASE_NOTES_v0.0.2-dev.md`.
 
+**Tool bump** (`feature/tool-bump`, 2026-10-06; on `release/v1.0.0-rc1`; the manifest version is
+unchanged). Detail, source references and A/B tables: `TOOL_BUMP_NOTES.md`.
+- **Pins moved to the latest bioconda releases:** samtools 1.21/1.22 -> 1.24, bowtie2 2.5.4 -> 2.5.5, fastp
+  0.24.0 -> 1.3.7, deeptools 3.5.6 -> 4.0.0, hmmer 3.3.2 -> 3.4, seqtk 1.4 -> 1.5, seqkit 2.6.1 -> 2.14.0,
+  bracken 2.9 -> 3.1p1, spades 4.2.0 -> 4.3.0, metabat2 2.17 -> 2.18, mlst 2.23.0 -> 2.35.0, prokka 1.14.6 ->
+  1.15.6, diamond 2.1.10/2.1.11 -> 2.2.8. minimap2 2.31, subread, bedtools, fastplong, krakenuniq,
+  krakentools, megahit, checkm2, gtdbtk and genomad were already latest.
+- **`pks_align_env` python 3.10 -> 3.12**: deeptools 4.0.0 ships only py312/py313 builds.
+- **metabat2 is pinned `==2.18`**: `=2.18` resolved to the untagged `2.18_23_gc869c52` snapshot. Its version
+  is now read from `metabat2 -h` / the depth tool's usage (it never answered `--version`, so every task
+  recorded `version_unread`).
+- **bracken 3.1p1 prints `v3.0.1`** (upstream v3.1 never updated VERSION). Strict `--tool_version_check`
+  would have stopped every Bracken task. `scripts/tool_version_aliases.tsv` lists such known self-reports,
+  one conda version each. `record_tool_versions.sh` and `finalize_provenance.py` both read it.
+  `tests/test_tool_versions.py`.
+- **No CLI change needed**: every flag the pipeline passes is unchanged in the new releases, and the fastp
+  JSON layout is the same. Behaviour that can move counts: fastp 1.x turns poly-G trimming on for more
+  first-read-name prefixes (any `@A...`, `@NA`, `@VL`, `@VH`, `@LH`, `@FS`, `@MN`, `@SH`; file input only), and
+  its adapter matching tolerates one indel (with `--adapters`, or a detected SE adapter). The bracken G-level
+  `-w` report's per-node column changed; the abundance and mpa tables are identical. On every synthetic e2e
+  fixture (7 runs, 18 sample-runs) the QC, master, evidence and counts tables are cell-identical to the
+  pinned tools.
+
 **Fixed in rc1.1** (on top of `integration/v1.0.0-rc1`; the manifest version is unchanged)
 - **Tool-version capture read `?` for a few tasks** (`version_unread`). On the rc1 TCGA WES
   run (1,304 samples) bamCoverage read `?` in 11 tasks, fastp 8, samtools 4 (one env),

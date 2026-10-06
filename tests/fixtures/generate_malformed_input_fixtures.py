@@ -16,7 +16,7 @@ Modules/extract_reads.nf actually has, not a single generic "broken file":
     leading BGZF magic bytes are untouched, so `htsfile` still reports it as BAM and
     extractReads' own format-detection branch passes it through to `samtools quickcheck
     -v` -- which is exactly the check that must catch it. Empirically confirmed
-    (samtools 1.21, see this repo's own conda_envs/samtools_env.yml) to fail with
+    (samtools 1.21, and 1.24 since the tool bump; see this repo's own conda_envs/samtools_env.yml) to fail with
     "was missing EOF block when one should be present." and a nonzero exit, which
     `set -euo pipefail` turns into a task failure.
   * `bad_magic.bam` -- valid.bam with its first 4 bytes overwritten, so it is not a BGZF
