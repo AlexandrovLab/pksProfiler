@@ -497,7 +497,7 @@ class RecruitmentStatsSurfaceInTheContigHoverText(unittest.TestCase):
 MAG_SUMMARY_HEADER = ("sample\tbin_id\tunit_type\ttaxonomy\tcompleteness\tcontamination\tgenome_size\t"
                      "contig_n50\tclb_genes_detected\tclb_genes\tbest_evalue\thas_integrase\t"
                      "has_transposase\tflanking_genes\tunexpected_taxon_flag\tlocus_tier\t"
-                     "locus_genes_detected\tlocus_breadth\n")
+                     "locus_genes_detected\tlocus_breadth\tmag_qc_status\n")
 PROPHAGE_HEADER = ("sample\tbin_id\thost_taxonomy\tprophage_id\thost_contig\tstart\tend\t"
                    "length\tvirus_score\tviral_taxonomy\thas_recA\thas_lexA\tclbS_like\t"
                    "evidence_level\n")

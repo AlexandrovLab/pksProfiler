@@ -30,14 +30,24 @@ FIELDNAMES = [
     "sample", "bin_id", "unit_type", "taxonomy", "completeness", "contamination",
     "genome_size", "contig_n50", "clb_genes_detected", "clb_genes", "best_evalue",
     "has_integrase", "has_transposase", "flanking_genes", "unexpected_taxon_flag",
-    "locus_tier", "locus_genes_detected", "locus_breadth",
+    "locus_tier", "locus_genes_detected", "locus_breadth", "mag_qc_status",
 ]
+
+# rc2: a CheckM2 or GTDB-Tk task that failed (and was ignored under the sample_stage
+# errorStrategy) is replaced by Modules/pks_mag.nf's stubFailedMagQuality -- GTDB-Tk: one
+# row per bin classified gtdbtk_failed; CheckM2: a header-only report with an extra
+# Status column -- so the bin is still reported, with the failure named, instead of the
+# sample disappearing or the run crashing on a join.
+CHECKM2_STUB_MARKER = "Status"
+CHECKM2_FAILED = "checkm2_failed"
+GTDBTK_FAILED = "gtdbtk_failed"
 
 
 def is_unexpected_taxon(taxonomy):
     """True only when taxonomy is classified but not Enterobacterales.
     Unclassified bins are unknown, not anomalous."""
-    return taxonomy not in ("unclassified", "") and ENTEROBACTERALES not in taxonomy
+    return (taxonomy not in ("unclassified", "", "NA", GTDBTK_FAILED)
+            and ENTEROBACTERALES not in taxonomy)
 
 
 # CheckM2 writes these, capitalised exactly so -- see checkm2/predictQuality.py,
@@ -73,6 +83,13 @@ def parse_checkm2(tsv_path):
                 "contig_n50": int(row["Contig_N50"]),
             }
     return result
+
+
+def checkm2_report_is_failure_stub(tsv_path):
+    """True for stubFailedMagQuality's stand-in: CheckM2's header plus a Status column."""
+    with open(tsv_path) as fh:
+        header = fh.readline().rstrip("\n").split("\t")
+    return CHECKM2_STUB_MARKER in header
 
 
 def parse_gtdbtk(summary_path):
@@ -111,6 +128,7 @@ def main():
     args = parser.parse_args()
 
     checkm2 = parse_checkm2(args.checkm2)
+    checkm2_failed = checkm2_report_is_failure_stub(args.checkm2)
     gtdbtk = parse_gtdbtk(args.gtdbtk)
     locus_evidence = read_locus_evidence(args.locus_dir)
 
@@ -140,8 +158,14 @@ def main():
         # would read as a measurement.
         qc = checkm2.get(bin_id, {"completeness": "NA", "contamination": "NA",
                                   "genome_size": "NA", "contig_n50": "NA"})
+        if checkm2_failed and bin_id not in checkm2:
+            qc = dict(qc, status=CHECKM2_FAILED)
         taxonomy = gtdbtk.get(bin_id, "unclassified")
         unexpected = is_unexpected_taxon(taxonomy)
+        failures = [status for status in (qc.get("status"),
+                                          GTDBTK_FAILED if taxonomy == GTDBTK_FAILED else None)
+                    if status]
+        mag_qc_status = ";".join(failures) or "ok"
         # M1: the alignment-confirmed call for this bin -- see mag_utils.read_locus_evidence.
         # Absent means the bin was never aligned (should not happen once magBinLocusEvidence
         # runs for every bin), not that it failed the tier.
@@ -173,6 +197,7 @@ def main():
             "locus_tier": locus["locus_tier"],
             "locus_genes_detected": locus["locus_genes_detected"],
             "locus_breadth": locus["locus_breadth"],
+            "mag_qc_status": mag_qc_status,
         })
 
     # U1: the unbinned pool is not driven by a tblout (no Prokka/hmmsearch runs on it --
@@ -202,6 +227,7 @@ def main():
             "locus_tier": unbinned["locus_tier"],
             "locus_genes_detected": unbinned["locus_genes_detected"],
             "locus_breadth": unbinned["locus_breadth"],
+            "mag_qc_status": "NA",
         })
 
     with open(args.out, "w", newline="") as fh:
