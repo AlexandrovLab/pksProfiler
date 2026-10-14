@@ -113,8 +113,9 @@ config and change the queue, account, and QOS settings.
 
 ## NIH Biowulf
 
-The included `biowulf` profile uses the `norm` partition, conservative scheduler
-polling, and 200 GB of `lscratch` per process:
+The included `biowulf` profile uses the `norm` partition, NIH's documented
+scheduler settings (`queueStatInterval = '5 min'`, `submitRateLimit = '6/1min'`,
+`pollInterval = '2 min'`, `queueSize = 200`), and 200 GB of `lscratch` per process:
 
 ```bash
 module load nextflow
