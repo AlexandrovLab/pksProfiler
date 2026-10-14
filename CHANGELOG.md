@@ -1,5 +1,41 @@
 # Changelog
 
+## v1.0.0-rc2 — 2026-10-14
+
+Fixes on top of `v1.0.0-rc1` (4c73af5, including the tool bump). No analytical parameter or
+positivity rule changed.
+
+- **MAG lane no longer crashes when GTDB-Tk (or CheckM2) fails for a sample.** On the rc1 Mayo
+  metagenome run (`--enable_mags --pks_taxa --pks_community_taxa`, prefilter balanced) several
+  `gtdbtkClassify` tasks exited 1 under the per-sample `ignore` strategy and emitted no summary; a
+  `remainder: true` join then produced `[sample, null, [bin.*.locus_evidence.tsv, ...]]` and
+  Nextflow stopped the whole run after ~37 h (`Invalid method invocation 'call'`). Now every
+  sample with bins but no CheckM2 report / GTDB-Tk summary gets a stand-in
+  (`stubFailedMagQuality`) and is still reported in `genomes/pks_mag_summary.tsv` and the
+  community tables: taxonomy reads `gtdbtk_failed` per bin, CheckM2 fields read `NA`. The failed
+  task stays under RUN_REPORT "WHAT FAILED" and a warning names the sample. Join rows that still
+  arrive left-orphaned are skipped with a warning, never destructured. Regression:
+  `tests/check_mag_channel_regression.sh` (in `run_checks.sh`).
+- **`pks_mag_summary.tsv` gains a last column, `mag_qc_status`**: `ok`, `checkm2_failed`,
+  `gtdbtk_failed` or both, per bin (`NA` for the unbinned row); `gtdbtk_failed` is not flagged
+  as an unexpected taxon. `tests/test_mag_tool_failure.py`. This is the only change under
+  `scripts/`; because most tasks hash the scripts digest, a `-resume` across it re-runs them.
+- **`diamondRescue` gets its own resource label** (`diamond_rescue`: 4 cpus / 24 GB / 8 h, each
+  x attempt). It was `process_low` (8 GB) and hit exit 137 on several metagenomes; 137 retries
+  (maxRetries 5) and each retry now asks for more memory.
+- **F17, completed: Biowulf scheduler settings.** `conf/biowulf.config` now uses NIH's
+  `queueStatInterval = '5 min'` and `submitRateLimit = '6/1min'` (were 2 min and 1 sec), as
+  Ludmil asked; `pollInterval` stays 2 min.
+- **CI runs on `integration/**` and `fix/**` branches and on `v*` tags.** The tagged rc1 commit
+  had never run CI.
+- **Legacy 50,767-bp island params removed.** `params.pks_shift` / `params.pks_island_len` were
+  unused; the canonical 50,768-bp `pks_start_1based` / `pks_end_1based` /
+  `pks_island_len_1based` are the only definition.
+- **Docs.** README has a Software table of the exact pinned versions (tested against
+  `conda_envs/*.yml`). README and `docs/prefilter.md` state that the default
+  `--prefilter_mode auto` turns `balanced` on for every metagenome run given `--kraken_db`.
+- Version 1.0.0-rc2 in the manifest, CITATION.cff, README badge and workflow figure.
+
 ## v1.0.0-rc1 — 2026-10-05
 
 Extends the immutable v0.0.1 release with island reassembly, genome-resolved analysis and

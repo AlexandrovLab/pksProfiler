@@ -134,5 +134,5 @@
 <text x="168.3" y="797.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="400" fill="#6f7a83" text-anchor="start">optional</text>
 <path d="M244.0255 789 l4.5 4.5 l-4.5 4.5 l-4.5 -4.5 z" fill="#b8892b"/>
 <text x="255.0" y="797.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="400" fill="#6f7a83" text-anchor="start">decision or filter</text>
-<text x="900.0" y="797.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="600" fill="#6f7a83" text-anchor="end">pksProfiler v1.0.0-rc1</text>
+<text x="900.0" y="797.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="600" fill="#6f7a83" text-anchor="end">pksProfiler v1.0.0-rc2</text>
 </svg>

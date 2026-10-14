@@ -10,7 +10,7 @@ authors:
   - name: "Alexandrov Lab, University of California San Diego"
 repository-code: "https://github.com/AlexandrovLab/pksProfiler"
 license: BSD-2-Clause
-version: 1.0.0-rc1
+version: 1.0.0-rc2
 keywords:
   - colibactin
   - pks island
