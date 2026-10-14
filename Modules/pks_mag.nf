@@ -326,6 +326,71 @@ process stubBinlessMagQuality {
     """
 }
 
+// ─── rc2: stand-in for a CheckM2/GTDB-Tk task that failed and was ignored ─────
+// Mayo metagenome run (v1.0.0-rc1, 2026-10): several gtdbtkClassify tasks exited 1 and,
+// under the sample_stage errorStrategy ('ignore' by default), simply never emitted a
+// summary. The sample still had bins, tblouts and per-bin locus evidence, so
+// summary_input_ch's strict checkm2/gtdbtk join dropped it and the remainder:true joins
+// after it, and community_input_ch's, produced a left-orphaned 3-element row
+// [sampleID, null, [bin.*.locus_evidence.tsv, ...]] that the next 6-parameter closure
+// could not destructure -- Nextflow stopped the whole run ~37 h in. This supplies, for
+// exactly the tool(s) that produced nothing, a correctly shaped stand-in, so every bin is
+// still reported instead of the sample vanishing or the run crashing:
+//   GTDB-Tk: one row per bin, classification "gtdbtk_failed" (taxonomy says so per bin);
+//   CheckM2: the report header plus a Status column and NO rows, so every quality field
+//            reads NA (unmeasured), never 0. build_mag_summary.py reads that Status header
+//            to set mag_qc_status=checkm2_failed.
+// Neither stand-in changes how scripts/ parse these tables, so the scripts digest (and with
+// it -resume of every earlier task) is untouched by this fix. The failed task itself is
+// still listed under RUN_REPORT "WHAT FAILED" (the trace records it as FAILED). Not
+// published: no real tool output exists.
+process stubFailedMagQuality {
+    label 'sample_stage'
+    label 'process_low'
+    tag "$sampleID"
+
+    input:
+    tuple val(sampleID), val(bin_ids), val(checkm2_failed), val(gtdbtk_failed)
+
+    output:
+    tuple val(sampleID), path("failed.checkm2_quality_report.tsv"), emit: checkm2, optional: true
+    tuple val(sampleID), path("failed.gtdbtk.bac120.summary.tsv"), emit: gtdbtk, optional: true
+
+    script:
+    def ids = bin_ids.join(' ')
+    """
+    set -euo pipefail
+    if [[ "${checkm2_failed}" == "true" ]]; then
+        # header only: no bin has a measurement. "Status" marks the stand-in.
+        printf "Name\\tCompleteness\\tContamination\\tGenome_Size\\tContig_N50\\tStatus\\n" > failed.checkm2_quality_report.tsv
+    fi
+    if [[ "${gtdbtk_failed}" == "true" ]]; then
+        printf "user_genome\\tclassification\\n" > failed.gtdbtk.bac120.summary.tsv
+        for b in ${ids}; do
+            printf "%s\\tgtdbtk_failed\\n" "\$b" >> failed.gtdbtk.bac120.summary.tsv
+        done
+    fi
+    """
+}
+
+// rc2: guard for the row a remainder:true join emits when the LEFT side has no entry for
+// a key -- [key, null, <right values>], which is shorter than the row the next closure
+// destructures. Such a row is dropped with a warning (the sample's upstream failure is
+// already in RUN_REPORT "WHAT FAILED"); anything else passes through unchanged.
+def completeJoinRow(row, int width, String where) {
+    if (row instanceof List && row.size() == width && row[1] != null) {
+        return true
+    }
+    def key = row instanceof List ? row[0] : row
+    log.warn "pksMAG: ${where} skipped for ${key}: an upstream per-sample task produced no output " +
+             "(failed and ignored; see RUN_REPORT WHAT FAILED)"
+    return false
+}
+
+def noRealBinsSentinel() {
+    "__stubBinlessMagQuality_no_real_bins_anywhere_sentinel__"
+}
+
 // ─── Prokka annotation (ALL bins — must run before hmmsearch so locus_tags match) ──
 
 process prokkaAnnotate {
@@ -889,7 +954,7 @@ workflow pksMAG {
     // chain joins is guarded with the same sentinel key for the same reason, and the
     // sentinel row that survives the joins as a result is filtered back out immediately
     // after, before magSummaryTable (or anything else) ever sees it.
-    def NO_REAL_BINS_SENTINEL = "__stubBinlessMagQuality_no_real_bins_anywhere_sentinel__"
+    def NO_REAL_BINS_SENTINEL = noRealBinsSentinel()
     samples_with_bins_ch = checkm2Predict.out.report
         .map { sampleID, _report -> tuple(sampleID, true) }
         .mix(Channel.value(tuple(NO_REAL_BINS_SENTINEL, true)))
@@ -900,9 +965,15 @@ workflow pksMAG {
         .map { sampleID, _has_bins -> sampleID }
     stubBinlessMagQuality(binless_samples_needing_summary_ch)
 
+    // rc2: samples WITH bins whose checkm2Predict/gtdbtkClassify failed and was ignored
+    // get a per-bin "<tool>_failed" stand-in -- see stubFailedMagQuality.
+    magQualityFallback(metabat2Bin.out.bins, checkm2Predict.out.report, gtdbtkClassify.out.summary)
+
     checkm2_report_ch = checkm2Predict.out.report.mix(stubBinlessMagQuality.out.checkm2)
+        .mix(magQualityFallback.out.checkm2_stub)
         .mix(Channel.value(tuple(NO_REAL_BINS_SENTINEL, "SENTINEL")))
     gtdbtk_summary_ch = gtdbtkClassify.out.summary.mix(stubBinlessMagQuality.out.gtdbtk)
+        .mix(magQualityFallback.out.gtdbtk_stub)
         .mix(Channel.value(tuple(NO_REAL_BINS_SENTINEL, "SENTINEL")))
     tblouts_per_sample_ch = tblouts_per_sample_ch
         .mix(Channel.value(tuple(NO_REAL_BINS_SENTINEL, [])))
@@ -917,26 +988,22 @@ workflow pksMAG {
     // locus_evidence here is mag_summary_locus_evidence_ch (bins + the U1 unbinned
     // pool), not locus_evidence_per_sample_ch -- build_mag_summary.py's locus_dir
     // needs the unbinned call too, to report it as its own row.
-    summary_input_ch = checkm2_report_ch
-        .join(gtdbtk_summary_ch, by: 0)
-        .join(tblouts_per_sample_ch, by: 0, remainder: true)
-        .join(contexts_per_sample_ch, by: 0, remainder: true)
-        .join(mag_summary_locus_evidence_ch, by: 0, remainder: true)
-        .filter { sampleID, checkm2, gtdbtk, tblouts, contexts, locus_evidence -> sampleID != NO_REAL_BINS_SENTINEL }
-        .map { sampleID, checkm2, gtdbtk, tblouts, contexts, locus_evidence ->
-            tuple(sampleID, checkm2, gtdbtk, tblouts ?: [], contexts ?: [], locus_evidence ?: [])
-        }
+    //
+    // rc2: the joins live in magSummaryInput / magCommunityInput (below) so that
+    // tests/check_mag_channel_regression.sh can drive the exact same channel logic with
+    // a failed GTDB-Tk task, which crashed the rc1 Mayo run.
+    magSummaryInput(checkm2_report_ch, gtdbtk_summary_ch, tblouts_per_sample_ch,
+                    contexts_per_sample_ch, mag_summary_locus_evidence_ch)
+    summary_input_ch = magSummaryInput.out.rows
 
     magSummaryTable(summary_input_ch)
 
-    community_input_ch = gtdbtkClassify.out.summary
-        .join(gffs_per_sample_ch, by: 0)
-        .join(tblouts_per_sample_ch, by: 0)
-        .join(virus_summaries_per_sample_ch, by: 0)
-        .join(locus_evidence_per_sample_ch, by: 0, remainder: true)
-        .map { sampleID, gtdbtk, gffs, tblouts, virus_summaries, locus_evidence ->
-            tuple(sampleID, gtdbtk, gffs, tblouts, virus_summaries, locus_evidence ?: [])
-        }
+    // Real GTDB-Tk output plus the rc2 gtdbtk_failed stand-in (not the binless stub:
+    // a sample with no real bins has no genomes to build community tables from).
+    magCommunityInput(gtdbtkClassify.out.summary.mix(magQualityFallback.out.gtdbtk_stub),
+                      gffs_per_sample_ch, tblouts_per_sample_ch,
+                      virus_summaries_per_sample_ch, locus_evidence_per_sample_ch)
+    community_input_ch = magCommunityInput.out.rows
 
     communityProphageSummary(community_input_ch)
 
@@ -963,4 +1030,102 @@ workflow pksMAG {
     // 26 Sep memo section 5 / A7: pairs, singletons and mate-tag diagnostics per sample,
     // published as genomes/assembly/mate_pairing.tsv.
     mate_pairing = pairDepletedReads.out.stats
+}
+
+
+// ─── rc2: channel logic factored out of pksMAG so it can be tested on its own ───
+// tests/fixtures/mag_channel_regression.nf drives these with fabricated channels; the
+// processes above are not involved except stubFailedMagQuality (no conda, no tools).
+
+// Which samples with real bins got no CheckM2 report / no GTDB-Tk summary because the
+// task failed (and was ignored)? Emits a stand-in for exactly those.
+workflow magQualityFallback {
+    take:
+    bins      // tuple(sampleID, bin FASTA | [bin FASTAs]) -- metabat2Bin.out.bins
+    checkm2   // tuple(sampleID, quality_report.tsv)     -- checkm2Predict.out.report
+    gtdbtk    // tuple(sampleID, bac120.summary.tsv)     -- gtdbtkClassify.out.summary
+
+    main:
+    // The same never-empty right-hand side trick as pksMAG's NO_REAL_BINS_SENTINEL: a
+    // remainder:true join against a completely empty channel does not null-pad.
+    def SENTINEL = noRealBinsSentinel()
+    bin_ids_ch = bins.map { sampleID, bin_fas ->
+        def fas = bin_fas instanceof List ? bin_fas : [bin_fas]
+        tuple(sampleID, fas.collect { new File(it.toString()).name.replaceFirst(/\.fa$/, '') }.sort())
+    }
+    has_checkm2_ch = checkm2.map { sampleID, _report -> tuple(sampleID, true) }
+        .mix(Channel.value(tuple(SENTINEL, true)))
+    has_gtdbtk_ch = gtdbtk.map { sampleID, _summary -> tuple(sampleID, true) }
+        .mix(Channel.value(tuple(SENTINEL, true)))
+
+    // One-parameter closures throughout: a left-orphaned remainder row is shorter than
+    // the 4-tuple, and must be filtered, not destructured.
+    failed_ch = bin_ids_ch
+        .join(has_checkm2_ch, by: 0, remainder: true)
+        .join(has_gtdbtk_ch, by: 0, remainder: true)
+        .filter { row -> row instanceof List && row.size() == 4 && row[0] != SENTINEL && row[1] != null }
+        .filter { row -> row[2] == null || row[3] == null }
+        .map { row ->
+            def failed = [row[2] == null ? 'checkm2' : null, row[3] == null ? 'gtdbtk' : null].findAll()
+            log.warn "pksMAG: ${failed.join(' and ')} produced no output for ${row[0]} (task failed and " +
+                     "was ignored); its ${row[1].size()} bin(s) are reported as " +
+                     "${failed.collect { it + '_failed' }.join('/')} in pks_mag_summary.tsv"
+            tuple(row[0], row[1], row[2] == null, row[3] == null)
+        }
+    stubFailedMagQuality(failed_ch)
+
+    emit:
+    checkm2_stub = stubFailedMagQuality.out.checkm2
+    gtdbtk_stub  = stubFailedMagQuality.out.gtdbtk
+    failed       = failed_ch
+}
+
+// magSummaryTable's input. checkm2/gtdbtk already carry every sample (real, binless stub,
+// failed stand-in, sentinel); the remainder joins keep samples with no pks+ bins.
+workflow magSummaryInput {
+    take:
+    checkm2
+    gtdbtk
+    tblouts
+    contexts
+    locus_evidence
+
+    main:
+    def SENTINEL = noRealBinsSentinel()
+    rows = checkm2
+        .join(gtdbtk, by: 0)
+        .join(tblouts, by: 0, remainder: true)
+        .join(contexts, by: 0, remainder: true)
+        .join(locus_evidence, by: 0, remainder: true)
+        .filter { row -> !(row instanceof List && row[0] == SENTINEL) }
+        .filter { row -> completeJoinRow(row, 6, 'magSummaryTable') }
+        .map { row -> tuple(row[0], row[1], row[2], row[3] ?: [], row[4] ?: [], row[5] ?: []) }
+
+    emit:
+    rows
+}
+
+// communityProphageSummary's input: genomes with taxonomy, annotation and provirus calls.
+workflow magCommunityInput {
+    take:
+    gtdbtk
+    gffs
+    tblouts
+    virus_summaries
+    locus_evidence
+
+    main:
+    // Sentinel on the remainder side so it is never completely empty (see pksMAG).
+    def SENTINEL = noRealBinsSentinel()
+    rows = gtdbtk
+        .join(gffs, by: 0)
+        .join(tblouts, by: 0)
+        .join(virus_summaries, by: 0)
+        .join(locus_evidence.mix(Channel.value(tuple(SENTINEL, []))), by: 0, remainder: true)
+        .filter { row -> !(row instanceof List && row[0] == SENTINEL) }
+        .filter { row -> completeJoinRow(row, 6, 'communityProphageSummary') }
+        .map { row -> tuple(row[0], row[1], row[2], row[3], row[4], row[5] ?: []) }
+
+    emit:
+    rows
 }

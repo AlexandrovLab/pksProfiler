@@ -84,7 +84,13 @@ PER_SAMPLE_FILTERS = {
     ("pks_mag.nf", 'unitID == "unbinned"'),
     ("pks_mag.nf", "gene_count"),
     ("pks_mag.nf", "has_bins == null"),
-    ("pks_mag.nf", "sampleID != NO_REAL_BINS_SENTINEL"),
+    # rc2: the join sentinel and the left-orphaned remainder rows a failed-and-ignored
+    # CheckM2/GTDB-Tk task leaves behind -- keyed on task outcome, never on sample type.
+    ("pks_mag.nf", "row[0] == SENTINEL"),
+    ("pks_mag.nf", "row[0] != SENTINEL"),
+    ("pks_mag.nf", "row[2] == null || row[3] == null"),
+    ("pks_mag.nf", "completeJoinRow(row, 6, 'magSummaryTable')"),
+    ("pks_mag.nf", "completeJoinRow(row, 6, 'communityProphageSummary')"),
 }
 
 # 5, continued: in-process decisions that differ between two samples only through the

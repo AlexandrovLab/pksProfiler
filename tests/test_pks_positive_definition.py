@@ -173,8 +173,12 @@ class LocusEvidenceDecidesPositivity(unittest.TestCase):
         # different channels now, not the same one joined twice, because the
         # unbinned pseudo-unit has no taxonomy/annotation for communityProphageSummary
         # to read but does belong in the per-sample MAG summary table.
-        self.assertEqual(MAG_CODE.count(".join(locus_evidence_per_sample_ch, by: 0, remainder: true)"), 1)
-        self.assertEqual(MAG_CODE.count(".join(mag_summary_locus_evidence_ch, by: 0, remainder: true)"), 1)
+        # rc2: both joins now live in magCommunityInput / magSummaryInput; pksMAG
+        # passes each its own locus-evidence channel.
+        self.assertEqual(MAG_CODE.count("virus_summaries_per_sample_ch, locus_evidence_per_sample_ch)"), 1)
+        self.assertEqual(MAG_CODE.count("contexts_per_sample_ch, mag_summary_locus_evidence_ch)"), 1)
+        self.assertEqual(MAG_CODE.count(".join(locus_evidence, by: 0, remainder: true)"), 1)
+        self.assertEqual(MAG_CODE.count(".join(locus_evidence.mix(Channel.value(tuple(SENTINEL, []))), by: 0, remainder: true)"), 1)
 
     def test_unbinned_pool_never_inflates_bin_positivity_counts(self):
         # U1: the per-sample pool of contigs MetaBAT2 never binned is not a genome --

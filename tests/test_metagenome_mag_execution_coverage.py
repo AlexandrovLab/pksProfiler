@@ -134,15 +134,16 @@ class TheFixStaysInPlace(unittest.TestCase):
         workflow = PKS_MAG[PKS_MAG.index("workflow pksMAG {"):]
         self.assertIn("checkm2_report_ch = checkm2Predict.out.report.mix(stubBinlessMagQuality.out.checkm2)", workflow)
         self.assertIn("gtdbtk_summary_ch = gtdbtkClassify.out.summary.mix(stubBinlessMagQuality.out.gtdbtk)", workflow)
-        self.assertIn("summary_input_ch = checkm2_report_ch", workflow)
+        self.assertIn("magSummaryInput(checkm2_report_ch, gtdbtk_summary_ch,", workflow)
 
     def test_tblouts_gained_a_remainder_true_fallback(self):
         # Before this fix, tblouts_per_sample_ch was also a strict join -- a sample
         # with zero real bins has no tblouts either, so it needed the same
         # remainder:true + `?: []` treatment contexts_per_sample_ch already had.
-        workflow = PKS_MAG[PKS_MAG.index("workflow pksMAG {"):]
-        self.assertIn(".join(tblouts_per_sample_ch, by: 0, remainder: true)", workflow)
-        self.assertIn("tblouts ?: []", workflow)
+        # rc2: the chain lives in magSummaryInput, fed tblouts_per_sample_ch by pksMAG.
+        workflow = PKS_MAG[PKS_MAG.index("workflow magSummaryInput {"):]
+        self.assertIn(".join(tblouts, by: 0, remainder: true)", workflow)
+        self.assertIn("row[3] ?: []", workflow)
 
 
 class ConstructionStillPasses(unittest.TestCase):

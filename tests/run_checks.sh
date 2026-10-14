@@ -229,4 +229,8 @@ echo "Building the workflow graph for every flag combination"
 # the failure this check exists to report.
 bash "$repo_dir/tests/check_workflow_construction.sh"
 
+echo
+echo "Running the MAG channel regression (failed GTDB-Tk / CheckM2, rc2)"
+bash "$repo_dir/tests/check_mag_channel_regression.sh"
+
 echo "All checks passed"

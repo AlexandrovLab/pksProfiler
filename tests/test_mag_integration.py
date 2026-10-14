@@ -99,7 +99,7 @@ class MagModuleContractTests(unittest.TestCase):
 
     def test_no_pks_context_is_retained_for_summary(self):
         self.assertIn("remainder: true", MAG)
-        self.assertIn("contexts ?: []", MAG)
+        self.assertIn("row[4] ?: []", MAG)  # contexts, in magSummaryInput (rc2)
 
     def test_prophages_are_called_for_all_bins_not_only_pks_positive_bins(self):
         self.assertIn("genomadProphages(bins_flat_ch)", MAG)
