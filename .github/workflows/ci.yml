@@ -2,7 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main, "release/**", "feature/**"]
+    # rc2: integration/** and fix/** branches and v* tags were not covered, so the
+    # tagged v1.0.0-rc1 commit (integration/v1.0.0-rc1) never ran CI.
+    branches: [main, "release/**", "feature/**", "integration/**", "fix/**"]
+    tags: ["v*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
