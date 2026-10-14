@@ -1,7 +1,18 @@
 name: pksprofiler-genomad
+
+# T6 (Ludmil, 28 Sep). geNomad's provirus and plasmid calls come from a neural-network
+# classifier (keras) plus an mmseqs2 marker search; none of python, keras, numpy, mmseqs2
+# or aragorn was declared. Pinned to what was resolving (14 Oct 2026).
+
 channels:
   - conda-forge
   - bioconda
   - defaults
+
 dependencies:
+  - python=3.13.16
   - genomad=1.12.0
+  - keras=3.15.1
+  - numpy=2.5.4
+  - mmseqs2=18.8cc5c
+  - aragorn=1.2.41

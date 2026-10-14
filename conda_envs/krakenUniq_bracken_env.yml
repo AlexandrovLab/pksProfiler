@@ -1,14 +1,30 @@
 name: pksprofiler-kraken
 
+# T6 (Ludmil, 28 Sep): every package pinned to an exact version, so a rebuild of this
+# environment months from now installs what the validated runs installed.
+#
+# python 3.12, not 3.9 (3.9 reached end of life in Oct 2025). krakenuniq 1.0.4,
+# bracken 3.1p1 and krakentools 1.2.1 all solve on 3.12, and conda resolves them to the
+# SAME builds it resolves on 3.9 -- krakenuniq pl5321h668145b_4, bracken hc52dbad_0,
+# krakentools pyh7e72e81_0 (noarch) -- so the classifier binaries and the Bracken script
+# are the same files either way. Only the Python stack underneath moves
+# (numpy 2.0.2 -> 2.5.4; pandas and matplotlib keep their versions, new builds).
+# The A/B in pksProfiler_analysis/.../T6T7 compared the KrakenUniq report, the Bracken
+# abundance table and the mpa table cell for cell under both: identical.
+#
+# python 3.13 also solves, with the same three builds again -- nothing blocks it. 3.12 is
+# pinned because 3.12 is what the ask named and what the A/B was run on; moving to 3.13
+# later is a one-line change.
+
 channels:
   - conda-forge
   - bioconda
   - defaults
 
 dependencies:
-  - python=3.9
+  - python=3.12.15
   - krakenuniq=1.0.4
   - bracken=3.1p1
   - krakentools=1.2.1
   - pandas=2.3.0
-  - matplotlib=3.9
+  - matplotlib=3.9.4

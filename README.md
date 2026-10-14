@@ -181,30 +181,37 @@ task, and reports everything wrong with them in one pass rather than failing on 
 
 ## Software
 
-Every task runs in a conda environment from `conda_envs/`, pinned as below (generated from those files;
-packages listed there without a version, such as `htslib` and the R packages, follow conda's solve).
-RUN_REPORT.txt records what each task actually ran.
+Every task runs in a conda environment from `conda_envs/`, pinned as below (generated from those files).
+T6 (Ludmil, 28 Sep): every package each environment declares now carries an exact version. Nothing is
+left to conda's solve -- `htslib`, `r-base` and the R packages used to be listed with no version at all,
+and the engines underneath CheckM2, geNomad, GTDB-Tk, Prokka and mlst (TensorFlow, keras, prodigal,
+pplacer, fastANI, blast ...) were not declared at all, so a rebuild months from now could change results
+without a line of this repo changing. Each pin names the version that was already resolving when it was
+frozen, so pinning recorded the validated build rather than moving it; see
+`pksProfiler_analysis/.../T6T7` for the A/B evidence. Reference *databases* are frozen separately, in
+`conf/databases.tsv`.
+RUN_REPORT.txt records what each task actually ran, and which database build it read.
 
 | Environment | Pinned versions |
 |---|---|
-| `checkm2_env.yml` | checkm2 1.1.0, diamond 2.2.8 |
+| `checkm2_env.yml` | python 3.12.15, checkm2 1.1.0, diamond 2.2.8, tensorflow 2.19.1, scikit-learn 1.9.1, numpy 2.5.4 |
 | `fastp_env.yml` | fastp 1.3.7 |
 | `fastplong_env.yml` | fastplong 0.7.1 |
-| `genomad_env.yml` | genomad 1.12.0 |
-| `gtdbtk_env.yml` | gtdbtk 2.7.2 |
-| `krakenUniq_bracken_env.yml` | python 3.9, krakenuniq 1.0.4, bracken 3.1p1, krakentools 1.2.1, pandas 2.3.0, matplotlib 3.9 |
+| `genomad_env.yml` | python 3.13.16, genomad 1.12.0, keras 3.15.1, numpy 2.5.4, mmseqs2 18.8cc5c, aragorn 1.2.41 |
+| `gtdbtk_env.yml` | python 3.13.16, gtdbtk 2.7.2, prodigal 2.6.3, hmmer 3.4, pplacer 1.1.alpha19, fastani 1.34, skani 0.4.0, fasttree 2.2.0 |
+| `krakenUniq_bracken_env.yml` | python 3.12.15, krakenuniq 1.0.4, bracken 3.1p1, krakentools 1.2.1, pandas 2.3.0, matplotlib 3.9.4 |
 | `megahit_env.yml` | megahit 1.2.9 |
 | `metabat2_env.yml` | metabat2 2.18 |
-| `minimap2_env.yml` | minimap2 2.31, samtools 1.24 |
-| `mlst_env.yml` | mlst 2.35.0, python 3.11 |
-| `pks_align_env.yml` | python 3.12, pandas 2.3, bowtie2 2.5.5, minimap2 2.31, samtools 1.24, bedtools 2.31.1, subread 2.1.1, deeptools 4.0.0 |
-| `pks_hmm_env.yml` | python 3.10, pandas 2.3, hmmer 3.4, seqtk 1.5, seqkit 2.14.0 |
-| `prefilter_env.yml` | python 3.11, krakenuniq 1.0.4, diamond 2.2.8 |
-| `prokka_env.yml` | prokka 1.15.6 |
-| `samtools_env.yml` | python 3.10, samtools 1.24 |
-| `targeted_alignment_env.yml` | minimap2 2.31, python 3.11 |
-| `targeted_recruit_env.yml` | python 3.11, bowtie2 2.5.5 |
-| `targeted_spades_env.yml` | python 3.11, spades 4.3.0 |
+| `minimap2_env.yml` | minimap2 2.31, samtools 1.24, htslib 1.24 |
+| `mlst_env.yml` | python 3.11.9, mlst 2.35.0, blast 2.16.0, any2fasta 0.8.1 |
+| `pks_align_env.yml` | python 3.12.15, pandas 2.3.3, bowtie2 2.5.5, minimap2 2.31, samtools 1.24, htslib 1.24, bedtools 2.31.1, subread 2.1.1, deeptools 4.0.0, r-base 4.5.3, r-circlize 0.4.18, r-cairo 1.7_0, r-dplyr 1.2.1 |
+| `pks_hmm_env.yml` | python 3.10.22, pandas 2.3.3, hmmer 3.4, seqtk 1.5, seqkit 2.14.0 |
+| `prefilter_env.yml` | python 3.11.9, krakenuniq 1.0.4, diamond 2.2.8 |
+| `prokka_env.yml` | prokka 1.15.6, blast 2.16.0, barrnap 1.10.6, aragorn 1.2.41, hmmer 3.4, infernal 1.1.5, minced 0.4.2 |
+| `samtools_env.yml` | python 3.10.22, samtools 1.24, htslib 1.24 |
+| `targeted_alignment_env.yml` | minimap2 2.31, python 3.11.9 |
+| `targeted_recruit_env.yml` | python 3.11.9, bowtie2 2.5.5 |
+| `targeted_spades_env.yml` | python 3.11.9, spades 4.3.0 |
 
 Nextflow >= 24.10.0 (CI runs 24.10.0).
 

@@ -4,4 +4,4 @@ channels:
   - conda-forge
 dependencies:
   - minimap2=2.31
-  - python=3.11
+  - python=3.11.9

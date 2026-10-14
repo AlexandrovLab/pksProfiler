@@ -1,10 +1,20 @@
 name: pksprofiler-checkm2
 
+# T6 (Ludmil, 28 Sep). checkm2 and diamond were pinned, but CheckM2's completeness and
+# contamination calls come out of a trained model that runs on TensorFlow and
+# scikit-learn, and neither those nor python nor numpy were declared at all -- so the
+# numbers that decide which MAGs pass --mag_min_completeness could move on a rebuild
+# without a single line of this file changing. Pinned to what was resolving (14 Oct 2026).
+
 channels:
   - conda-forge
   - bioconda
   - defaults
 
 dependencies:
+  - python=3.12.15
   - checkm2=1.1.0
   - diamond=2.2.8
+  - tensorflow=2.19.1
+  - scikit-learn=1.9.1
+  - numpy=2.5.4

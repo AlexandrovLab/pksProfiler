@@ -1,9 +1,22 @@
 name: pksprofiler-gtdbtk
 
+# T6 (Ludmil, 28 Sep). GTDB-Tk is a wrapper: the taxonomy it assigns is decided by
+# prodigal (gene calls), hmmer (marker hits), pplacer and fasttree (placement) and
+# fastani/skani (ANI). Only gtdbtk itself was pinned, so every one of those could change
+# under it. Pinned to what was resolving (14 Oct 2026). The GTDB reference release the
+# run used is recorded separately -- see conf/databases.tsv (T7).
+
 channels:
   - conda-forge
   - bioconda
   - defaults
 
 dependencies:
+  - python=3.13.16
   - gtdbtk=2.7.2
+  - prodigal=2.6.3
+  - hmmer=3.4
+  - pplacer=1.1.alpha19
+  - fastani=1.34
+  - skani=0.4.0
+  - fasttree=2.2.0

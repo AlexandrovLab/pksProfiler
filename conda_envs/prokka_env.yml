@@ -1,5 +1,9 @@
 name: pksprofiler-prokka
 
+# T6 (Ludmil, 28 Sep). Prokka is a wrapper too: the annotation comes from blast, hmmer,
+# barrnap, aragorn, infernal and minced, none of which was declared. Pinned to what was
+# resolving (14 Oct 2026).
+
 channels:
   - conda-forge
   - bioconda
@@ -7,3 +11,9 @@ channels:
 
 dependencies:
   - prokka=1.15.6
+  - blast=2.16.0
+  - barrnap=1.10.6
+  - aragorn=1.2.41
+  - hmmer=3.4
+  - infernal=1.1.5
+  - minced=0.4.2

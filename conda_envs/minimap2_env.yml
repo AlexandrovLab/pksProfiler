@@ -1,5 +1,10 @@
 name: pksprofiler-minimap2
 
+# T6 (Ludmil, 28 Sep): htslib carried no version. It is what bgzip comes from, and
+# `bgzip:htslib` is one of the tools scripts/record_tool_versions.sh checks -- it was
+# recording `unpinned`. 1.24 is the version samtools=1.24 was already pulling in, so the
+# pin records that rather than changing it.
+
 channels:
   - conda-forge
   - bioconda
@@ -8,5 +13,4 @@ channels:
 dependencies:
   - minimap2=2.31
   - samtools=1.24
-  - htslib
-
+  - htslib=1.24

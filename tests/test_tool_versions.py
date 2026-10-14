@@ -129,10 +129,26 @@ class TheTaskRecordsWhatItRuns(Workspace):
         self.assertEqual(record["minimap2"]["conda_prefix"], str(self.env))
         self.assertEqual(record["samtools"]["status"], "ok")
         self.assertEqual(record["samtools"]["version"], "1.24")
-        # htslib is listed without a version in minimap2_env.yml.
+        # T6 (Ludmil, 28 Sep): htslib used to be listed in minimap2_env.yml with no
+        # version, and bgzip -- the tool that comes from it -- therefore recorded
+        # `unpinned`. It is now pinned to 1.24, so the check reports it like any other
+        # pinned tool. The `unpinned` status itself is still reachable and is covered by
+        # test_a_package_with_no_version_in_the_yml_is_recorded_as_unpinned below.
         self.assertEqual(record["bgzip"]["package"], "htslib")
-        self.assertEqual(record["bgzip"]["status"], "unpinned")
+        self.assertEqual(record["bgzip"]["status"], "ok")
+        self.assertEqual(record["bgzip"]["version"], "1.24")
+        self.assertEqual(record["bgzip"]["pinned"], "1.24")
         self.assertEqual(result.stderr, "")
+
+    def test_a_package_with_no_version_in_the_yml_is_recorded_as_unpinned(self):
+        # Every conda_envs/*.yml pins every package now (T6), so no shipped environment
+        # produces this status -- but an environment someone writes by hand still can,
+        # and `unpinned` must stay distinguishable from `ok` when it happens.
+        env_file = self.root / "env.yml"
+        env_file.write_text("dependencies:\n  - minimap2=2.31\n  - htslib\n")
+        _result, record = self.run_helper(env_file=env_file, tools=("bgzip:htslib",))
+        self.assertEqual(record["bgzip"]["status"], "unpinned")
+        self.assertEqual(record["bgzip"]["pinned"], "")
 
     def test_path_outside_env_the_minimap2_224_scenario_stops_the_task(self):
         result, record = self.run_helper(path_dirs=[self.user_bin, self.env / "bin"])

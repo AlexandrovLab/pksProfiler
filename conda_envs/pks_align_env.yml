@@ -1,21 +1,32 @@
 name: pksprofiler-align
 
+# T6 (Ludmil, 28 Sep): every package pinned to an exact version.
+#
+# r-base, r-circlize, r-cairo and r-dplyr carried no version at all, so the R that drew
+# scripts/plotPKS.R's coverage figure was whatever conda happened to resolve that day.
+# The pins below are the versions that were resolving when this was pinned (14 Oct 2026),
+# so the pin records the validated build rather than changing it; the A/B regenerated the
+# figure under the unpinned and the pinned solve and compared the PNG byte for byte.
+# `Rscript:r-base` is one of the tools scripts/record_tool_versions.sh checks, so with
+# r-base pinned that check now reports `ok` instead of `unpinned`.
+
 channels:
   - conda-forge
   - bioconda
   - defaults
 
 dependencies:
-  - python=3.12
-  - pandas=2.3
+  - python=3.12.15
+  - pandas=2.3.3
   - bowtie2=2.5.5
   # long-read profiling (--read_type ont|hifi), same version as host depletion
   - minimap2=2.31
   - samtools=1.24
+  - htslib=1.24
   - bedtools=2.31.1
   - subread=2.1.1
   - deeptools=4.0.0
-  - r-base
-  - r-circlize
-  - r-cairo
-  - r-dplyr
+  - r-base=4.5.3
+  - r-circlize=0.4.18
+  - r-cairo=1.7_0
+  - r-dplyr=1.2.1
