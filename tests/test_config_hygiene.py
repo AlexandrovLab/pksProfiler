@@ -76,5 +76,22 @@ class CondaEnvironmentWinsOnPath(unittest.TestCase):
 
     def test_before_script_puts_the_conda_base_first(self):
         config = (Path(__file__).resolve().parents[1] / "nextflow.config").read_text()
-        self.assertIn('process.beforeScript = \'if command -v conda >/dev/null 2>&1; then '
+        self.assertIn('if command -v conda >/dev/null 2>&1; then '
                       'export PATH="$(conda info --base)/bin:$PATH"; fi\'', config)
+
+    def test_before_script_disables_the_user_site_directory(self):
+        """
+        T6 (14 Oct 2026): the same trap one level down, for Python packages.
+
+        Python puts ~/.local/lib/pythonX.Y/site-packages AHEAD of the environment's own
+        site-packages, so one `pip install --user` silently beats the pinned conda build
+        in every environment and every task. On TSCC ~/.local/lib/python3.12 held
+        pandas 1.5.3 and ~/.local/lib/python3.9 held matplotlib 3.8.2, while the
+        environments pinned pandas 2.3.0 and matplotlib 3.9.4 -- and the tasks imported
+        the ~/.local ones. conda-meta (what RUN_REPORT's SOFTWARE section reads) said the
+        pinned versions were installed, truthfully, and they still were not used.
+
+        Without this export, every version pin in conda_envs/ is advisory.
+        """
+        config = (Path(__file__).resolve().parents[1] / "nextflow.config").read_text()
+        self.assertRegex(config, r"process\.beforeScript\s*=\s*'export PYTHONNOUSERSITE=1;")
