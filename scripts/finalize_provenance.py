@@ -24,6 +24,7 @@ import datetime
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -426,6 +427,88 @@ def render_tool_versions(summary):
     return lines
 
 
+# T7 (Ludmil, 28 Sep): "freeze and record versions/checksums of ... any other DB". The
+# parameters that name a reference database, in the order RUN_REPORT prints them.
+DATABASE_PARAMS = ("kraken_db", "genomad_db", "gtdbtk_db", "checkm2_db",
+                   "hg38_db", "t2t_phix_db", "hg38_db_long", "t2t_phix_db_long",
+                   "rna_splice_db", "rna_splice_db_long", "pangenome_db")
+
+
+def collect_database_versions(params, repo_dir, runs_dir):
+    """
+    Run scripts/record_database_versions.sh over the databases this run was pointed at.
+
+    The DATABASES block of EXECUTION PARAMETERS prints the path each database was read
+    from, and a path is not a version: a newer GTDB release can be unpacked into the same
+    directory and every run before and after reports the same line. This records the
+    release each database declares about itself plus a fingerprint, and compares both
+    with the frozen conf/databases.tsv, so the run's own report says which build it used.
+
+    Fingerprinting is a listing-level operation (see the script) and takes well under a
+    second for the whole 700 GB set, so it is done here, once, at the end of the run.
+    Never fatal: a database that cannot be read is recorded as such.
+    """
+    helper = Path(repo_dir) / "scripts/record_database_versions.sh"
+    manifest = Path(repo_dir) / "conf/databases.tsv"
+    if not helper.is_file():
+        return {}
+    pairs = [f"{name}={params[name]}" for name in DATABASE_PARAMS if is_set(params.get(name))]
+    if not pairs:
+        return {}
+
+    out = Path(runs_dir) / "database_versions.tsv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    command = ["bash", str(helper), str(out)]
+    if manifest.is_file():
+        command += ["--manifest", str(manifest)]
+    try:
+        subprocess.run(command + pairs, check=True, capture_output=True, text=True, timeout=600)
+        with out.open(newline="") as handle:
+            rows = list(csv.DictReader(handle, delimiter="\t"))
+    except (OSError, subprocess.SubprocessError, csv.Error) as problem:
+        return {"error": str(problem)}
+    return {"manifest": str(manifest) if manifest.is_file() else None,
+            "record": str(out), "databases": rows}
+
+
+def render_database_versions(summary):
+    """RUN_REPORT's DATABASE VERSIONS section (T7)."""
+    lines = section("DATABASE VERSIONS (as read)")
+    if summary.get("error"):
+        lines.append(f"  the database record could not be written: {summary['error']}")
+        return lines
+    rows = summary.get("databases") or []
+    if not rows:
+        lines.append("  this run was not pointed at any reference database")
+        return lines
+    lines.append("  release each database declares about itself, and a fingerprint compared"
+                 " with conf/databases.tsv")
+    lines.append(f"    {'parameter':<16}{'release':<12}{'files':>7}{'size':>10}  "
+                 f"{'fingerprint':<18}{'frozen?'}")
+    for row in rows:
+        try:
+            size = f"{int(row.get('size_bytes') or 0) / 1e9:.1f} GB"
+        except ValueError:
+            size = "?"
+        fingerprint = (row.get("fingerprint") or "")[:16] or "-"
+        lines.append(f"    {row['name']:<16}{(row.get('version') or '-'):<12}"
+                     f"{(row.get('file_count') or '?'):>7}{size:>10}  "
+                     f"{fingerprint:<18}{row.get('known') or '-'}")
+    lines.append("")
+    for row in rows:
+        lines.append(f"    {row['name']:<16}{row.get('path')}")
+    changed = [row["name"] for row in rows if (row.get("known") or "").startswith("CHANGED")]
+    if changed:
+        lines.append("")
+        lines.append("  DATABASE CHANGED since conf/databases.tsv was frozen: "
+                     + ", ".join(changed))
+        lines.append("  These results were NOT produced against the frozen database build.")
+    unreadable = [row["name"] for row in rows if row.get("status") != "ok"]
+    if unreadable:
+        lines.append(f"  not readable at finalisation: {', '.join(unreadable)}")
+    return lines
+
+
 def sample_identifiers(sheet_path):
     """
     Which samples went in. F16 asks for sample/data identifiers, and the sheet path
@@ -756,6 +839,9 @@ def render(record):
         lines.append(f"  ({len(software)} conda environments; every package is in the JSON record)")
         lines.append("  what conda installed; what each task actually ran is under TOOL VERSIONS")
 
+    # ---- DATABASE VERSIONS (T7) ----
+    lines += render_database_versions(record.get("database_versions") or {})
+
     # ---- TOOL VERSIONS (F16) ----
     lines += render_tool_versions(record.get("tool_versions") or {})
 
@@ -930,6 +1016,8 @@ def main():
         ("succeeded", args.succeeded), ("cached", args.cached),
         ("failed", args.failed), ("ignored", args.ignored)) if value not in (None, "")}
     record["software"] = conda_inventory(args.conda_cache_dir)
+    record["database_versions"] = collect_database_versions(
+        invocation.get("params") or {}, args.repo_dir, args.runs_dir)
     record["tool_versions"] = collect_tool_versions(
         args.trace_file, invocation.get("work_dir"), args.repo_dir,
         dict(record["software"]), args.tool_version_check)

@@ -1,0 +1,53 @@
+# T7 (Ludmil, 28 Sep): "freeze and record versions/checksums of KrakenUniq/Bracken, GTDB,
+# CheckM2, geNomad, MLST and any other DB".
+#
+# The reference databases this pipeline reads, frozen as of frozen_on. Written and read by
+# scripts/record_database_versions.sh: every run recomputes `fingerprint` for the databases
+# it was actually pointed at and compares it with this file, and RUN_REPORT.txt's DATABASES
+# section prints the release, the fingerprint and whether it matched (frozen / CHANGED /
+# not_in_manifest). A run against a rebuilt or substituted database is then visible in the
+# run's own record, instead of being indistinguishable from the validated runs because the
+# path string happened not to change. Checked by tests/test_database_versions.py.
+#
+# FINGERPRINT METHODS
+#   sha256:listing   sha256 over a sorted listing of "<relative path>\t<size in bytes>" for
+#                    every regular file in the tree (one line, for a single file). This is
+#                    what is recomputed on every run. It is used because these databases are
+#                    far too large to checksum per run -- KrakenUniq's database.kdb alone is
+#                    574 GB and the whole set is 706 GB, which is tens of minutes of pure
+#                    read against shared Lustre, every run, to learn nothing new. The
+#                    listing is O(file count): the full set above takes under a second. It
+#                    changes whenever a database is rebuilt, re-downloaded or extended. It
+#                    does NOT catch an in-place edit that preserves every file's size.
+#   sha256:content   sha256 of the file itself. Recomputed per run only for files at or
+#                    below PKS_DB_HASH_MAX_BYTES (default 2 GiB); none of these qualify.
+#
+# key_file / key_file_sha256 is the backstop for what the listing cannot see: a real
+# content sha256 of one small, release-defining file per database, computed once when the
+# database was frozen. It is NOT recomputed per run -- verifying it is a deliberate act:
+#     sha256sum <path>/<key_file>
+# and the answer must equal key_file_sha256 below.
+#
+# Sizes and file counts are as measured on TSCC on frozen_on. `release` is read from the
+# marker the database itself ships (GTDB-Tk metadata/metadata.txt VERSION_DATA, geNomad
+# version.txt, CheckM2 CONTENTS.json "version"), never inferred from the directory name --
+# a directory can be renamed, or a newer release dropped into the old name, which is
+# exactly the failure this file exists to catch.
+#
+# NOT listed as rows, because they have no path parameter to fingerprint:
+#   Bracken   has no database of its own. Its read-length models are the
+#             database<N>mers.kmer_distrib files INSIDE the KrakenUniq directory below, so
+#             they are already covered by the kraken_db row; --bracken_read_length selects
+#             which one. Bracken's own version is pinned in conda_envs/krakenUniq_bracken_env.yml.
+#   MLST      the PubMLST scheme snapshot ships inside the conda package and is frozen by
+#             the pin mlst=2.35.0 in conda_envs/mlst_env.yml, with blast=2.16.0 (the tool
+#             that does the calling) pinned alongside it. There is no --mlst_db parameter,
+#             so there is nothing on disk here to fingerprint.
+#
+# name	database	release	path	size_bytes	file_count	fingerprint_method	fingerprint	key_file	key_file_sha256	frozen_on	source
+kraken_db	KrakenUniq	2023-08-08 (microbialdb; no release marker in the download, date is the upstream build date and the directory name)	/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs/krakenUniq_8_8_2023	583520923128	15	sha256:listing	fe43219f1104801e2a7e47a47209384def3fb312ef4e8a147c603c9135c9a8a6	taxDB	9834ee7ffcde2177c418eaed88142f62e94fcb2dfbb040026cc591f760fab9b2	2026-10-14	https://benlangmead.github.io/aws-indexes/k2 (kuniq_microbialdb_minus_kdb.20230808)
+genomad_db	geNomad	1.9	/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs/genomad_db_v1.9	1471626228	28	sha256:listing	e8b5a8c45a210ac8b2f6497379a8acd1d30cfb079ee3d0916e7036d4237b29b2	genomad_marker_metadata.tsv	05a14e17f461224a4f8f793d050d01c696aaff1cfc1287913156a341c2d347e8	2026-10-14	genomad download-database (scripts/download_genomad_database.sbatch)
+gtdbtk_db	GTDB-Tk reference data	r232	/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs/gtdbtk_r232	100482230343	264	sha256:listing	eff2726c82a811273a2f52d189e29224b74c4922fab1235f87d54fd8be4c5d35	taxonomy/gtdb_taxonomy.tsv	e1dc884087f922d1dbc7bb238ad9ac730f99cfa12cc8983c5962d19af17fbb4d	2026-10-14	https://data.gtdb.ecogenomic.org/releases/release232 (scripts/download_mag_databases.sbatch)
+checkm2_db	CheckM2 DIAMOND database	3 (uniref100.KO)	/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs/checkm2_v1.1.0/CheckM2_database/uniref100.KO.1.dmnd	3082500605	1	sha256:listing	c5d9a07564513bc384cc665dcd3c47ef26fa0db45b56affd708625d6ae11dba1	uniref100.KO.1.dmnd	1b86ef3eac0813c1853f53182c17657045e3763d66f384ec95747261a63ae46f	2026-10-14	checkm2 database --download, Zenodo backpack v1 (scripts/download_mag_databases.sbatch)
+hg38_db	minimap2 index, GRCh38 host depletion	n/a (built 2025-01-19)	/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs/human-GRC-db.mmi	9147467965	1	sha256:listing	92b1f812752bfe3097d302c0336cbb31135db729ab2361be5b30474fb43ab758	-	-	2026-10-14	built in-house with minimap2 -d
+t2t_phix_db	minimap2 index, T2T/GCA + phiX host depletion	n/a (built 2025-01-19)	/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs/human-GCA-phix-db.mmi	8933629875	1	sha256:listing	8e2257962675aad5ef92adff8890084e51c77bc8e55e8b11b800d74ac3bfb196	-	-	2026-10-14	built in-house with minimap2 -d

@@ -179,6 +179,40 @@ task, and reports everything wrong with them in one pass rather than failing on 
 | `--genomad_db` | prophage detection |
 | `--gtdbtk_db`, `--checkm2_db` | naming and quality-scoring draft genomes |
 
+### Which database build did this run use?
+
+T7 (Ludmil, 28 Sep). A path is not a version. Unpack a newer GTDB release over
+`.../gtdbtk_r232`, or re-download the geNomad database in place, and every run before and
+after reports the same `--gtdbtk_db` line — so a results tree could not say which
+reference produced it.
+
+`conf/databases.tsv` freezes the set: for each database, the release it declares about
+itself, its path on TSCC, its size and file count, a fingerprint, and a real content
+`sha256` of one small release-defining file. `scripts/record_database_versions.sh`
+recomputes the fingerprint at the end of every run for the databases that run was
+actually pointed at, compares it with the frozen one, writes `runs/database_versions.tsv`,
+and RUN_REPORT.txt prints it under **DATABASE VERSIONS (as read)** with a `frozen` /
+`CHANGED` / `not_in_manifest` verdict per database. A run against a substituted database
+says so in its own report.
+
+The fingerprint is a `sha256` over a sorted listing of every file's path and size, not a
+checksum of the bytes, because the set is 706 GB — KrakenUniq's `database.kdb` alone is
+574 GB — and reading all of it on every run costs tens of minutes to learn nothing. The
+listing takes under a second, and a rebuilt, re-downloaded or extended database changes
+it. What it cannot see is an in-place edit that preserves every file's size; the frozen
+`key_file_sha256` is the backstop for that, checked by hand with `sha256sum`. Sizes are
+hashed and mtimes are not: an `rsync` or a restore from backup rewrites mtimes without
+changing the data, and that is the same database.
+
+Bracken and MLST have no row: Bracken's read-length models are the
+`database<N>mers.kmer_distrib` files inside the KrakenUniq directory, already covered by
+that row, and mlst's PubMLST scheme snapshot ships inside the conda package, frozen by
+`mlst=2.35.0` in `conda_envs/mlst_env.yml`. Both are explained in `conf/databases.tsv`.
+
+To re-freeze after a deliberate database change, run
+`scripts/record_database_versions.sh` over the new paths and update `conf/databases.tsv`
+from its output — in a commit that says what changed and why.
+
 ## Software
 
 Every task runs in a conda environment from `conda_envs/`, pinned as below (generated from those files).
