@@ -162,7 +162,7 @@ Each row adds flags to the command above. Nothing is replaced.
 | read-level taxonomic support (species abundances) | `--pks_taxa true` or `--pks_community_taxa true`, plus `--kraken_db --bracken_read_length` | [taxonomy](docs/running/taxonomy.md) |
 | a specificity check on the supporting reads, or a carrier attribution — two different questions, never one number | `--pks_locus_specificity true` and/or `--pks_carrier_attribution true`, plus a panel from `scripts/build_specificity_panels.py` | [specificity and carrier attribution](docs/running/specificity.md) |
 | profile-model search instead of alignment | `--profiling_method hmm` or `both` | [HMM modes](docs/running/hmm.md) |
-| faster profiling on metagenomes | `--prefilter_mode balanced --kraken_db <dir>` | [prefilter](docs/prefilter.md) |
+| faster profiling on metagenomes | `--prefilter_mode balanced --kraken_db <dir>`. The default `--prefilter_mode auto` already turns this on for any metagenome run given `--kraken_db`; pass `--prefilter_mode off` to keep every read | [prefilter](docs/prefilter.md) |
 
 ## Databases
 
@@ -178,6 +178,35 @@ task, and reports everything wrong with them in one pass rather than failing on 
 | `--kraken_db` | read-level taxonomic support (species abundances), and the optional prefilter |
 | `--genomad_db` | prophage detection |
 | `--gtdbtk_db`, `--checkm2_db` | naming and quality-scoring draft genomes |
+
+## Software
+
+Every task runs in a conda environment from `conda_envs/`, pinned as below (generated from those files;
+packages listed there without a version, such as `htslib` and the R packages, follow conda's solve).
+RUN_REPORT.txt records what each task actually ran.
+
+| Environment | Pinned versions |
+|---|---|
+| `checkm2_env.yml` | checkm2 1.1.0, diamond 2.2.8 |
+| `fastp_env.yml` | fastp 1.3.7 |
+| `fastplong_env.yml` | fastplong 0.7.1 |
+| `genomad_env.yml` | genomad 1.12.0 |
+| `gtdbtk_env.yml` | gtdbtk 2.7.2 |
+| `krakenUniq_bracken_env.yml` | python 3.9, krakenuniq 1.0.4, bracken 3.1p1, krakentools 1.2.1, pandas 2.3.0, matplotlib 3.9 |
+| `megahit_env.yml` | megahit 1.2.9 |
+| `metabat2_env.yml` | metabat2 2.18 |
+| `minimap2_env.yml` | minimap2 2.31, samtools 1.24 |
+| `mlst_env.yml` | mlst 2.35.0, python 3.11 |
+| `pks_align_env.yml` | python 3.12, pandas 2.3, bowtie2 2.5.5, minimap2 2.31, samtools 1.24, bedtools 2.31.1, subread 2.1.1, deeptools 4.0.0 |
+| `pks_hmm_env.yml` | python 3.10, pandas 2.3, hmmer 3.4, seqtk 1.5, seqkit 2.14.0 |
+| `prefilter_env.yml` | python 3.11, krakenuniq 1.0.4, diamond 2.2.8 |
+| `prokka_env.yml` | prokka 1.15.6 |
+| `samtools_env.yml` | python 3.10, samtools 1.24 |
+| `targeted_alignment_env.yml` | minimap2 2.31, python 3.11 |
+| `targeted_recruit_env.yml` | python 3.11, bowtie2 2.5.5 |
+| `targeted_spades_env.yml` | python 3.11, spades 4.3.0 |
+
+Nextflow >= 24.10.0 (CI runs 24.10.0).
 
 ## How strong is the evidence?
 
