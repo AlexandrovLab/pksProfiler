@@ -58,7 +58,11 @@ process buildClbDiamondDb {
 process diamondRescue {
     label 'sample_stage'
     tag "$sampleID"
-    label 'process_low'
+    // rc2: was process_low (8 GB x attempt). DIAMOND blastx holds a whole query block
+    // (--block-size 2 by default, ~2 G letters of six-frame-translated reads) in memory
+    // whatever the database size, so a full metagenome's non-target reads hit exit 137
+    // on the first attempt (Mayo run, rc1). conf/base.config: diamond_rescue.
+    label 'diamond_rescue'
     scratch true
     publishDir { "${params.sample_dir}/${sampleID}/prefilter" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
     conda "${params.prefilter_env}"
