@@ -171,7 +171,7 @@ process pksProfiler_align {
 
         # F18: per-base depth over the island, not the whole 5.1 Mb reference.
         # `bedtools genomecov -d` wrote one line per base of the genome -- about 5.1
-        # million lines per sample, of which the 50,767 bp island is 1%. Nothing reads
+        # million lines per sample, of which the 50,768 bp island is 1%. Nothing reads
         # the file: classifyPksReadEvidence takes it as an input, passes it straight to
         # its own output, and recomputes depth from the BAM. This is the same tool and
         # the same filters that recomputation uses, so the two now agree by construction.

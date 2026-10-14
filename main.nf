@@ -235,14 +235,12 @@ params.typing_min_assembly_bp = 500000   // below this, MLST cannot recover 7 lo
 params.st_phylogroup_lookup   = "${projectDir}/ref/typing/st_phylogroup.tsv"
 
 // profile taxa that map to the pks island:
-params.pks_shift = 2193827          // island start in E. coli genome coords
-params.pks_island_len = 50767       // island length (0..50767 in your file)
 params.pks_contig = 'NC_017628.1'   // contig name in BAM
 params.pks_plot_region_start = 2183826   // plotting window around the island
 params.pks_plot_region_end   = 2254594
 
 // Ludmil, revised report finding 6: the annotation spans 2,193,827-2,244,594
-// inclusive (50,768 bp), but pks_shift/pks_island_len above got a different
+// inclusive (50,768 bp), but the legacy pks_shift/pks_island_len (50,767) got a different
 // +/-1 adjustment in every module that turned them into a region -- correct in
 // pks_taxa.nf (pks_shift-1 for a 0-based BED start), off by one bp at the start
 // everywhere else (pksProfiler_align.nf, pks_targeted.nf's two call sites, and
@@ -250,11 +248,11 @@ params.pks_plot_region_end   = 2254594
 // first base of the island. These two values are the single authoritative
 // definition; every correctness-sensitive call site below now derives its own
 // coordinate representation (1-based samtools region, or 0-based BED/PAF start)
-// from them directly. pks_shift/pks_island_len are UNCHANGED but no longer used
-// by any interval computation (plotting.nf moved to the canonical pair, 25 Sep P1).
+// from them directly. The legacy pks_shift/pks_island_len params were removed in
+// 1.0.0-rc2: nothing read them once plotting.nf moved to the canonical pair (25 Sep P1).
 params.pks_start_1based    = 2193827   // first base of the annotated island (1-based, inclusive)
 params.pks_end_1based      = 2244594   // last base of the annotated island (1-based, inclusive)
-params.pks_island_len_1based = params.pks_end_1based - params.pks_start_1based + 1   // 50768, not 50767
+params.pks_island_len_1based = params.pks_end_1based - params.pks_start_1based + 1   // 50,768 bp
 
 // A4 (Ludmil, 25 Sep): the primary profiling alignment's similarity rule, named rather
 // than left to Bowtie2 defaults. These are the values the lane has always used --

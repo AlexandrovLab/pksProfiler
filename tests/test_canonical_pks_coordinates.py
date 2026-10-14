@@ -11,9 +11,9 @@ the true first base of the island from a samtools region or a PAF/BED-style
 
 pks_start_1based/pks_end_1based are now the single source of truth; every
 correctness-sensitive call site derives its own coordinate representation from
-them directly. pks_shift/pks_island_len are unchanged and still used by
-plotting.nf's coverage-plot window, where a 1 bp offset has no numeric effect
--- deliberately out of scope here, the same way his report scoped this finding.
+them directly. The legacy pks_shift/pks_island_len params, last read by
+plotting.nf's coverage-plot window before it moved to the canonical pair, were
+removed in 1.0.0-rc2.
 """
 import unittest
 from pathlib import Path
@@ -48,11 +48,16 @@ class TheCanonicalValuesAreDeclaredOnce(unittest.TestCase):
         self.assertEqual(end - start + 1, 50768)
         self.assertNotEqual(end - start + 1, 50767)
 
-    def test_the_old_params_are_untouched_for_plottings_sake(self):
-        # plotting.nf's coverage-plot window is deliberately out of scope --
-        # a 1 bp offset there has no numeric effect, unlike breadth/tier.
-        self.assertIn("params.pks_shift = 2193827", MAIN)
-        self.assertIn("params.pks_island_len = 50767", MAIN)
+    def test_the_legacy_params_are_gone(self):
+        # 1.0.0-rc2: nothing read pks_shift/pks_island_len (50,767) any more, so the
+        # definitions were removed rather than left to be picked up again by mistake.
+        self.assertNotIn("params.pks_shift =", MAIN)
+        self.assertNotIn("params.pks_island_len =", MAIN)
+        for path in sorted((ROOT / "Modules").glob("*.nf")) + sorted((ROOT / "lib").glob("*.groovy")):
+            with self.subTest(file=path.name):
+                text = path.read_text()
+                self.assertNotRegex(text, r"params\.pks_shift\b")
+                self.assertNotRegex(text, r"params\.pks_island_len\b(?!_1based)")
 
 
 class EveryCorrectnessSensitiveCallSiteUsesTheCanonicalValues(unittest.TestCase):
