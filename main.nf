@@ -229,6 +229,22 @@ params.context_window_bp = 50000
 // MLST on assembled units (MAG bins, tumour contig sets), joined to clonal complex and
 // phylogroup via the 45,761-genome reference panel. Reads are never typed: a handful of
 // pks reads cannot support a strain call.
+// Prokka + clb protein HMM on every MAG bin. Default ON, unchanged behaviour.
+//
+// Turning it OFF does not cost the island call. magBinLocusEvidence aligns each
+// bin's own contigs to the canonical IHE3034 locus and counts the distinct clb
+// genes an alignment actually covers, plus the breadth it spans -- a DNA-level
+// count, and the one the tier classification already uses. The protein HMM is a
+// pre-filter for which bins are worth genomic-context extraction, and
+// summarize_mag_bin_locus_evidence.py's own docstring records why it is not the
+// authority: clbO and friends cross-react with unrelated NRPS/PKS clusters, so a
+// bin can clear a protein gene-count floor on domain homology alone without
+// carrying the island.
+//
+// What is lost when off: per-bin Prokka annotation, the protein clb gene count,
+// and extractGenomicContext's flanking regions. What is kept: every per-bin and
+// per-unbinned island call, CheckM2, GTDB-Tk, geNomad prophage and strain typing.
+params.enable_mag_annotation  = true
 params.enable_strain_typing   = true
 params.mlst_scheme            = "ecoli_achtman_4"
 params.typing_min_assembly_bp = 500000   // below this, MLST cannot recover 7 loci
@@ -713,6 +729,8 @@ workflow {
         Optional stages (each off unless stated):
           --enable_mags            recover draft genomes from metagenomes
           --tumor_targeted_assembly  reassemble the island from tumour reads
+          --enable_mag_annotation  Prokka + clb protein HMM per bin (default: on)
+                                   off keeps the alignment-based island call
           --enable_strain_typing   MLST on assembled output        (default: on)
           --prefilter_mode         auto | off | balanced           (default: auto)
           --pks_taxa               taxonomy of island reads; needs --kraken_db
