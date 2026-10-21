@@ -288,7 +288,16 @@ def check_taxonomy(config, report):
     # for this read length, and the failure otherwise comes late and unexplained.
     length = config.get("bracken_read_length")
     if not length:
-        report.problem(section, "taxonomic profiling requires --bracken_read_length")
+        # Not required: the Bracken process measures the read length of the island
+        # reads it is about to classify and snaps it to a distribution the database
+        # ships. Still worth confirming the database carries any distribution at
+        # all, since without one the per-sample snap has nothing to choose from.
+        any_distrib = any(re.match(r"database(\d+)mers\.kmer_distrib$", p.name)
+                          for p in kraken.iterdir())
+        if not any_distrib:
+            report.problem(section, f"--kraken_db {kraken} carries no Bracken read-length "
+                                    "distributions (database<N>mers.kmer_distrib); "
+                                    "taxonomic profiling cannot select one per sample")
         return
     available = sorted(int(match.group(1)) for match in
                        (re.match(r"database(\d+)mers\.kmer_distrib$", p.name)

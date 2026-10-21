@@ -20,7 +20,14 @@ params.hmm_chunking = false
 // v0.0.2: population-scale nucleotide profiles (exact_v1 build). The v0.0.1 benchmark
 // model, ref/hmm/clb_all_dna.hmm, is retained in the tree and selectable via --hmm_model.
 params.hmm_model        = "${projectDir}/ref/hmm/clb_population_dna_exact_v1.hmm"
-params.bracken_read_length = null // Must match a read length supported by the selected Bracken database.
+// Fallback only. Bracken's abundance model is built per read length, and a
+// multi-cohort run spans several: only 11 of 36 cohorts in the infant MAG set
+// record one in the archive, so a single global value is a guess for most of it.
+// The Bracken process measures the read length of the island reads it is about
+// to classify and snaps it to whichever database<N>mers.kmer_distrib the
+// selected database ships. This value is used only when that measurement is
+// unavailable (empty read set, unreadable fastq).
+params.bracken_read_length = null
 
 // ---------------- v0.0.2: sample-type routing ----------------
 // Ludmil, revised report finding 9: "auto" was accepted here and by the
@@ -533,9 +540,9 @@ def validatePrefilterParams(Map flags) {
     if (pks_community_taxa_b && prefilter_mode != "balanced") {
         exit 1, "--pks_community_taxa requires --prefilter_mode balanced so Bracken receives the complete non-host krakenuniq report"
     }
-    if (pks_community_taxa_b && !params.bracken_read_length) {
-        exit 1, "--pks_community_taxa requires: --bracken_read_length"
-    }
+    // --bracken_read_length is measured per sample in the Bracken process and is
+    // only a fallback, so it is not required here either. It is still validated
+    // when supplied, further down in validateStageParams.
 }
 
 // Moved out of the workflow block verbatim (combined rc1 branch, 30 Sep): Nextflow 24.10 keeps the
@@ -992,10 +999,11 @@ workflow {
     if (long_reads && (pks_locus_specificity_b || pks_carrier_attribution_b)) {
         exit 1, "--pks_locus_specificity / --pks_carrier_attribution are not supported with --read_type ${read_type}: both panels are indexed and aligned with minimap2 -x sr, a short-read preset"
     }
-	if (pks_taxa_b && !params.bracken_read_length) {
-	    exit 1, "Taxonomic profiling requires: --bracken_read_length"
-	}
-	if (pks_taxa_b && (
+	// Not required: the Bracken process measures the read length of the island
+	// reads it is about to classify and snaps it to a distribution the selected
+	// database actually ships. The param remains a fallback, still validated when
+	// supplied.
+	if (pks_taxa_b && params.bracken_read_length && (
         !(params.bracken_read_length.toString() ==~ /^[0-9]+$/) ||
         params.bracken_read_length.toString().toInteger() <= 0
     )) {
