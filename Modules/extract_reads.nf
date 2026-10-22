@@ -295,6 +295,17 @@ process inputHeaderSummary {
 // --largestOverlap assigns each read on its own, so the subset's count is exactly how
 // many of them the sample's own counts include. Only for samples that rescued any read.
 process lowScoreRescueProfile {
+    // rc2 review 3.1: this is a per-sample process (one task per sample, tag below) and
+    // it was the one such process left outside the cohort-safe failure policy -- neither
+    // in conf/base.config's withName: selector nor carrying this label. Under the strict
+    // 'finish' default, one sample failing here stopped Nextflow submitting any NEW task,
+    // and every cohort reducer is a new task fed by .collect(), so a single sample's
+    // rescue-trace failure took the cohort QC summary and gene-count tables with it. The
+    // trace itself is QC -- how many of the reads E1 added survived to be clb-assigned --
+    // so losing it for one sample is a hole in that sample's QC, never a reason to stop
+    // the cohort. tests/test_sample_stage_failure_policy.py now discovers per-sample
+    // processes from the source rather than from a list, so this cannot recur silently.
+    label 'sample_stage'
     label 'process_low'
     tag "$sampleID"
     conda "${params.pks_align_env}"

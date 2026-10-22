@@ -21,100 +21,208 @@ MAG/taxonomy -- other samples must complete and cohort reducers must still run.
 These tests check the structural half of that (every relevant process carries the
 label, the label carries the policy, the reducers/singleton do not); actually
 forcing a task to fail needs a live Nextflow run, out of scope for a unit test.
+
+----------------------------------------------------------------------------
+rc2 review section 3, item 3.2 -- why this file was rewritten
+----------------------------------------------------------------------------
+The first version of this test carried a hand-maintained map of module file ->
+process names. Three things follow from that, and all three bit us:
+
+  * a module file absent from the map was not checked at all. Modules/
+    extract_reads.nf, Modules/map_reads.nf, Modules/pks_carrier.nf,
+    Modules/pks_specificity.nf and Modules/plot_bracken_taxa.nf were all absent;
+  * a process absent from the map inside a file that WAS in the map was likewise
+    not checked (pks_mag.nf's pairDepletedReads, for one);
+  * a process added later was covered by nothing until somebody remembered to
+    edit this list.
+
+That is how `lowScoreRescueProfile` (Modules/extract_reads.nf -- a per-sample
+process, `tag "$sampleID"`, one task per sample) shipped in rc1 and rc2 with no
+cohort-safe failure policy at all: under the strict default, one sample failing
+there stopped new task submission and took the cohort QC summary with it. The
+allowlist could not catch it because extract_reads.nf was never in the list.
+
+So the per-sample processes are now DISCOVERED from the source instead. The rule
+is the one the pipeline itself uses: a process is per-sample when its input block
+declares a per-sample identifier (`val(sampleID)` / `val sampleID`), because that
+is exactly what makes Nextflow instantiate one task per sample. A cohort reducer
+takes collected `path(...)` lists and no sample id, so it is never discovered.
+
+Every discovered process must then be covered, by either:
+
+  * `label 'sample_stage'`, or
+  * the older `withName:` selector in conf/base.config, which carries the same
+    errorStrategy for the five original core stages,
+
+or appear in EXCLUSIONS below with a written reason. EXCLUSIONS is deliberately
+empty today -- every per-sample process in the tree is covered -- and anything
+added to it is a decision someone has to justify in the diff.
 """
 import re
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+MODULE_DIR = ROOT / "Modules"
 BASE_CONFIG = (ROOT / "conf/base.config").read_text()
 
-MODULE_NAMES = ["pks_targeted.nf", "pks_mag.nf", "pks_prefilter.nf", "pks_taxa.nf",
-                "pks_typing.nf", "plotting.nf", "mode_qc.nf"]
-MODULES = {name: (ROOT / "Modules" / name).read_text() for name in MODULE_NAMES}
+PROCESS_RE = re.compile(r"^process\s+(\w+)\s*\{", re.M)
+# `tuple val(sampleID), ...`, `val sampleID`, `val(sampleID)`. The pipeline spells the
+# per-sample key `sampleID` everywhere; a new spelling is a deliberate change and should
+# break this test rather than quietly drop a process out of the discovered set.
+SAMPLE_KEY_RE = re.compile(r"\bval\s*\(?\s*sampleID\b")
+LABEL = "label 'sample_stage'"
 
-SAMPLE_STAGE_PROCESSES = {
-    # plotPKS was missed by the original p1-2 fix: it's a per-sample process (one
-    # circos plot per sample, no cross-sample input) sitting in plotting.nf
-    # alongside the cohort reducers, and it inherited the strict default like they
-    # did -- so a single node failure in one sample's plot took the whole cohort's
-    # run down with it (observed live 2026-09-23, node failure on job 12331589).
-    "plotting.nf": ["plotPKS"],
-    "pks_targeted.nf": [
-        "classifyPksReadEvidence", "targetedPksRecruit", "targetedPksMegahit",
-        "targetedPksSpades", "alignTargetedContigsToCanonicalReference",
-        "summarizeTargetedPksEvidence",
-    ],
-    "pks_mag.nf": [
-        "megahitAssemble", "alignToContigs", "jgiContigDepths", "metabat2Bin",
-        "checkm2Predict", "gtdbtkClassify", "prokkaAnnotate", "hmmsearchClb",
-        "alignMagBinToCanonicalReference", "magBinLocusEvidence", "genomadProphages",
-        "communityProphageSummary", "extractGenomicContext", "magSampleStatus",
-        "magSummaryTable", "stubBinlessMagQuality", "stubFailedMagQuality",
-    ],
-    "pks_prefilter.nf": ["krakenPrefilter", "diamondRescue", "diamondRescueTaxonomy",
-                         "mergePksCandidates", "sampleBracken"],
-    "pks_taxa.nf": ["extractPksIslandReads", "Bracken"],
-    "pks_typing.nf": ["mlstTypeAssembly", "assignStrainType", "strainTypeSummary"],
-    # Ludmil, 26 Sep mode memo sections 3 and 4: per-sample WES / RNA QC.
-    "mode_qc.nf": ["wesInputQC", "wesPksDuplicates", "rnaResidualHuman"],
-}
+# Per-sample processes that are deliberately NOT covered by the cohort-safe policy.
+# {process name: the reason, which must be a real one}. Empty is the correct state:
+# every per-sample process in the tree today is covered. A process goes in here only
+# when carrying on past its failure would produce wrong results rather than a smaller
+# cohort -- and then the reason has to say why.
+EXCLUSIONS = {}
 
-# Cohort reducers (summarize across every sample) and the one shared per-run
-# resource: failure there is not something to carry on past, so the default
-# strict 'finish' behaviour is deliberate, not an oversight.
-EXCLUDED = {
-    # tumorEligibilityStatus used to be here (dead code, finding d-1); it has
-    # since been removed from pks_mag.nf entirely, so there is nothing left to
-    # exclude it from.
-    "pks_prefilter.nf": ["buildClbDiamondDb"],  # shared DB every sample's rescue depends on
-    "pks_taxa.nf": ["process_bracken", "combineClbTaxonomySupport"],
+# Processes that are not per-sample and must therefore keep the strict default: the
+# cohort reducers that summarize across every sample, and the one shared per-run
+# resource build. Listed by name so that a reducer silently acquiring the label (which
+# would let a bad cohort table through) is caught too, not only the other direction.
+STRICT_BY_DESIGN = {
+    # Modules/pks_prefilter.nf -- one shared DIAMOND clb database every sample's rescue
+    # depends on. Its failure genuinely should stop the run rather than let every sample
+    # silently skip clb rescue.
+    "buildClbDiamondDb",
+    # Modules/pks_taxa.nf -- cohort reducers.
+    "process_bracken", "combineClbTaxonomySupport",
+    # Modules/plotting.nf -- cohort reducers.
+    "masterTableAlign", "masterTableHMM", "masterQCSummary", "cohortReport",
+    "masterSummary",
+    # Modules/extract_reads.nf -- one cohort table of every input's header provenance.
+    "inputHeaderSummary",
 }
 
 
-def process_block(text, name):
-    start = text.index(f"process {name} {{")
-    end = text.index("\nprocess ", start + 1) if "\nprocess " in text[start + 1:] else len(text)
-    # search only for the next process boundary after start
-    rest = text[start:]
-    m = re.search(r"\nprocess \w+ \{", rest[1:])
-    return rest if m is None else rest[:m.start() + 1]
+def process_blocks(text):
+    """{process name: its source block} for one module file."""
+    starts = [(m.start(), m.group(1)) for m in PROCESS_RE.finditer(text)]
+    blocks = {}
+    for index, (start, name) in enumerate(starts):
+        end = starts[index + 1][0] if index + 1 < len(starts) else len(text)
+        blocks[name] = text[start:end]
+    return blocks
 
 
-class EveryIndependentPerSampleProcessCarriesTheLabel(unittest.TestCase):
-    def test_every_named_process_declares_label_sample_stage(self):
-        for fname, names in SAMPLE_STAGE_PROCESSES.items():
-            text = MODULES[fname]
-            for name in names:
-                with self.subTest(file=fname, process=name):
-                    block = process_block(text, name)
-                    self.assertIn("label 'sample_stage'", block,
-                                  f"{name} in {fname} is missing label 'sample_stage'")
+def input_block(block):
+    """The process's input: declaration, or "" when it has none."""
+    match = re.search(r"\n\s*input:\s*\n(.*?)\n\s*(output:|script:|exec:|shell:|stub:)",
+                      block, re.S)
+    return match.group(1) if match else ""
 
-    def test_the_label_is_declared_exactly_once_per_process(self):
-        for fname, names in SAMPLE_STAGE_PROCESSES.items():
-            text = MODULES[fname]
-            for name in names:
-                with self.subTest(file=fname, process=name):
-                    block = process_block(text, name)
-                    self.assertEqual(block.count("label 'sample_stage'"), 1)
+
+def all_processes():
+    """{process name: (module file name, source block)} across every Modules/*.nf."""
+    found = {}
+    for module in sorted(MODULE_DIR.glob("*.nf")):
+        for name, block in process_blocks(module.read_text()).items():
+            assert name not in found, f"two processes named {name}"
+            found[name] = (module.name, block)
+    return found
+
+
+PROCESSES = all_processes()
+PER_SAMPLE = {name: (fname, block) for name, (fname, block) in PROCESSES.items()
+              if SAMPLE_KEY_RE.search(input_block(block))}
+
+
+def withname_selector_names():
+    """The process names conf/base.config's withName: errorStrategy selector covers."""
+    names = set()
+    for match in re.finditer(r"withName:\s*'([^']+)'\s*\{(.*?)\n\s*\}", BASE_CONFIG, re.S):
+        if "params.sample_failure_strategy" in match.group(2):
+            names |= {part.strip() for part in match.group(1).split("|")}
+    return names
+
+
+SELECTOR_NAMES = withname_selector_names()
+
+
+class DiscoveryItselfStillWorks(unittest.TestCase):
+    """If the regexes stop matching, every assertion below passes vacuously."""
+
+    def test_every_module_file_is_parsed(self):
+        files = {fname for fname, _block in PROCESSES.values()}
+        on_disk = {p.name for p in MODULE_DIR.glob("*.nf")}
+        self.assertEqual(files, on_disk,
+                         "a Modules/*.nf file contributed no process: the parser missed it")
+
+    def test_a_plausible_number_of_processes_was_found(self):
+        self.assertGreaterEqual(len(PROCESSES), 50, "process discovery found too few")
+        self.assertGreaterEqual(len(PER_SAMPLE), 40, "per-sample discovery found too few")
+
+    def test_known_per_sample_processes_are_discovered(self):
+        # One from each lane, including the three the old hardcoded list never saw.
+        for name in ("extractReads", "mapReads", "lowScoreRescueProfile", "plotPKS",
+                     "megahitAssemble", "pairDepletedReads", "krakenPrefilter",
+                     "classifyPksReadEvidence", "mlstTypeAssembly", "wesInputQC",
+                     "alignCarrierPanel", "alignConcatenatedIndex", "plotBrackenTaxa"):
+            with self.subTest(process=name):
+                self.assertIn(name, PER_SAMPLE)
+
+    def test_known_cohort_reducers_are_not_discovered_as_per_sample(self):
+        for name in sorted(STRICT_BY_DESIGN):
+            with self.subTest(process=name):
+                self.assertIn(name, PROCESSES, f"{name} no longer exists; update the list")
+                self.assertNotIn(name, PER_SAMPLE,
+                                 f"{name} now takes a sample id: it is no longer a reducer")
+
+    def test_the_withname_selector_is_found_and_names_real_processes(self):
+        self.assertTrue(SELECTOR_NAMES, "no withName: sample_failure_strategy selector found")
+        for name in sorted(SELECTOR_NAMES):
+            with self.subTest(process=name):
+                self.assertIn(name, PROCESSES)
+
+
+class EveryPerSampleProcessCarriesTheCohortSafePolicy(unittest.TestCase):
+    def test_every_discovered_per_sample_process_is_covered_or_excluded(self):
+        uncovered = []
+        for name, (fname, block) in sorted(PER_SAMPLE.items()):
+            if name in EXCLUSIONS or name in SELECTOR_NAMES:
+                continue
+            if LABEL not in block:
+                uncovered.append(f"{fname}:{name}")
+        self.assertEqual(uncovered, [],
+                         "per-sample process(es) with no cohort-safe failure policy: "
+                         "add label 'sample_stage', or an EXCLUSIONS entry saying why not")
+
+    def test_the_label_is_declared_at_most_once_per_process(self):
+        for name, (fname, block) in sorted(PER_SAMPLE.items()):
+            with self.subTest(file=fname, process=name):
+                self.assertLessEqual(block.count(LABEL), 1,
+                                     f"{name} in {fname} declares the label twice")
+
+    def test_every_exclusion_is_a_real_per_sample_process_with_a_reason(self):
+        for name, reason in sorted(EXCLUSIONS.items()):
+            with self.subTest(process=name):
+                self.assertIn(name, PER_SAMPLE, f"{name} is not a per-sample process")
+                self.assertTrue(str(reason).strip(), f"{name} is excluded with no reason")
+
+    def test_a_process_is_not_covered_twice(self):
+        for name in sorted(SELECTOR_NAMES):
+            with self.subTest(process=name):
+                self.assertNotIn(LABEL, PROCESSES[name][1],
+                                 f"{name} is in the withName selector AND labelled")
 
 
 class ReducersAndTheSharedSingletonStayStrict(unittest.TestCase):
     def test_cohort_reducers_and_the_shared_db_build_do_not_carry_the_label(self):
-        for fname, names in EXCLUDED.items():
-            text = MODULES[fname]
-            for name in names:
-                with self.subTest(file=fname, process=name):
-                    block = process_block(text, name)
-                    self.assertNotIn("label 'sample_stage'", block,
-                                      f"{name} in {fname} should stay on the strict default")
+        for name in sorted(STRICT_BY_DESIGN):
+            fname, block = PROCESSES[name]
+            with self.subTest(file=fname, process=name):
+                self.assertNotIn(LABEL, block,
+                                 f"{name} in {fname} should stay on the strict default")
 
-    def test_plotting_reducers_are_also_unlabeled(self):
-        plotting = (ROOT / "Modules/plotting.nf").read_text()
-        for name in ("masterTableAlign", "masterTableHMM", "masterQCSummary", "cohortReport"):
-            with self.subTest(process=name):
-                self.assertNotIn("label 'sample_stage'", process_block(plotting, name))
+    def test_no_process_without_a_sample_id_carries_the_label(self):
+        """The label means "one sample's failure"; on a reducer it would hide a bad table."""
+        wrong = sorted(f"{fname}:{name}" for name, (fname, block) in PROCESSES.items()
+                       if name not in PER_SAMPLE and LABEL in block)
+        self.assertEqual(wrong, [])
 
 
 class TheLabelCarriesTheCohortSafePolicy(unittest.TestCase):
