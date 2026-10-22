@@ -215,7 +215,10 @@ def main(argv=None):
     print(f"record         {path}")
     print(f"recorded from  source {header.get('source_digest', '(none)')}")
     print(f"releasing      source {digest}")
-    print(f"commit noted   {header.get('commit', '(none)')} (context; the digest is the check)")
+    here = head_commit()
+    print(f"commit noted   {header.get('commit', '(none)')} "
+          f"(context; the digest above is the check)")
+    print(f"commit here    {here or '(not a git work tree)'}")
     print(f"recorded on    {header.get('recorded_on', '(none)')} by "
           f"{header.get('recorded_by', '(none)')} on {header.get('host', '(none)')}")
     print(f"signed off     {header.get('signed_off', '(none)')}")
