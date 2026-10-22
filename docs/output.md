@@ -301,8 +301,9 @@ warning.
 | `unmapped_reads` | unmapped primary records extracted (`-f 4 -F 2304`) |
 | `reads_after_fastp` | surviving adapter and quality filtering |
 | `reads_after_hg38` | surviving GRCh38 depletion |
-| `reads_after_t2t_phix` | surviving T2T + PhiX depletion |
+| `reads_after_t2t_phix` | surviving the `--t2t_phix_db` pass. **Read this as "surviving the T2T pass"**: the index the parameter is named for holds T2T-CHM13v2.0 and no phiX at all, so a phiX spike-in is not depleted here — see [host-depletion references](host_depletion_references.md). phiX has no homology to the island and cannot reach a *clb* count, so no number below changes |
 | `reads_after_pangenome` | surviving optional pangenome depletion; `NA` unless `--pangenome_db` |
+| `prefilter_mode` | the **resolved** prefilter mode this sample was profiled under, `off` or `balanced` — never the requested `auto`. Written by whichever profiling lane ran, so it says whether the *clb* counts beside it came from the complete host-depleted stream or from a KrakenUniq + DIAMOND narrowed subset of it. `NA` when profiling never ran. Run-level companion: `prefilter_mode_resolved` in `RUN_REPORT.txt` and the provenance JSON ([prefilter](prefilter.md)) |
 | `num_clb_genes_align` | *clb* genes with at least one assigned read, alignment profiling (0–19) |
 | `reads_clb_genes_align` | reads assigned to *clb* genes, alignment profiling |
 | `divergence_ihe3034_reads` | reads the divergence QC measured: primary alignments at MAPQ ≥ 40 that featureCounts' largest-overlap rule assigns to one *clb* gene (A5). 0 when none; the columns below are then `NA` |
