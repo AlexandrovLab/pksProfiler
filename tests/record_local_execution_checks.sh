@@ -73,8 +73,16 @@ run_check() {
     (( status == 0 )) || verdict=fail
     # How many assertions/tests the check reported. A check that ran and asserted nothing
     # is not evidence, and the verifier refuses a zero.
+    # Two bugs lived here. `grep -c` prints 0 AND exits 1 when nothing matches, so a
+    # trailing `|| echo 0` fired as well and wrote "0\n0" -- an embedded newline that made
+    # the whole record unparseable, which the verifier then rejected as malformed rather
+    # than reporting the real status. And the pattern was anchored at column 0, while
+    # check_metagenome_mag_execution.sh prints its assertions indented ("  ok  ..."), so a
+    # passing run recorded 0 assertions, which the verifier refuses by design.
     local count
-    count=$(grep -cE '^(ok|PASS|OK:|\[ok\])' "$log" 2>/dev/null || echo 0)
+    count=$(grep -cE '^[[:space:]]*(ok|PASS|OK:|\[ok\])' "$log" 2>/dev/null) || count=0
+    count=${count//[^0-9]/}
+    count=${count:-0}
     if [[ "$name" == "tests/assert_required_coverage.py" ]]; then
         count=$(sed -n 's/^tests run *\([0-9][0-9]*\).*/\1/p' "$log" | tail -1)
         count=${count:-0}
