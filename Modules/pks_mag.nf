@@ -823,9 +823,6 @@ workflow pksMAG {
         .filter { _sampleID, unitID, _evidence -> unitID == "unbinned" }
         .map { sampleID, _unitID, evidence -> tuple(sampleID, evidence) }
 
-    // 7. Prokka annotation (ALL bins — before hmmsearch so locus_tags are consistent)
-    prokkaAnnotate(bins_flat_ch)
-
     // Explicit provirus calls for every recovered community MAG.
     genomadProphages(bins_flat_ch)
 
@@ -838,36 +835,56 @@ workflow pksMAG {
         strain_typing_summary_ch = magStrainTyping.out.summary
     }
 
-    // 8. hmmsearch vs clb protein HMM (per bin, on prokka proteins)
-    hmmsearchClb(prokkaAnnotate.out.faa_for_hmm)
+    // 7/8/10. Prokka -> clb protein HMM -> genomic context. One optional branch,
+    // gated by --enable_mag_annotation (default on, so this is a no-op by default).
+    //
+    // Nothing here decides whether a bin carries the island: that is
+    // magBinLocusEvidence's alignment-confirmed tier, computed above from the bin's
+    // own contigs against the canonical locus, which yields a DNA-level distinct-clb-
+    // gene count and island breadth. This branch adds annotation and the flanking
+    // genomic context around protein-HMM hits.
+    //
+    // When off, the three downstream channels stay structurally present but empty.
+    // That is an already-supported state, not a new one: the sentinel machinery below
+    // exists precisely because tblouts_per_sample_ch and contexts_per_sample_ch can
+    // both be completely empty on a run with zero pks+ bins, and it guards the join
+    // chain for exactly that case.
+    def tblouts_per_sample_ch  = channel.empty()
+    def contexts_per_sample_ch = channel.empty()
+    def gffs_per_sample_ch     = channel.empty()
 
-    // 9. Filter to pks+ bins on the distinct-gene count (avoids reading tblouts in the
-    // driver JVM). M3: one definition of pks-positive, shared with the status count
-    // below and with community producer selection -- params.mag_min_clb_genes. This is
-    // a cheap HMM pre-filter for which bins are worth genomic-context extraction; the
-    // actual positivity call is magBinLocusEvidence's alignment-confirmed tier, below.
-    pks_pos_tblout_ch = hmmsearchClb.out.tblout
-        .join(hmmsearchClb.out.clb_gene_count, by: [0, 1])
-        .filter { sampleID, binID, tblout, gene_count ->
-            (gene_count.text.trim() as Integer) >= (params.mag_min_clb_genes as Integer)
-        }
-        .map { sampleID, binID, tblout, gene_count -> tuple(sampleID, binID, tblout) }
+    if (params.enable_mag_annotation.toString().toBoolean()) {
+        // Prokka first so locus_tags are consistent between the GFF and the HMM hits.
+        prokkaAnnotate(bins_flat_ch)
+        hmmsearchClb(prokkaAnnotate.out.faa_for_hmm)
 
-    // 10. Genomic context (prokka GFF + tblout joined per pks+ bin; locus_tags now match)
-    extractGenomicContext(prokkaAnnotate.out.gff.join(pks_pos_tblout_ch, by: [0, 1]))
+        // Filter to pks+ bins on the distinct-gene count (avoids reading tblouts in the
+        // driver JVM). M3: one definition of pks-positive, shared with the status count
+        // below and with community producer selection -- params.mag_min_clb_genes. This is
+        // a cheap HMM pre-filter for which bins are worth genomic-context extraction; the
+        // actual positivity call is magBinLocusEvidence's alignment-confirmed tier, above.
+        pks_pos_tblout_ch = hmmsearchClb.out.tblout
+            .join(hmmsearchClb.out.clb_gene_count, by: [0, 1])
+            .filter { sampleID, binID, tblout, gene_count ->
+                (gene_count.text.trim() as Integer) >= (params.mag_min_clb_genes as Integer)
+            }
+            .map { sampleID, binID, tblout, gene_count -> tuple(sampleID, binID, tblout) }
 
-    // 11. Aggregate per sample and build summary
-    tblouts_per_sample_ch = hmmsearchClb.out.tblout
-        .map { sampleID, binID, tblout -> tuple(sampleID, tblout) }
-        .groupTuple(by: 0)
+        // Genomic context (prokka GFF + tblout joined per pks+ bin; locus_tags now match)
+        extractGenomicContext(prokkaAnnotate.out.gff.join(pks_pos_tblout_ch, by: [0, 1]))
 
-    contexts_per_sample_ch = extractGenomicContext.out.context
-        .map { sampleID, binID, ctx -> tuple(sampleID, ctx) }
-        .groupTuple(by: 0)
+        tblouts_per_sample_ch = hmmsearchClb.out.tblout
+            .map { sampleID, binID, tblout -> tuple(sampleID, tblout) }
+            .groupTuple(by: 0)
 
-    gffs_per_sample_ch = prokkaAnnotate.out.gff
-        .map { sampleID, binID, gff -> tuple(sampleID, gff) }
-        .groupTuple(by: 0)
+        contexts_per_sample_ch = extractGenomicContext.out.context
+            .map { sampleID, binID, ctx -> tuple(sampleID, ctx) }
+            .groupTuple(by: 0)
+
+        gffs_per_sample_ch = prokkaAnnotate.out.gff
+            .map { sampleID, binID, gff -> tuple(sampleID, gff) }
+            .groupTuple(by: 0)
+    }
 
     virus_summaries_per_sample_ch = genomadProphages.out.summary
         .map { sampleID, binID, summary -> tuple(sampleID, summary) }
