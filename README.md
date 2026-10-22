@@ -403,6 +403,7 @@ gets it on retry. See the [HPC guide](docs/hpc.md).
 | [Output reference](docs/output.md) · [Glossary](docs/glossary.md) | what every file contains; terms |
 | [HPC guide](docs/hpc.md) | schedulers, resources, known pitfalls |
 | [Reference models](ref/hmm/PROVENANCE.md) | how the *clb* profile models were built, and what they are not calibrated for |
+| [Host-depletion references](docs/host_depletion_references.md) | exactly which assemblies, decoys and phiX are in `--hg38_db` and `--t2t_phix_db`, and how they were built |
 | [Tool citations](CITATIONS.md) | every tool the pipeline calls, with DOIs |
 
 Tests run on every push: `bash tests/run_checks.sh` for the full set, or
