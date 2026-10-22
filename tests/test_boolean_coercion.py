@@ -41,17 +41,27 @@ class PksTaxaIsAlwaysTestedThroughItsNormalizedLocal(unittest.TestCase):
         # is read directly; every other appearance must be the normalized local.
         self.assertNotRegex(code, r"if\s*\([^)]*\bparams\.pks_taxa\b")
 
-    def test_every_known_call_site_now_uses_the_local(self):
+    def test_every_conditional_mentioning_pks_taxa_uses_the_local(self):
+        """Discovered from the source, not a hardcoded list of call sites.
+
+        This used to assert a snapshot of five exact strings. The snapshot broke when
+        Bracken's read-length model moved per sample: one call site
+        (`if (pks_taxa_b && !params.bracken_read_length)`) was legitimately removed
+        because the value is no longer required up front, and another gained a guard.
+        Both still went through the normalized local, so the property held and only the
+        snapshot was stale. Assert the property instead.
+        """
         code = code_only(MAIN)
-        for needle in (
-            "if (pks_taxa_b && !params.kraken_db)",
-            "if (pks_taxa_b && !params.bracken_read_length)",
-            "if (pks_taxa_b && (",
-            'if (pks_taxa_b && params.profiling_method == "hmm")',
-            "if (do_align && pks_taxa_b)",
-        ):
-            with self.subTest(needle=needle):
-                self.assertIn(needle, code)
+        conditionals = [l for l in re.findall(r"^[ \t]*(?:else[ \t]+)?if[ \t]*\(.*$", code, re.M)
+                        if re.search(r"\bpks_taxa\b|\bpks_taxa_b\b", l)]
+        self.assertGreaterEqual(
+            len(conditionals), 4,
+            "the pks_taxa call sites have vanished from main.nf; this test is no longer protecting anything")
+        for line in conditionals:
+            with self.subTest(line=line.strip()[:90]):
+                self.assertNotIn("params.pks_taxa", line,
+                                 "this conditional reads the raw param; use the normalized local")
+                self.assertIn("pks_taxa_b", line)
 
     def test_the_preflight_dict_reuses_the_local_rather_than_recomputing(self):
         self.assertIn("pks_taxa                 : pks_taxa_b,", MAIN)
