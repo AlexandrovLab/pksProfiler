@@ -1,0 +1,20 @@
+# The execution checks a GitHub runner cannot run, recorded against the commit
+# being released. Verified by tests/verify_local_execution_record.py, which the
+# release-gate CI job runs on every v* tag and which REFUSES a record whose
+# commit is not the commit being released.
+#
+# Produced by tests/record_local_execution_checks.sh. Do not hand-edit.
+#
+# commit: 21fdc406e07abe2eae579d7a9e6575920aa0b221
+# source_digest: bdb4e2d393e408f6b2cd3f4ad4b35f8816c31d0057daa1f9e2636e2ce4137b0b
+# recorded_on: 2026-10-22
+# recorded_by: ammalabbasi <amabbasi@ucsd.edu>
+# host: tscc-14-32
+# signed_off: ammalabbasi <amabbasi@ucsd.edu> ran these on tscc-14-32 and confirms the results above
+#
+# DB_ROOT=/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs
+# CONDA_CACHE_DIR=/tscc/lustre/restricted/alexandrov-ddn/users/amabbasi/pksProfiler/pksProfiler_analysis/v1.0.0-rc1_validation/run_2026-10-22/RC4/conda_cache
+#
+check	status	tests	duration_s	log
+tests/assert_required_coverage.py	pass	1423	89	/tscc/lustre/restricted/alexandrov-ddn/users/amabbasi/pksProfiler/pksProfiler_analysis/v1.0.0-rc1_validation/run_2026-10-22/RC4/logs3/mag_record_logs/assert_required_coverage.log
+tests/check_metagenome_mag_execution.sh	pass	25	64	/tscc/lustre/restricted/alexandrov-ddn/users/amabbasi/pksProfiler/pksProfiler_analysis/v1.0.0-rc1_validation/run_2026-10-22/RC4/logs3/mag_record_logs/check_metagenome_mag_execution.log
