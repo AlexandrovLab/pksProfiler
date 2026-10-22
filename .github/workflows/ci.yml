@@ -104,12 +104,19 @@ jobs:
   # Nextflow hashes its environments from file CONTENT, so a restored cache is reused
   # exactly as the local one is. The first run after a conda_envs change pays the full
   # solve; subsequent runs do not.
+  #
+  # rc2 review 2.2: "the release CI should execute the end-to-end and mode-specific checks
+  # on the exact v1.0.0 tag, not only unit tests / graph construction." Until now a `v*`
+  # tag ran only unit-tests and workflow-validation, so a tag build proved the workflow
+  # compiled and its parameter validation worked -- not that it ran. A tag now runs this
+  # job, on the tagged commit, like main does.
   e2e-execution:
     name: End-to-end execution
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -182,6 +189,43 @@ jobs:
         env:
           CONDA_CACHE_DIR: ${{ runner.temp }}/conda_cache
         run: bash tests/check_resume_reference_change.sh
+      - name: Install pandas and matplotlib for the unit suite
+        # The skip assertion below runs the whole unit suite in THIS job, under the
+        # conda base `bash -l` shell rather than the setup-python interpreter the
+        # unit-tests job uses, so it needs the same two packages that job installs (see
+        # its own step for why). Without them those tests error rather than skip, and
+        # the assertion would fail for the wrong reason.
+        shell: bash -l {0}
+        run: pip install "pandas==2.3.0" "matplotlib==3.10.3"
+      - name: Assert the critical tests actually ran
+        # rc2 review 2.3: "Fail the release if critical tests are skipped. The fast test
+        # environment can skip rescue, fragment-support and competitive-realignment tests
+        # when external tools are absent." Our own rc2 run reported `OK (skipped=13)` and
+        # nothing looked at the 13 -- they were exactly those tests.
+        #
+        # Run HERE, at the end of this job, deliberately: the steps above have built the
+        # pipeline's conda environments into CONDA_CACHE_DIR, and those tests resolve
+        # samtools / minimap2 / bedtools / featureCounts from it. In the unit-tests job
+        # they have nothing to find and skip silently.
+        #
+        # assert_required_coverage.py fails on a failure, an error, a skipped REQUIRED
+        # test, any skip not in its written-down ALLOWED_SKIPS, or a total over budget.
+        # The budget is its default (the size of that list: one, R for the coverage-plot
+        # figure, which no number depends on).
+        shell: bash -l {0}
+        env:
+          CONDA_CACHE_DIR: ${{ runner.temp }}/conda_cache
+        run: |
+          python tests/assert_required_coverage.py -q \
+            --json "${{ runner.temp }}/required-coverage.json"
+      - name: Keep the required-coverage summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: required-coverage-${{ github.run_id }}
+          path: ${{ runner.temp }}/required-coverage.json
+          if-no-files-found: ignore
+          retention-days: 90
       - name: Keep the execution-test outputs
         # Ludmil's F21 acceptance note: "Resource and cohort-scale tests can run
         # separately on scheduled CI or HPC, but their outputs should be retained."
@@ -214,3 +258,53 @@ jobs:
   #         bash tests/check_metagenome_mag_execution.sh
   #
   # Revisit if this ever runs on a self-hosted runner with those databases already local.
+  # Until then it is covered by the recorded-result gate below, which is rc2 review 2.2's
+  # own fallback ("make the tag job require a recorded local execution-check result").
+
+  # The release gate. Runs on a `v*` tag and nothing else, and is the job that decides
+  # whether a tag is releasable. It adds nothing new to run: it depends on the three jobs
+  # that do the running, and then checks the one thing a GitHub runner cannot do itself.
+  #
+  # rc2 review 2.2 and 2.3, together:
+  #
+  #   2.2  The real execution checks must run on the exact tag. They do -- e2e-execution
+  #        is now triggered by a tag, and `needs:` makes this job wait for it, so a tag
+  #        whose end-to-end, malformed-input, mode, V8-lane or resume check fails cannot
+  #        reach this job at all. One check still cannot run on a runner
+  #        (check_metagenome_mag_execution.sh: GTDB-Tk r232 is ~100 GB), and for that one
+  #        the review's own fallback applies: a committed, signed-off local result, whose
+  #        source digest and test counts this job verifies.
+  #
+  #   2.3  "Tests pass" must not be able to hide missing coverage. The skip assertion runs
+  #        inside e2e-execution, where the tools exist; this job restates it as a
+  #        requirement of the release rather than a step someone could drop.
+  release-gate:
+    name: Release gate (tags only)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [unit-tests, workflow-validation, e2e-execution]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The tag's own commit, with history, so the record's commit line can be read
+          # as the human context it is.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify the recorded local execution checks
+        # Refuses unless the record exists, covers every required check with status
+        # `pass` and a non-zero assertion count, is signed off by a person, and -- the
+        # assertion that matters -- its source digest equals this tree's. A record from
+        # an earlier state of the code is refused, which is what stops "we ran it last
+        # week" standing in for "we ran it on this tag".
+        run: python tests/verify_local_execution_record.py
+      - name: Say what was verified
+        run: |
+          echo "### Release gate passed" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- real execution checks ran on \`${GITHUB_SHA}\` (job: End-to-end execution)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- required-test / skip-budget assertion passed in that job" >> "$GITHUB_STEP_SUMMARY"
+          echo "- local execution-check record verified against this tree" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          sed -n '1,40p' tests/LOCAL_EXECUTION_CHECKS.tsv >> "$GITHUB_STEP_SUMMARY"

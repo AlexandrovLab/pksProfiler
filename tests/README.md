@@ -82,5 +82,61 @@ CONDA_CACHE_DIR=/path/to/cache bash tests/check_resume_reference_change.sh
 ```
 
 Both scripts, plus `check_e2e_execution.sh`, `check_malformed_input_execution.sh` and
-`check_mode_execution.sh`, now run in CI on every push to `main` and nightly (F21), with the
-conda environments cached between runs and the outputs kept as build artefacts.
+`check_mode_execution.sh`, now run in CI on every push to `main`, nightly (F21), **and on
+every `v*` tag** (rc2 review 2.2), with the conda environments cached between runs and the
+outputs kept as build artefacts.
+
+## The release gate (rc2 review 2.2 and 2.3)
+
+"Tests pass" must not be able to mean "the consequential tests did not run". Our own rc2
+CI run reported `OK (skipped=13)`, and the 13 were the tests that need a real samtools,
+minimap2, bedtools or featureCounts — that is, the ones that execute the AS<30 rescue, the
+fragment/duplicate collapse behind `tier_robustness`, and the competitive-realignment
+score. Two scripts close that.
+
+### `tests/assert_required_coverage.py` — the suite, with the skips assessed
+
+`python -m unittest discover`, plus: every module in its `REQUIRED` map must have run with
+no skipped test inside it; any other skip must appear in its `ALLOWED_SKIPS` map with a
+written reason; and the total skip count must be within budget (the default budget is the
+size of that map). It exits non-zero and names each problem, and `--json` writes a summary
+that CI keeps for 90 days.
+
+```bash
+CONDA_CACHE_DIR=/path/to/cache python3 tests/assert_required_coverage.py -q
+```
+
+With every tool present (TSCC, `pks_env`, `nextflow` on `PATH`) this reaches **0 skips**.
+On a GitHub runner it reaches 1 — `test_coverage_plot_boundaries` needs R, and it checks a
+figure's axis boundaries; no number in any table comes from it. That one skip is the whole
+budget, written down in the script. It runs at the end of the `e2e-execution` job, where
+the pipeline's conda environments have already been built, so the tool-dependent tests
+resolve their tools instead of skipping.
+
+### `tests/record_local_execution_checks.sh` / `tests/verify_local_execution_record.py`
+
+One execution check cannot run on a GitHub runner at all:
+`check_metagenome_mag_execution.sh` needs GTDB-Tk r232 (~100 GB), CheckM2 and geNomad, and
+an execution test whose subject is those databases being read by the real tools is
+pointless against a stand-in. A zero-skip unit run is likewise only reachable where R is
+installed. rc2 review 2.2 anticipates this: *"make the tag job require a recorded local
+execution-check result instead — a committed, signed-off results file whose commit and test
+counts the CI verifies."*
+
+So, on TSCC, on the tree you are about to tag:
+
+```bash
+DB_ROOT=/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs \
+CONDA_CACHE_DIR=/path/to/private/conda_cache \
+    bash tests/record_local_execution_checks.sh
+```
+
+It writes `tests/LOCAL_EXECUTION_CHECKS.tsv`, which you commit as the last commit before
+the tag. The `release-gate` CI job — tags only, and depending on the jobs that do the
+running — then verifies it: every required check present with status `pass` and a non-zero
+assertion count, signed off by a person, and its **source digest** equal to the tree being
+released. The digest, not a commit sha, is the binding check: it covers `main.nf`,
+`nextflow.config`, `lib/`, `Modules/`, `scripts/`, `conf/`, `conda_envs/`, `ref/` and
+`tests/`, excludes the record itself (so committing it does not invalidate it), and unlike
+a sha it is false for a dirty tree. Change anything under those paths after recording and
+the tag is refused.
