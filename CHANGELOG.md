@@ -1,5 +1,61 @@
 # Changelog
 
+## Unreleased — rc3 and rc4, closing the rc2 review's reproducibility and operational items
+
+No analytical parameter, threshold or positivity rule changed in either. Section numbers
+below are Ludmil's, from the rc2 result-affecting-issues review.
+
+rc3 (already on `fix/v1.0.0-rc3`): **2.5** froze the reference databases
+(`conf/databases.tsv`, `scripts/record_database_versions.sh`, a DATABASE VERSIONS section
+in `RUN_REPORT.txt`); **2.6** pinned every package in all 18 conda environments to an
+exact version, and stopped `~/.local` site-packages shadowing them.
+
+rc4:
+
+- **2.1 — the RESOLVED prefilter mode is recorded, not just the requested one.**
+  `--prefilter_mode auto` is the default and `auto` is not a mode anything runs in: it
+  becomes `balanced` for a metagenome with `--kraken_db` and `off` otherwise. Only the
+  request was recorded, so no output said whether a run's *clb* counts came from the
+  complete host-depleted stream or from a narrowed subset of it. `main.nf` now resolves
+  it once at script level into `params.prefilter_mode_resolved`; the workflow builds its
+  channel graph from that value, `RUN_REPORT.txt` prints `prefilter_mode_resolved` beside
+  the request, the provenance JSON carries it, and `cohort_qc_summary.tsv` gains a
+  per-sample `prefilter_mode` column written by whichever profiling lane ran. `auto` in
+  that column is refused outright. See [docs/prefilter.md](docs/prefilter.md).
+- **2.2 / 2.3 — a tag build runs the real execution checks, and fails if critical tests
+  were skipped.** `.github/workflows/ci.yml` gains a `release-gate` job that runs on
+  `v*` tags only: the execution checks run on the exact tagged commit, the unit suite is
+  run through `tests/assert_required_coverage.py` (named critical tests must execute,
+  not be skipped, and the total skip count is capped), and the heavy checks GitHub
+  cannot host are required as a committed, signed-off local results file whose commit and
+  counts the job verifies.
+- **2.7 — the host-depletion references are documented.**
+  [docs/host_depletion_references.md](docs/host_depletion_references.md) records exactly
+  what `--hg38_db` (GRCh38.p14 RefSeq full assembly, GCF_000001405.40; 705 sequences; no
+  hs38d1 decoys, no chrEBV, no HLA contigs) and `--t2t_phix_db` (T2T-CHM13v2.0,
+  GCA_009914755.4; 25 sequences) contain, read out of the indexes themselves with the new
+  `scripts/describe_minimap2_index.py`. **The index named `human-GCA-phix-db.mmi`
+  contains no phiX**: `reads_after_t2t_phix` is reads surviving the T2T pass, and a phiX
+  spike is not depleted. phiX cannot reach a *clb* gene count, so the numbers are
+  unaffected, but the pass must not be described as phiX depletion. Not changed for
+  v1.0.0 — rebuilding the index would alter host depletion for every cohort already run.
+  The original build command could not be recovered; what is verifiable (`-x sr`,
+  k=21 / w=11 / b=14, no `-H`) is recorded instead.
+- **2.8 — resume behaviour across the rc1 boundary is written down.**
+  [docs/running/resume.md](docs/running/resume.md): 53 of 60 processes have a changed
+  hash ingredient since rc1 (the `scripts/` digest, and rc3 pinning 14 of 18 conda
+  environments), six of the remaining seven re-run because their inputs moved, and only
+  `filterReads` on FASTQ input can genuinely be reused. **Plan for a full re-run.** Do
+  not `-resume` a production cohort across the tag; `runs/provenance/*.json` carrying
+  more than one `code.commit` is how to tell a tree already spans code states.
+- **3.1 — `lowScoreRescueProfile` joins the cohort-safe failure policy.** It is a
+  per-sample process and was the only one covered by neither `label 'sample_stage'` nor
+  `conf/base.config`'s `withName:` selector, so under the strict default one sample
+  failing there stopped new task submission and took the cohort QC summary with it.
+- **3.2 — the sample-stage test discovers per-sample processes from the source.** It used
+  a hand-maintained allowlist that never mentioned five module files, which is why it
+  could not catch 3.1.
+
 ## v1.0.0-rc2 — 2026-10-14
 
 Fixes on top of `v1.0.0-rc1` (4c73af5, including the tool bump). No analytical parameter or
