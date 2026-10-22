@@ -125,6 +125,15 @@ process pksProfiler_align {
     ' "${counts}")
 
     printf "Sample\tMetric\tValue\n" > "${qc}"
+    # rc2 review 2.1: the RESOLVED prefilter mode (off | balanced), never the requested
+    # `auto`. Whether the reads this lane counted are the complete host-depleted stream or
+    # a krakenuniq+DIAMOND-narrowed subset of it is the single most important thing about
+    # how the counts below were produced, and until now no per-sample output said which.
+    # Emitted by the two profiling lanes (here and pksProfiler_hmm.nf) because they are
+    # exactly what the prefilter narrows, and at least one of them always runs. The
+    # companion record is params.prefilter_mode_resolved in runs/provenance/<session>.json,
+    # printed as prefilter_mode_resolved in RUN_REPORT.txt.
+    printf "%s\tprefilter_mode\t%s\n" "${sampleID}" "${params.prefilter_mode_resolved}" >> "${qc}"
     # F09: computed since v0.0.1 and used only for a zero check. It is the reads that
     # mapped to the reference at all -- the denominator the clb counts sit inside.
     # A6 (25 Sep): named for the MAPQ >= 40 filter (samtools view -q 40 above) it carries.

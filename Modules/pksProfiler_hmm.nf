@@ -56,6 +56,10 @@ process pksProfiler_hmm {
         done
 
         printf "Sample\\tMetric\\tValue\\n" > "${qc}"
+        # rc2 review 2.1: the resolved prefilter mode, in the zero-read branch too -- a
+        # sample with no qualifying read still ran under one mode or the other, and a
+        # blank here would be exactly the gap the item is about. See the main branch below.
+        printf "%s\\tprefilter_mode\\t%s\\n" "${sampleID}" "${params.prefilter_mode_resolved}" >> "${qc}"
         printf "%s\\treads_clb_genes_hmm\\t0\\n" "${sampleID}" >> "${qc}"
         # Ludmil, revised report finding 2: the zero-read branch omitted this metric
         # entirely, so a true zero sample showed NA in cohort QC instead of 0.
@@ -183,6 +187,15 @@ process pksProfiler_hmm {
     ' "${counts_tsv}")
 
     printf "Sample\\tMetric\\tValue\\n" > "${qc}"
+    # rc2 review 2.1: the RESOLVED prefilter mode (off | balanced), never the requested
+    # `auto`. Whether the reads this lane scanned are the complete host-depleted stream or
+    # a krakenuniq+DIAMOND-narrowed subset of it is the single most important thing about
+    # how the counts below were produced, and until now no per-sample output said which.
+    # Emitted by the two profiling lanes (here and pksProfiler_align.nf) because they are
+    # exactly what the prefilter narrows, and at least one of them always runs. The
+    # companion record is params.prefilter_mode_resolved in runs/provenance/<session>.json,
+    # printed as prefilter_mode_resolved in RUN_REPORT.txt.
+    printf "%s\\tprefilter_mode\\t%s\\n" "${sampleID}" "${params.prefilter_mode_resolved}" >> "${qc}"
     printf "%s\\treads_clb_genes_hmm\\t%s\\n" "${sampleID}" "\$HMM_READS" >> "${qc}"
     AMBIGUOUS=\$(wc -l < "${sampleID}.hmm.ambiguous_reads.txt")
     printf "%s\\thmm_ambiguous_reads\\t%s\\n" "${sampleID}" "\$AMBIGUOUS" >> "${qc}"

@@ -556,7 +556,15 @@ PARAMETER_GROUPS = (
                "read_type",
                # E1 (Ludmil, 25 Sep): low-score mapped extraction from BAM/CRAM.
                "extract_low_score_mapped", "extract_min_as")),
+    # rc2 review 2.1: prefilter_mode is what was REQUESTED (usually `auto`, which is not a
+    # mode anything runs in); prefilter_mode_resolved is what the run actually did --
+    # `off` (profiling saw the complete host-depleted stream) or `balanced` (krakenuniq +
+    # DIAMOND rescue narrowed it first). Both are printed, in that order, because the pair
+    # is what makes the report reproducible: the request explains the command line, the
+    # resolution explains the numbers. Per-sample companion: the prefilter_mode column of
+    # cohort/cohort_qc_summary.tsv.
     ("PROFILING", ("profiling_method", "hmm_evalue", "hmm_protein_evalue", "prefilter_mode",
+                   "prefilter_mode_resolved",
                    "pks_contig", "pks_start_1based", "pks_end_1based",
                    "pks_island_len_1based",
                    # A4: the primary alignment's similarity rule.

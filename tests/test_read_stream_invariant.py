@@ -45,12 +45,24 @@ class ReadStreamInvariantTests(unittest.TestCase):
         self.assertIn("MAPPED_READS.set { PROFILING_READS }", BODY)
 
     def test_auto_resolves_to_balanced_only_for_metagenomes_with_a_kraken_db(self):
-        self.assertIn('if (prefilter_mode == "auto")', BODY)
-        block = BODY[BODY.index('if (prefilter_mode == "auto")'):]
-        block = block[:block.index("log.info")]
+        # rc2 review 2.1: the resolution moved out of the workflow body to script level,
+        # into params.prefilter_mode_resolved, so the provenance record, RUN_REPORT and
+        # the per-sample QC fragments all read the SAME resolved value (Nextflow 26
+        # ignores params assigned inside a workflow, and a workflow-body local is
+        # invisible to a process script). The rule is unchanged and is asserted here in
+        # its new home; that the workflow then uses it is the next test.
+        block = MAIN[MAIN.index("params.prefilter_mode_resolved ="):]
+        block = block[:block.index("\n\n")]
+        self.assertIn('params.prefilter_mode.toString() != "auto"', block)
         self.assertIn('params.sample_type == "metagenome" && params.kraken_db', block)
-        self.assertIn('prefilter_mode = "balanced"', block)
-        self.assertIn('prefilter_mode = "off"', block)
+        self.assertIn('"balanced"', block)
+        self.assertIn('"off"', block)
+
+    def test_the_workflow_profiles_under_the_resolved_mode_and_nothing_else(self):
+        """One source of truth: no second copy of the auto rule inside the workflow."""
+        self.assertIn("def prefilter_mode = params.prefilter_mode_resolved.toString()", BODY)
+        self.assertNotIn('prefilter_mode = "balanced"', BODY)
+        self.assertNotIn('prefilter_mode = "off"', BODY)
 
     def test_prefilter_is_not_gated_on_sample_type(self):
         # The prefilter applies to tumour and metagenome alike; only assembly is exempt.

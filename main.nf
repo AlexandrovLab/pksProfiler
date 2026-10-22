@@ -368,6 +368,30 @@ params.scripts = "${projectDir}/scripts"
 // MISMATCH in RUN_REPORT.txt and carries on.
 params.tool_version_check = "strict"   // strict | warn
 
+// ---------------- The RESOLVED prefilter mode (rc2 review 2.1) ----------------
+// --prefilter_mode is what was asked for; `auto` is not a mode anything runs in. Until
+// now only the request was recorded, so RUN_REPORT.txt, the provenance JSON and the
+// per-sample QC all said `auto` and nothing anywhere said whether that run narrowed the
+// profiling stream or not -- two runs with identical recorded parameters could have
+// profiled different read sets. (Ludmil, rc2 section 2: "RUN_REPORT currently records the
+// requested mode (for example, auto) rather than the resolved off/balanced state. Persist
+// the resolved value in run provenance and sample-level evidence/QC.")
+//
+// Resolved ONCE, here, at script level: this is after Nextflow has merged the command
+// line and config into params (so it sees the real --sample_type / --kraken_db), and
+// before anything reads it -- the workflow body, the provenance record's params dump, and
+// every process's script block, which cannot see a workflow-body local. It cannot be
+// resolved inside the workflow: Nextflow 26 ignores assignments to params made there
+// ("`params.x` is defined multiple times -- Assignments following the first are ignored"),
+// so the value would reach the tasks as null.
+//
+// A mode other than `auto` resolves to itself, including an invalid one -- validation of
+// --prefilter_mode happens in validatePrefilterParams() and must stay the thing that
+// reports it, rather than this line silently rewriting a typo to `off`.
+params.prefilter_mode_resolved = (params.prefilter_mode.toString() != "auto")
+    ? params.prefilter_mode.toString()
+    : ((params.sample_type == "metagenome" && params.kraken_db) ? "balanced" : "off")
+
 // ---------------- Dependency digests (F15) ----------------
 // Nextflow hashes a task from its declared inputs and its rendered script. A reference,
 // model or helper that appears only as a path string inside the script is neither, so
@@ -818,15 +842,13 @@ workflow {
     ]))
     log.info "Provenance record: ${run_record_path}"
 
-    // ---------- v0.0.2: resolve the prefilter mode ----------
-    def prefilter_mode = params.prefilter_mode.toString()
-    if (prefilter_mode == "auto") {
-        if (params.sample_type == "metagenome" && params.kraken_db) {
-            prefilter_mode = "balanced"
-        }
-        else {
-            prefilter_mode = "off"
-        }
+    // ---------- v0.0.2: the resolved prefilter mode ----------
+    // rc2 review 2.1: resolved once at script level, into params.prefilter_mode_resolved
+    // (see its definition above for why it cannot be resolved here). The workflow reads
+    // that one value, so what the run record, RUN_REPORT and the per-sample QC fragments
+    // report is by construction the mode the channel graph below was built from.
+    def prefilter_mode = params.prefilter_mode_resolved.toString()
+    if (params.prefilter_mode.toString() == "auto") {
         log.info "prefilter_mode auto -> ${prefilter_mode} (sample_type=${params.sample_type})"
     }
 

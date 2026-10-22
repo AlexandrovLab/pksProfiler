@@ -75,6 +75,15 @@ OUTPUT_COLUMNS = [
     "reads_after_hg38",
     "reads_after_t2t_phix",
     "reads_after_pangenome",
+    # rc2 review 2.1: the RESOLVED prefilter mode this sample was profiled under --
+    # `off` or `balanced`, never the requested `auto`. Written by the profiling lanes
+    # (Modules/pksProfiler_align.nf, Modules/pksProfiler_hmm.nf), which are what the
+    # prefilter narrows. Without it a cohort table could not say whether its pks counts
+    # came from the complete host-depleted stream or from a narrowed subset of it; the
+    # run-level companion is prefilter_mode_resolved in RUN_REPORT.txt and the provenance
+    # JSON. It sits just above the prefilter counters because it is what explains whether
+    # they are populated at all: with `off` there is no prefilter lane and they are NA.
+    "prefilter_mode",
     # P1 (25 Sep): the metagenome prefilter lane. Kraken routing of the depleted reads,
     # DIAMOND rescue of the non-target remainder, and the merged candidate set.
     "prefilter_input_reads",
@@ -221,6 +230,11 @@ TEXT_METRICS = {
     # E1: scripts/header_provenance.py LOW_SCORE_STATES.
     "extract_low_score_mode": {"on_auto_bwa_mem", "off_auto_not_bwa_mem",
                                "on_requested", "off_requested"},
+    # rc2 review 2.1: the RESOLVED mode only. `auto` is a request, not a mode anything
+    # runs in, so it is deliberately NOT an accepted value here: a fragment with that
+    # value would mean main.nf's params.prefilter_mode_resolved stopped resolving, and
+    # the run must fail loudly rather than record an unanswerable provenance value.
+    "prefilter_mode": {"off", "balanced"},
     "wes_capture_status": {"capture_bed_provided", CAPTURE_NOT_PROVIDED},
     "tier_if_fragments": TIER_VALUES,
     "tier_if_dedup": TIER_VALUES,

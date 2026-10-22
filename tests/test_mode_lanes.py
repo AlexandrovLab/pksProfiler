@@ -176,11 +176,16 @@ class RnaLane(unittest.TestCase):
         self.assertIn('params.rna_library_type.toString() in ["polyA", "total", "unknown"]', CODE)
 
     def test_prefilter_auto_resolves_to_off_for_rna(self):
-        # auto -> balanced only for metagenomes (with a kraken db).
-        resolve = CODE[CODE.index('if (prefilter_mode == "auto") {'):]
-        resolve = resolve[:resolve.index('log.info "prefilter_mode auto')]
+        # auto -> balanced only for metagenomes (with a kraken db); every other sample
+        # type, rna included, gets off. rc2 review 2.1 moved the rule out of the workflow
+        # body to script level, into params.prefilter_mode_resolved, so that the run
+        # record, RUN_REPORT and the per-sample QC fragments all read one resolved value.
+        resolve = MAIN[MAIN.index("params.prefilter_mode_resolved ="):]
+        resolve = resolve[:resolve.index("\n\n")]
         self.assertIn('params.sample_type == "metagenome" && params.kraken_db', resolve)
-        self.assertIn('prefilter_mode = "off"', resolve)
+        self.assertIn('"off"', resolve)
+        # and the workflow uses it rather than resolving a second time
+        self.assertIn("def prefilter_mode = params.prefilter_mode_resolved.toString()", CODE)
 
     def test_rna_writes_its_own_evidence_kind_with_the_library_type(self):
         helper = MAIN[MAIN.index("def evidenceKind"):]
