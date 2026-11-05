@@ -153,6 +153,7 @@ params.pks_carrier_attribution  = false
 // command line or in a config, so the module's own declaration stays the documentation.
 params.pks_specificity_concatenated_index = null
 params.pks_carrier_panel_index            = null
+params.pks_carrier_map                    = null
 // The file staged when the V8a lane runs without Arm A. Declared as a param rather than
 // built inline in the workflow body: on Nextflow 24.10.0 -- the floor nextflow.config
 // declares and CI pins -- `def x = file("${projectDir}/...")` inside the workflow fails to
