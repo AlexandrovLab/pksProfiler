@@ -56,7 +56,7 @@ rc4:
   a hand-maintained allowlist that never mentioned five module files, which is why it
   could not catch 3.1.
 
-## v1.0.0-rc2 — 2026-10-14
+## v1.0.0 — 2026-11-05
 
 Fixes on top of `v1.0.0-rc1` (4c73af5, including the tool bump). No analytical parameter or
 positivity rule changed.
