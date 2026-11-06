@@ -44,6 +44,13 @@
 #
 # See tests/check_e2e_execution.sh's own header for what CONDA_CACHE_DIR does and why.
 
+# Tool-version enforcement. Defaults to strict: a task resolving a tool from outside
+# its own conda environment is a real problem and the run should stop. Set
+# PKS_TOOL_VERSION_CHECK=warn to record mismatches and carry on, which is what CI does
+# on a GitHub-hosted runner, where the image's own conda base python unavoidably sits
+# ahead of each task's pinned one. Strict remains the default everywhere else, and is
+# what tests/LOCAL_EXECUTION_CHECKS.tsv is recorded under.
+PKS_TOOL_VERSION_CHECK="${PKS_TOOL_VERSION_CHECK:-strict}"
 set -uo pipefail
 
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -174,6 +181,7 @@ nf_log="$work/nextflow.log"
 nf_work_dir="$work/work"
 (
     cd "$work" && timeout "$NEXTFLOW_TIMEOUT" nextflow run "$repo_dir/main.nf" \
+        --tool_version_check "$PKS_TOOL_VERSION_CHECK" \
         -work-dir "$nf_work_dir" \
         -c "$work/e2e_local.config" \
         --sample "$work/sheet.csv" \

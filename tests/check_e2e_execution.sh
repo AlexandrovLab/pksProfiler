@@ -74,6 +74,13 @@
 # environments instead of re-solving them. Rebuilding from scratch on first use is a
 # few minutes per env; consider that budget before ignoring this variable.
 
+# Tool-version enforcement. Defaults to strict: a task resolving a tool from outside
+# its own conda environment is a real problem and the run should stop. Set
+# PKS_TOOL_VERSION_CHECK=warn to record mismatches and carry on, which is what CI does
+# on a GitHub-hosted runner, where the image's own conda base python unavoidably sits
+# ahead of each task's pinned one. Strict remains the default everywhere else, and is
+# what tests/LOCAL_EXECUTION_CHECKS.tsv is recorded under.
+PKS_TOOL_VERSION_CHECK="${PKS_TOOL_VERSION_CHECK:-strict}"
 set -uo pipefail
 
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -205,6 +212,7 @@ echo "Running the real pipeline (a real execution, not a channel-graph-only prev
 nf_log="$work/nextflow.log"
 (
     cd "$work" && nextflow run "$repo_dir/main.nf" \
+        --tool_version_check "$PKS_TOOL_VERSION_CHECK" \
         -work-dir "$work/work" \
         -c "$work/e2e_local.config" \
         --sample "$work/sheet.csv" \
@@ -291,6 +299,7 @@ echo "Running the real pipeline on BAM input: wgs, bowtie2"
 nf_bam_log="$work/nextflow_bam.log"
 (
     cd "$work" && nextflow run "$repo_dir/main.nf" \
+        --tool_version_check "$PKS_TOOL_VERSION_CHECK" \
         -work-dir "$work/work_bam" \
         -c "$work/e2e_local.config" \
         --sample "$work/bam_sheet.csv" \
@@ -357,6 +366,7 @@ echo "Running the real pipeline on CRAM input: wgs, bowtie2, --cram_reference"
 nf_cram_log="$work/nextflow_cram.log"
 (
     cd "$work" && nextflow run "$repo_dir/main.nf" \
+        --tool_version_check "$PKS_TOOL_VERSION_CHECK" \
         -work-dir "$work/work_cram" \
         -c "$work/e2e_local.config" \
         --sample "$work/cram_sheet.csv" \
@@ -407,6 +417,7 @@ echo "Running the real pipeline with --profiling_method hmm (sample_type metagen
 nf_hmm_log="$work/nextflow_hmm.log"
 (
     cd "$work" && nextflow run "$repo_dir/main.nf" \
+        --tool_version_check "$PKS_TOOL_VERSION_CHECK" \
         -work-dir "$work/work_hmm" \
         -c "$work/e2e_local.config" \
         --sample "$work/sheet.csv" \
@@ -464,6 +475,7 @@ printf '%s,%s,%s\n' "$BORDERLINE_SAMPLE" "$fixtures/borderline_R1.fastq.gz" "$fi
 nf_cohort_log="$work/nextflow_cohort.log"
 (
     cd "$work" && nextflow run "$repo_dir/main.nf" \
+        --tool_version_check "$PKS_TOOL_VERSION_CHECK" \
         -work-dir "$work/work_cohort" \
         -c "$work/e2e_local.config" \
         --sample "$work/cohort_sheet.csv" \
@@ -537,6 +549,7 @@ printf '%s,%s\n' "$NEG_SE_SAMPLE" "$fixtures/negative_R1.fastq.gz" >> "$work/sin
 nf_se_log="$work/nextflow_single_end.log"
 (
     cd "$work" && nextflow run "$repo_dir/main.nf" \
+        --tool_version_check "$PKS_TOOL_VERSION_CHECK" \
         -work-dir "$work/work_single_end" \
         -c "$work/e2e_local.config" \
         --sample "$work/single_end_sheet.csv" \
@@ -626,6 +639,7 @@ echo "Running the real pipeline on bwa -T 0 style input: wgs, bowtie2, low-score
 nf_low_log="$work/nextflow_low_score.log"
 (
     cd "$work" && nextflow run "$repo_dir/main.nf" \
+        --tool_version_check "$PKS_TOOL_VERSION_CHECK" \
         -work-dir "$work/work_low_score" \
         -c "$work/e2e_local.config" \
         --sample "$work/low_score_sheet.csv" \

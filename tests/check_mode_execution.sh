@@ -40,6 +40,13 @@
 # CONDA_CACHE_DIR: as tests/check_e2e_execution.sh. The first run in a fresh cache builds
 # fastplong_env and pks_align_env (minimap2 2.31), a few minutes each.
 
+# Tool-version enforcement. Defaults to strict: a task resolving a tool from outside
+# its own conda environment is a real problem and the run should stop. Set
+# PKS_TOOL_VERSION_CHECK=warn to record mismatches and carry on, which is what CI does
+# on a GitHub-hosted runner, where the image's own conda base python unavoidably sits
+# ahead of each task's pinned one. Strict remains the default everywhere else, and is
+# what tests/LOCAL_EXECUTION_CHECKS.tsv is recorded under.
+PKS_TOOL_VERSION_CHECK="${PKS_TOOL_VERSION_CHECK:-strict}"
 set -uo pipefail
 
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -154,6 +161,7 @@ run_mode() {
     echo "=== $mode: nextflow run $*"
     (
         cd "$work" && nextflow run "$repo_dir/main.nf" \
+        --tool_version_check "$PKS_TOOL_VERSION_CHECK" \
             -work-dir "$work/work_$mode" \
             -c "$work/local.config" \
             --sample "$work/$mode.csv" \

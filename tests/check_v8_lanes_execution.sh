@@ -24,6 +24,13 @@
 # Same CONDA_CACHE_DIR contract as tests/check_e2e_execution.sh. Nothing here reads sample
 # data: every base comes from the shipped public reference or from a seeded RNG.
 
+# Tool-version enforcement. Defaults to strict: a task resolving a tool from outside
+# its own conda environment is a real problem and the run should stop. Set
+# PKS_TOOL_VERSION_CHECK=warn to record mismatches and carry on, which is what CI does
+# on a GitHub-hosted runner, where the image's own conda base python unavoidably sits
+# ahead of each task's pinned one. Strict remains the default everywhere else, and is
+# what tests/LOCAL_EXECUTION_CHECKS.tsv is recorded under.
+PKS_TOOL_VERSION_CHECK="${PKS_TOOL_VERSION_CHECK:-strict}"
 set -uo pipefail
 
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -108,6 +115,7 @@ echo "Running the V8a locus-specificity lane for real"
 v8a_log="$work/nextflow_v8a.log"
 (
     cd "$work" && nextflow run "$repo_dir/Modules/pks_specificity.nf" \
+        --tool_version_check "$PKS_TOOL_VERSION_CHECK" \
         -work-dir "$work/work_v8a" \
         -c "$work/local.config" \
         --sample "$fixtures/v8a_sheet.csv" \
@@ -132,6 +140,7 @@ fi
 # silently defaulting to null would produce an empty check that looks like a pass.
 echo "Checking the V8a lane refuses to run without its panel"
 refusal=$(cd "$work" && nextflow run "$repo_dir/Modules/pks_specificity.nf" \
+        --tool_version_check "$PKS_TOOL_VERSION_CHECK" \
     -work-dir "$work/work_v8a_refuse" \
     --sample "$fixtures/v8a_sheet.csv" --sample_dir "$work/v8a_refuse" 2>&1)
 if [[ $? -eq 0 ]] || ! grep -Fq -- "--pks_specificity_concatenated_index" <<< "$refusal"; then
@@ -149,6 +158,7 @@ echo "Running the V8b carrier-attribution lane for real"
 v8b_log="$work/nextflow_v8b.log"
 (
     cd "$work" && nextflow run "$repo_dir/Modules/pks_carrier.nf" \
+        --tool_version_check "$PKS_TOOL_VERSION_CHECK" \
         -work-dir "$work/work_v8b" \
         -c "$work/local.config" \
         --sample "$fixtures/v8b_sheet.csv" \
