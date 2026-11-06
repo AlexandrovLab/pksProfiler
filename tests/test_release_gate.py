@@ -147,23 +147,81 @@ class TheWorkflowRunsTheRealChecksOnATag(unittest.TestCase):
                     self.assertNotIn("--name base", line,
                                      "fixture tools must go in their own environment")
 
-    def test_the_job_never_puts_the_base_environment_on_PATH(self):
-        """Exporting PATH here shadows every task's pinned conda environment.
+    def test_the_job_never_prepends_anything_to_PATH_for_later_steps(self):
+        """Adding to PATH shadows every task's pinned conda environment; removing is fine.
 
-        The second v1.0.0 tag attempt did exactly this: the fixture-tool step wrote
-        `PATH=<miniconda>/bin:$PATH` to GITHUB_ENV so later steps could find minimap2.
-        Nextflow tasks then resolved minimap2, samtools and bgzip from the base
-        environment instead of their own pinned ones -- samtools 1.21 against a pinned
-        1.24 -- and --tool_version_check strict refused the run, correctly. The fixture
-        builders need only MINIMAP2_BIN, and find samtools beside it; the pipeline must
-        keep resolving its own tools. See the PATH-shadowing note in docs/hpc.md.
+        The second v1.0.0 tag attempt wrote `PATH=<miniconda>/bin:$PATH` to GITHUB_ENV so
+        later steps could find minimap2. Nextflow tasks then resolved minimap2, samtools
+        and bgzip from the base environment instead of their own pinned ones -- samtools
+        1.21 against a pinned 1.24 -- and --tool_version_check strict refused the run.
+
+        The distinction that matters is prepending versus stripping, not whether PATH is
+        exported at all: the job legitimately exports a PATH with the stray interpreters
+        REMOVED. A prepend keeps `$PATH` on the right-hand side; a strip does not.
         """
         job = CI.split("  e2e-execution:", 1)[1].split("\n  release-gate:", 1)[0]
         for line in job.splitlines():
             stripped = line.strip()
-            if "GITHUB_ENV" in stripped and stripped.lstrip('echo "').startswith("PATH="):
-                self.fail(f"the job exports PATH to later steps, which shadows every "
-                          f"task's pinned environment: {stripped}")
+            if "GITHUB_ENV" not in stripped or "PATH=" not in stripped:
+                continue
+            if "$PATH" in stripped.split("PATH=", 1)[1]:
+                self.fail(f"the job prepends to PATH for later steps, which shadows "
+                          f"every task's pinned environment: {stripped}")
+
+    def test_the_execution_job_runs_every_execution_check_the_runner_can(self):
+        job = CI.split("  e2e-execution:", 1)[1].split("\n  release-gate:", 1)[0]
+        for script in ("check_e2e_execution.sh", "check_malformed_input_execution.sh",
+                       "check_mode_execution.sh", "check_v8_lanes_execution.sh",
+                       "check_resume_reference_change.sh"):
+            with self.subTest(script=script):
+                self.assertIn(script, job)
+
+    def test_the_job_installs_every_external_tool_its_checks_resolve(self):
+        """The v1.0.0 tag build failed because the job installed minimap2 but not samtools.
+
+        The execution checks need two tools that a stock runner does not carry and that
+        Nextflow does not provide for them: minimap2, to build the .mmi fixtures, and
+        samtools, to sort and index the BAM fixtures. Nextflow builds its own copies
+        inside the pipeline's conda envs, but the fixture builders run BEFORE the
+        pipeline and resolve these from the environment. Installing one and not the
+        other fails only at tag time, in the job that nothing else exercises.
+        """
+        job = CI.split("  e2e-execution:", 1)[1].split("\n  release-gate:", 1)[0]
+        install = [l for l in job.splitlines()
+                   if "conda install" in l or "conda create" in l]
+        self.assertTrue(install, "the job installs no fixture tools at all")
+        installed = " ".join(install)
+        for tool in ("minimap2", "samtools"):
+            with self.subTest(tool=tool):
+                self.assertIn(tool, installed,
+                              f"{tool} is resolved by tests/check_*.sh before the pipeline "
+                              f"runs, so the job has to install it")
+
+    def test_the_resolved_tool_paths_do_not_depend_on_PATH_surviving_the_step(self):
+        """Each `run:` is its own login shell; base-env PATH did not carry over at v1.0.0."""
+        job = CI.split("  e2e-execution:", 1)[1].split("\n  release-gate:", 1)[0]
+        self.assertIn("MINIMAP2_BIN=", job,
+                      "resolve the binary once and export it, rather than trusting PATH")
+        self.assertIn("GITHUB_ENV", job,
+                      "the exported path has to reach the later steps via GITHUB_ENV")
+
+    def test_fixture_tools_are_not_installed_into_the_base_environment(self):
+        """Installing them into base is what shadowed every task's pinned environment.
+
+        setup-miniconda auto-activates base in every `shell: bash -l` step, so anything
+        in base lands on PATH, is inherited by Nextflow, and sits ahead of each task's
+        own conda environment. samtools also brings bgzip via htslib, so one `-n base`
+        install displaced three pinned tools at once and --tool_version_check strict
+        refused the run. Two v1.0.0 tags went red before this was understood.
+        """
+        job = CI.split("  e2e-execution:", 1)[1].split("\n  release-gate:", 1)[0]
+        for line in job.splitlines():
+            if "conda install" in line or "conda create" in line:
+                with self.subTest(line=line.strip()[:70]):
+                    self.assertNotIn("-n base", line,
+                                     "fixture tools must go in their own environment")
+                    self.assertNotIn("--name base", line,
+                                     "fixture tools must go in their own environment")
 
     def test_the_skip_assertion_runs_where_the_tools_exist(self):
         job = CI.split("  e2e-execution:", 1)[1].split("\n  release-gate:", 1)[0]
