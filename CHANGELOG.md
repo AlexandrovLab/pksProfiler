@@ -1,6 +1,43 @@
 # Changelog
 
-## Unreleased — rc3 and rc4, closing the rc2 review's reproducibility and operational items
+## v1.0.0 — 2026-11-06
+
+The first release. It closes every reproducibility and operational item from the rc2
+review (sections 2 and 3); no analytical parameter, threshold or positivity rule changed
+anywhere in the rc line, so a sample's tier is what v1.0.0-rc1 computed.
+
+Added on 6 November:
+
+- **A run in which every sample fails upstream now ends with its WHAT FAILED report
+  instead of crashing.** With a completely empty locus-evidence channel,
+  `join(remainder: true)` emits its sentinel row with three elements and the
+  binless-detection filter could not destructure it. The join is now a named function,
+  `binlessSamplesNeedingSummary`, whose filter takes each row whole and keeps only the
+  `[sampleID, null]` shape; `tests/check_mag_channel_regression.sh` drives the real
+  function with both degenerate shapes. Reachable only when the run is already dead, so
+  no result was ever wrong because of it.
+- **2.6 — the solved environments are captured**, not just the pins.
+  `conda_envs/solved/` holds a lock file per environment: every package, build, channel
+  URL and md5 the solver actually installed, recreatable with `conda create --file`, for
+  the 11 of 18 environments the recorded release checks built. `INDEX.tsv` names the
+  other 7 rather than guessing them. No container digest is claimed: there is no
+  container execution path, so a digest would describe something the validation never ran.
+- **A release check may be recorded as skipped only under a signed, written-down waiver.**
+  `tests/verify_local_execution_record.py` accepts `skipped` for a check other than the
+  unit gate when a `skip_waiver:` header names it and gives a substantive reason, prints
+  that waiver on every tag build, and still refuses a skip of the unit gate, an unwritten
+  or flippant reason, and a failure dressed as a waiver.
+- **README rewritten** around the path a new user takes: quick start first, then sample
+  mode, references, optional analyses, and results. Tier semantics moved out of the
+  running sections. The workflow figure lost its slide furniture; the interactive-workflow
+  companion was removed because it did not match the shipped pipeline.
+- **Two analysis scripts for the review's post-tag items**, both writing pooled counts
+  only: `scripts/a2_gene_floor_sensitivity.py` (A2, cohort sensitivity at gene floors of
+  1, 2 and 3 reads) and `scripts/a3_tier_collapse_reconciliation.py` (A3, tier movement
+  across raw, fragment and duplicate counting, each figure over its own denominator).
+
+Closing the rc2 review's sections 2 and 3:
+
 
 No analytical parameter, threshold or positivity rule changed in either. Section numbers
 below are Ludmil's, from the rc2 result-affecting-issues review.
@@ -56,7 +93,8 @@ rc4:
   a hand-maintained allowlist that never mentioned five module files, which is why it
   could not catch 3.1.
 
-## v1.0.0 — 2026-11-05
+### Carried from the rc line: MAG failure handling
+
 
 Fixes on top of `v1.0.0-rc1` (4c73af5, including the tool bump). No analytical parameter or
 positivity rule changed.
