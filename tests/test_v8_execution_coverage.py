@@ -120,7 +120,7 @@ class CIWiring(unittest.TestCase):
         self.assertIn("check_v8_lanes_execution.sh", CI)
         job = CI[CI.index("e2e-execution:"):]
         self.assertIn("check_v8_lanes_execution.sh", job)
-        self.assertIn("github.event_name == 'schedule'", job)
+        self.assertIn("github.event_name == 'workflow_dispatch'", job)
 
 
 if __name__ == "__main__":

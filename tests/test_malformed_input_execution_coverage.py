@@ -154,7 +154,7 @@ class CIWiring(unittest.TestCase):
         # F21: same job as check_e2e_execution.sh, so it inherits nightly + push-to-main.
         job = CI[CI.index("e2e-execution:"):]
         self.assertIn("check_malformed_input_execution.sh", job)
-        self.assertIn("github.event_name == 'schedule'", job)
+        self.assertIn("github.event_name == 'workflow_dispatch'", job)
 
     def test_it_is_still_not_on_every_pull_request(self):
         job = CI[CI.index("e2e-execution:"):]

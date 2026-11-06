@@ -313,12 +313,12 @@ class CIWiring(unittest.TestCase):
     def test_ci_references_the_e2e_script(self):
         self.assertIn("check_e2e_execution.sh", CI)
 
-    def test_the_execution_job_runs_on_a_schedule_and_on_push_to_main(self):
+    def test_the_execution_job_is_dispatchable(self):
+        # v1.0.0: dispatch-only (see ci.yml and RELEASE_NOTES_v1.0.0.md). The job and
+        # its schedule block must survive so it stays fixable for v1.0.1.
         self.assertIn("schedule:", CI)
         self.assertIn('cron: "0 7 * * *"', CI)
         job = CI[CI.index("e2e-execution:"):]
-        self.assertIn("github.event_name == 'schedule'", job)
-        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main'", job)
         self.assertIn("github.event_name == 'workflow_dispatch'", job)
 
     def test_it_is_still_not_on_every_pull_request(self):

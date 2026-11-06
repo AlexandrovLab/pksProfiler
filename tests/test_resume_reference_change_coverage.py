@@ -108,11 +108,10 @@ class CIWiring(unittest.TestCase):
     def test_ci_runs_the_resume_check(self):
         self.assertIn("check_resume_reference_change.sh", CI)
 
-    def test_it_runs_in_the_scheduled_execution_job(self):
+    def test_it_runs_in_the_dispatchable_execution_job(self):
         job = CI[CI.index("e2e-execution:"):]
         self.assertIn("check_resume_reference_change.sh", job)
-        self.assertIn("github.event_name == 'schedule'", job)
-        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main'", job)
+        self.assertIn("github.event_name == 'workflow_dispatch'", job)
 
 
 if __name__ == "__main__":
