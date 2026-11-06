@@ -9,7 +9,7 @@ nextflow.enable.dsl=2
 //   s_checkm_fail 1 bin, CheckM2 produced nothing
 //   s_binless     no real bins, only an unbinned-pool call (binless stub path, unchanged)
 
-include { magQualityFallback; magSummaryInput; magCommunityInput; noRealBinsSentinel } from '../../Modules/pks_mag.nf'
+include { magQualityFallback; magSummaryInput; magCommunityInput; noRealBinsSentinel; binlessSamplesNeedingSummary } from '../../Modules/pks_mag.nf'
 include { magCommunityInput as magCommunityInputRaw } from '../../Modules/pks_mag.nf'
 
 params.outdir = "results"
@@ -71,6 +71,17 @@ workflow {
     // s_gtdb_fail is left-orphaned here; it must be skipped with a warning, not crash.
     magCommunityInputRaw(gtdbtk_ch, gffs_ch, tblouts_s, virus_ch, bin_locus_ch)
 
+    // The binless-detection join, driven with its two degenerate shapes (6 Nov 2026).
+    // Normal: s_binless has locus evidence and no bins -> detected; samples with bins -> not.
+    bins_present = checkm2_ch.map { smp, _r -> tuple(smp, true) }
+        .mix(Channel.value(tuple(S, true)))
+    detected = binlessSamplesNeedingSummary(
+        bin_locus_ch.mix(Channel.of(binless_locus)), bins_present)
+    // Every sample failed upstream: locus evidence EMPTY, right side only the sentinel.
+    // Before the fix this crashed the run; now it must emit nothing.
+    detected_allfail = binlessSamplesNeedingSummary(
+        Channel.empty(), Channel.value(tuple(S, true)))
+
     magSummaryInput.out.rows
         .map { s, c, g, t, x, l -> "summary\t${s}\t${baseName(c)}\t${baseName(g)}\t${t.size()}\t${x.size()}\t${l.size()}" }
         .mix(magCommunityInput.out.rows
@@ -78,5 +89,7 @@ workflow {
         .mix(magCommunityInputRaw.out.rows.map { row -> "community_raw\t${row[0]}\t${row.size()}" })
         .mix(magQualityFallback.out.gtdbtk_stub.map { s, f -> "gtdbtk_stub\t${s}\t" + f.text.readLines().drop(1).join(';') })
         .mix(magQualityFallback.out.checkm2_stub.map { s, f -> "checkm2_stub\t${s}\t" + f.text.readLines().drop(1).join(';') })
+        .mix(detected.map { smp -> "binless_detect\t" + smp })
+        .mix(detected_allfail.map { smp -> "binless_detect_allfail\t" + smp })
         .collectFile(name: 'channel_rows.tsv', storeDir: params.outdir, newLine: true, sort: true)
 }

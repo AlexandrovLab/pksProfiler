@@ -391,6 +391,36 @@ def noRealBinsSentinel() {
     "__stubBinlessMagQuality_no_real_bins_anywhere_sentinel__"
 }
 
+// The samples that have locus evidence but no real bins -- the ones stubBinlessMagQuality
+// must cover. Factored out of pksMAG so tests/check_mag_channel_regression.sh drives the
+// REAL code with the degenerate shapes that have crashed joins before, instead of a copy
+// that drifts.
+//
+// 6 Nov 2026 finding: when EVERY sample fails upstream, locus_evidence_ch is completely
+// empty, and `join(remainder: true)` emits the right-only sentinel row as THREE elements
+// [key, null, true] -- the null padding for the absent left side plus the right value. The
+// old 2-parameter filter closure could not destructure that and the run died with
+// "Invalid method invocation `call`" instead of ending with its WHAT FAILED report. So the
+// filter takes each row whole and keeps only the [sampleID, null] shape: a left-only row,
+// i.e. a sample with locus evidence and no bins. Right-only rows (the sentinel; bins whose
+// sample produced no locus evidence) are exactly the rows that need no stub.
+def binlessSamplesNeedingSummary(locus_evidence_ch, bins_present_ch) {
+    return locus_evidence_ch
+        .map { sampleID, _evidence -> sampleID }
+        .join(bins_present_ch, by: 0, remainder: true)
+        .filter { row ->
+            if (!(row instanceof List)) {
+                // Unreachable while bins_present_ch always carries the sentinel (a
+                // structurally empty right side degenerates the join to bare keys);
+                // dropped with a warning rather than crashed if the wiring ever changes.
+                log.warn "pksMAG: binless detection got a bare join row (${row}); dropped"
+                return false
+            }
+            row.size() == 2 && row[1] == null
+        }
+        .map { row -> row[0] }
+}
+
 // ─── Prokka annotation (ALL bins — must run before hmmsearch so locus_tags match) ──
 
 process prokkaAnnotate {
@@ -975,11 +1005,8 @@ workflow pksMAG {
     samples_with_bins_ch = checkm2Predict.out.report
         .map { sampleID, _report -> tuple(sampleID, true) }
         .mix(Channel.value(tuple(NO_REAL_BINS_SENTINEL, true)))
-    binless_samples_needing_summary_ch = mag_summary_locus_evidence_ch
-        .map { sampleID, _evidence -> sampleID }
-        .join(samples_with_bins_ch, by: 0, remainder: true)
-        .filter { _sampleID, has_bins -> has_bins == null }
-        .map { sampleID, _has_bins -> sampleID }
+    binless_samples_needing_summary_ch =
+        binlessSamplesNeedingSummary(mag_summary_locus_evidence_ch, samples_with_bins_ch)
     stubBinlessMagQuality(binless_samples_needing_summary_ch)
 
     // rc2: samples WITH bins whose checkm2Predict/gtdbtkClassify failed and was ignored

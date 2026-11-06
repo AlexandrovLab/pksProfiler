@@ -49,6 +49,9 @@ expect "community input keeps the GTDB-Tk-failed sample via the stand-in" "commu
 expect "community input for a healthy sample" "community${T}s_ok${T}gtdbtk.bac120.summary.tsv${T}2${T}2${T}2${T}2"
 expect "raw rc1 wiring: healthy samples still flow" "community_raw${T}s_ok${T}6"
 expect_absent "raw rc1 wiring: the left-orphaned GTDB-Tk-failed row is skipped, not passed on" "community_raw${T}s_gtdb_fail"
+expect "binless detection finds the sample with locus evidence and no bins" "binless_detect${T}s_binless"
+expect_absent "binless detection does not claim samples that have bins" "binless_detect${T}s_ok"
+expect_absent "all-samples-failed run: binless detection emits nothing instead of crashing" "binless_detect_allfail"
 expect_absent "no sentinel row escapes" "__stubBinlessMagQuality"
 if ! grep -q "communityProphageSummary skipped for s_gtdb_fail" "$work/nextflow.log"; then
     echo "FAIL: the skipped orphan row was not reported with a warning" >&2; fail=1
