@@ -1,232 +1,266 @@
-# pksProfiler
+<h1><img src="assets/pksProfiler_logo_circular.png" width="320" alt="pksProfiler"></h1>
 
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](CHANGELOG.md)
 [![CI](https://github.com/AlexandrovLab/pksProfiler/actions/workflows/ci.yml/badge.svg)](https://github.com/AlexandrovLab/pksProfiler/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.0.0-orange.svg)](CHANGELOG.md)
-[![Nextflow](https://img.shields.io/badge/nextflow-%E2%89%A524.10-23aa62.svg)](https://www.nextflow.io/)
-[![License: BSD 2-Clause](https://img.shields.io/badge/License-BSD_2--Clause-blue.svg)](LICENSE)
 
-**pksProfiler** is a Nextflow pipeline that detects and quantifies the *pks* island in sequencing
-data and, for metagenomes with genome binning, identifies which reconstructed genome carries it.
+**Profile the colibactin-encoding *pks* island in metagenomes and cancer sequencing data.**
 
-The *pks* island is a cluster of 19 genes (*clbA*–*clbS*) found in some gut bacteria, most often
-*Escherichia coli*. Together they produce **colibactin**, a molecule that damages human DNA and
-leaves a distinctive mutational signature in colorectal tumours.
+pksProfiler is a Nextflow pipeline for detecting and characterizing the 19 *clb* genes that make up the *pks* island. These genes encode colibactin, a bacterial toxin that can damage human DNA. The pipeline supports gut metagenomes, whole-genome sequencing (WGS), whole-exome sequencing (WES), and RNA-seq, with different evidence reports for each.
 
-Input is BAM, CRAM or FASTQ, from either a tumour genome or a metagenome. Every run answers the
-first two questions below; the rest depend on your data and which stages you switch on.
+Start with read profiling. Add genome binning for metagenomes or targeted island reassembly for short-read WGS when you need assembled-sequence evidence.
 
-<img src="workflow_logo/v2.svg" width="930" alt="pksProfiler workflow: a shared trunk of read extraction, quality filtering and human-read removal produces the complete host-depleted stream, which branches into a metagenome lane that assembles and bins the community and a tumour lane that scores read evidence and reassembles the island; assembled output from either lane is strain typed">
+![pksProfiler workflow: read preparation; read-level clb profiling by alignment and nucleotide HMMs; targeted reassembly for qualifying short-read WGS; optional metagenome reconstruction with binning, QC, taxonomy and prophage context; sample summaries and a linked cohort report](assets/pksProfiler_workflow.png)
 
-<sub>The trunk runs for every sample. `MAPPED_READS` is the complete host-depleted stream and
-the point both lanes branch from — note that the tumour lane returns to it before assembly, so
-the profiling prefilter narrows what is *counted* and never what is *assembled*. Amber boxes are
-decisions; dashed outlines are optional or conditional.</sub>
+**[Interactive workflow](docs/interactive-workflow.html)** — Hover directly over a step to reveal an enlarged view, technical steps, parameters, outputs, and code links. Tap a step on touch screens. Download the HTML file and open it in your browser; GitHub displays its source rather than running the interactions. The same file can be hosted on GitHub Pages.
 
-## The questions it answers
+## Choose your sample mode
 
-| Question | Data you need | You get | Switch it on with |
-|---|---|---|---|
-| **Is the island there, and how much of it?** | any | per-gene read counts, island coverage, a coverage plot | nothing — always runs |
-| **How strong is that evidence?** | tumour or metagenome | an [evidence tier](#how-strong-is-the-evidence) per sample | nothing — always runs |
-| **Does the island reassemble from its own reads?** | tumour | two independent assemblies, and whether they agree | `--sample_type wgs` |
-| **Which organism is carrying it?** | metagenome | draft genomes, completeness, species | `--enable_mags true` |
-| **Could the island move between bacteria?** | metagenome | whether an integrase or a tRNA site sits within 50 kb of the island — the features that let DNA transfer, which is a hint and not proof that it did | `--enable_mags true`; needs `--genomad_db` |
-| **What is around the carrier?** | metagenome | prophages, and the DNA-damage-response genes in every neighbouring organism | automatic with `--enable_mags` |
-| **What strain is the carrier?** | assembled output | sequence type, clonal complex, phylogroup | automatic |
-| **What else is in the sample?** | any | read-level taxonomic support: Kraken/Bracken species abundances, not carrier attribution | `--pks_taxa true` |
-| **Does the read really belong to the pks locus?** | any | each supporting read re-challenged against a pks-negative panel (Enterobacterales, NRPS/PKS homolog clusters, gut/oral backgrounds, GRCh38, UniVec) | `--pks_locus_specificity true` |
-| **Which pks-positive organism is carrying it?** | any | the same reads compared against pks+ *E. coli*, *Klebsiella*, *Citrobacter* and *Enterobacter* carriers, strain and genus reported together | `--pks_carrier_attribution true` |
+Set **one `--sample_type` per run**. Input format, read technology, and profiling method are separate choices.
 
-Flags, extra databases and the caveats for each are in the [documentation](#documentation).
+| Sample type | What it measures | Assembly support |
+|---|---|---|
+| **`metagenome`** | *clb* reads, genes, island breadth, and reads per million host-depleted reads; **untiered** | Optional community assembly and genome binning |
+| **`wgs`** | Genomic *pks* evidence; short reads receive evidence tiers | Targeted reassembly for qualifying short-read samples, on by default |
+| **`wes`** | Exploratory off-target *clb* DNA evidence; **untiered** | None |
+| **`rna`** | Expressed *clb* sequence and expression breadth; **untiered** | None |
 
-## What can each sample type actually answer?
+**ONT and PacBio HiFi are supported for WGS and RNA only.** Long-read WGS is untiered and does not run targeted reassembly. WES and metagenomes require short reads.
 
-The table above says which flag turns a capability on. This says what to go look at once it has
-run — real questions, which sample type answers them, and where the answer lives. None of it is
-recomputed for display: everything below is read straight from files the pipeline already wrote.
+### What does “untiered” mean?
 
-**Is the island present, and how confident is the call?** — tumour and metagenome. Every sample
-gets a [read-level evidence tier](#how-strong-is-the-evidence) — `by_sample/<sample>/read_evidence.tsv`,
-and the tier badge plus reads/genes/breadth columns in `cohort/pks_cohort_report.html`. For a
-metagenome the same tier is shown but isn't used to decide which draft genomes get investigated:
-it was fitted on tumour breadth distributions, not metagenome depth, and every bin still gets its
-own alignment-confirmed check regardless of it (below).
+**Measurements are reported, but no short-read WGS evidence category is assigned.** It does not mean negative, failed, or low confidence.
 
-**Which specific contigs or genomes support that call?** — tumour: two independent reassemblies of
-the recruited reads (MEGAHIT, metaSPAdes), each scored for reference coverage and supporting
-contigs, plus a structural call and an assembler-agreement verdict (`concordant` / `discordant` /
-`single_assembler_only` / `no_contig_support`) — `contigs/final_evidence/final_pks_evidence.tsv`,
-the `contig_validation.svg` figure, and the Contigs / Island recovered / Assemblers columns of the
-cohort report. Metagenome: every recovered genome bin gets its own alignment-confirmed locus tier,
-independent of raw HMM domain hits — `genomes/pks_mag_summary.tsv` and the report's "Genome bins"
-panel (taxonomy, completeness, locus tier, locus breadth).
+| Data | How to read the result |
+|---|---|
+| Short-read WGS | Reads, genes, and island coverage determine an evidence tier such as `multi_gene` or `broad_island`. |
+| Long-read WGS | Counts and coverage are reported without those tiers: a long read covers far more sequence than a short read, so the same cutoffs are not directly transferable. |
+| Metagenomes | Read counts, genes, coverage, and reads per million are reported without WGS tiers. Genome bins receive a separate assessment of assembled-locus evidence if MAG analysis is enabled. |
+| WES | Off-target DNA measurements are reported without WGS tiers; capture efficiency changes what is sampled. |
+| RNA | Expression measurements are reported without WGS tiers; RNA abundance and library preparation do not measure genomic island completeness. |
 
-**Why did I get nothing for this sample?** — tumour: `contigs/recruitment/` and the Contigs
-column's hover text show how many reads were actually recruited and paired before assembly ran, so
-"no reads reached the assembler" reads differently from "reads went in, no contig came out."
-That diagnostic (`assembly_input_diagnostic`) counts island-supporting fragments only -- reads
-inside the island or across its boundary -- never reads that hit only the ±5 kb flanks, which
-pks-negative relatives can share ([recruitment classes](docs/running/assembly.md#which-reads-are-recruited)).
-Metagenome: `genomes/mag_status.tsv` distinguishes no contigs / contigs but no bins / bins but no
-pks signal / a positive bin — and even a sample with no real bins still gets an alignment check
-against MetaBAT2's pooled unbinned contigs, which shows up in the same "Genome bins" panel as a
-bin named `unbinned`.
+The output uses the literal value `untiered` in `read_evidence.tsv` for metagenomes and long-read WGS. WES/RNA instead have their own evidence files. HMM-only profiling produces HMM counts without an alignment-based read-evidence file.
 
-**What else in this sample, or across the cohort, has clb-gene homology?** — metagenome only.
-Reads the fast classifier missed but a sensitive DIAMOND rescue caught, by each read's own
-taxonomic assignment and which clb gene it hit, are in `prefilter/diamond_rescue_taxonomy.tsv` and
-the report's "Community clb homology" panel. With `--pks_taxa`,
-`cohort/taxonomy/pks.clb_species_support.tsv` lists every species across the whole cohort with
-read-level taxonomic support for a clb gene, as its own table at the bottom of the cohort report.
-Both are **read-level taxonomic support** (Ludmil, 26 Sep mode memo section 5): a read's taxon says
-what its k-mers or protein hit most resemble, not which genome the island sits in. Linking *pks*
-to a genome takes contig or genome-bin evidence (above).
 
-**Does the carrier sit near anything that could move the island, or wake a neighbour's
-prophage?** — metagenome only. A one-line prophage-association call per bin (yes/no, region count)
-is in the "Genome bins" panel; the full picture — nearby integrase/tRNA sites, and every
-neighbour's own prophage load and DNA-damage-response genes — is in
-`community/pks_island_mobility.tsv` and `community/pks_community_interactions.tsv`
-([details](docs/running/community_context.md)).
+## Reference downloads and databases
 
-**What strain is it?** — metagenome only, and only for recovered genome bins; the cohort report
-doesn't read this lane. Sequence type, clonal complex and phylogroup are in
-`by_sample/<sample>/strain/` and the typing columns of `cohort/pks.master_summary.tsv`. Fragmented,
-low-coverage assemblies routinely come back `insufficient_loci` rather than a guessed type — see
-[How strong is the evidence?](#how-strong-is-the-evidence).
+Download references once into a permanent directory accessible to every compute node. The two shared folders below are the original project links recovered from the earlier documentation and RNA download script.
 
-Full column-by-column detail for every file above is in the [output reference](docs/output.md).
+| Used for | Download or setup | Pipeline setting |
+|---|---|---|
+| **Short-read DNA host depletion**: metagenome, WGS, WES | [Original human-reference index folder](https://drive.google.com/drive/folders/1HounCjQE8pyve8hGBvhUVkvWHrWbpO35?usp=share_link): `human-GRC-db.mmi` (~9.1 GB, GRCh38.p14) and `human-GCA-phix-db.mmi` (~8.9 GB, T2T-CHM13v2.0; **contains no phiX despite the name** — [what each index holds](docs/host_depletion_references.md)) | `--hg38_db` and `--t2t_phix_db` |
+| **Splice-aware short-read RNA host depletion** | [Shared RNA-reference folder](https://drive.google.com/drive/folders/10np5NSeAPRpHz1a22drGybs4enTP-OdR): `GRCh38.d1.vd1.splice_sr.mmi` and `gencode.v36.junctions.bed` | `--rna_splice_db` replaces `--hg38_db`; junction BED is optional; `--t2t_phix_db` is still required |
+| **ONT/HiFi host depletion**: WGS/RNA only | Build indexes using the matching long-read preset, or provide FASTA; [preset and index instructions](docs/running/long_reads.md) | `--hg38_db_long` or `--rna_splice_db_long`, plus `--t2t_phix_db_long` |
+| Optional extra human depletion | Supply your own combined human-pangenome index or directory of indexes; retain the source/build manifest | `--pangenome_db` |
+| Bacterial reference and *clb* models | [IHE3034 reference/index](indices/GCF_000025745.1/), [annotation](ref/annotations/IHE3034.clbA-clbS.gff), and [HMM provenance](ref/hmm/PROVENANCE.md) are included | Defaults are supplied by the pipeline |
+
+**Verify a downloaded index** against the audited release: [`conf/databases.tsv`](conf/databases.tsv)
+records a content checksum of each database's release-defining key file (for the two indexes above, the
+index header — checked with [`scripts/describe_minimap2_index.py`](scripts/describe_minimap2_index.py)),
+and every run recomputes a file-listing fingerprint and prints frozen/CHANGED in `RUN_REPORT.txt`.
+
+<details>
+<summary><strong>Download and verify the RNA references</strong></summary>
+
+The repository helper downloads the shared files and checks fixed MD5 values. It requires `gdown`; see the [download script](scripts/download_rna_references.sh).
+
+```bash
+bash scripts/download_rna_references.sh /refs/rna_grch38_splice_sr_gencode_v36
+```
+
+Use the downloaded files with:
+
+```bash
+--sample_type rna \
+--rna_splice_db /refs/rna_grch38_splice_sr_gencode_v36/GRCh38.d1.vd1.splice_sr.mmi \
+--rna_junctions_bed /refs/rna_grch38_splice_sr_gencode_v36/gencode.v36.junctions.bed \
+--t2t_phix_db /refs/human-GCA-phix-db.mmi
+```
+
+The shared RNA index was built with minimap2 `splice:sr` from GRCh38.d1.vd1; junctions come from GENCODE v36. **Do not substitute the standard DNA index or reuse this short-read splice index for ONT/HiFi.** Binary indexes retain their build settings. Keep source assemblies and build records when rebuilding human indexes.
+
+</details>
+
+### Optional taxonomy and MAG databases — downloads
+
+| Database | Download/setup | Needed for |
+|---|---|---|
+| KrakenUniq Microbial, 8 August 2023 | [Database file](https://genome-idx.s3.amazonaws.com/kraken/uniq/krakendb-2023-08-08-MICROBIAL/database.kdb) and [supporting archive](https://genome-idx.s3.amazonaws.com/kraken/uniq/krakendb-2023-08-08-MICROBIAL/kuniq_microbialdb_minus_kdb.20230808.tgz); unpack together. The database file alone is approximately 535 GiB. [Other builds](https://benlangmead.github.io/aws-indexes/k2/) | `--kraken_db`; taxonomy also needs a matching `--bracken_read_length` model |
+| GTDB-Tk R232 | [Release directory](https://data.gtdb.ecogenomic.org/releases/release232/) and [repository download/checksum helper](scripts/download_mag_databases.sbatch) | `--gtdbtk_db` (directory) for MAG taxonomy |
+| CheckM2 | [Database record](https://zenodo.org/records/14897628) and [repository download/checksum helper](scripts/download_mag_databases.sbatch) | `--checkm2_db` (the `uniref100.KO.1.dmnd` file) for MAG quality |
+| geNomad database v1.9 | [Database record](https://zenodo.org/records/14886553) and [repository download/checksum helper](scripts/download_genomad_database.sbatch) | `--genomad_db` (directory) for prophage analysis |
+
+All three MAG databases are required when `--enable_mags true`. The download helpers above are Slurm scripts: adapt their scheduler/environment settings to your site. Record database releases; a directory name alone does not establish which build it contains. The pipeline's [database manifest](conf/databases.tsv) records the audited builds.
 
 ## Quick start
 
-Needs Linux, [Nextflow](https://www.nextflow.io/docs/latest/install.html) ≥ 24.10 (enforced),
-**Java 17+ on every node that runs a task**, and Conda or Mamba. There is no container support:
-no process declares an image, so `-profile singularity` and friends are deliberately absent
-rather than present-and-broken.
+Requires **Linux, Nextflow ≥24.10, Java 17+ on compute nodes, and Conda or Mamba**. Processes use pinned Conda environments; container profiles are not provided. Clone the repository and run from its directory. Human-depletion references must be supplied separately; the canonical bacterial reference and *clb* models are included.
 
-```bash
-nextflow run AlexandrovLab/pksProfiler --help
-```
-
-A sample sheet is a unique `patient` column plus your files. `fastq1`/`fastq2` and
-`cram`/`cram_reference` work the same way, and one sheet may mix them:
+**1. Prepare a CSV.** Use unique sample IDs in `patient`.
 
 ```csv
-patient,bam
-TUMOR_01,/data/TUMOR_01.bam
+patient,fastq1,fastq2
+STOOL_01,/data/STOOL_01_R1.fastq.gz,/data/STOOL_01_R2.fastq.gz
 ```
 
-A BAM/CRAM must be an alignment against a reference (its header has `@SQ` lines): the
-reads kept are the ones the aligner flagged unmapped. An unaligned BAM (`samtools import`,
-a basecaller's uBAM) is rejected by extraction's `samtools quickcheck`; convert it with
-`samtools fastq` and run it as FASTQ. See [BAM and CRAM mode](docs/running/bam.md).
-
-For a `bwa mem` alignment, extraction also takes primary *mapped* reads whose alignment score
-is below 30 (`--extract_low_score_mapped auto|on|off`, default `auto`; `--extract_min_as 30`).
-bwa calls a read unmapped only when its best local score is below `-T`, 30 by default; GDC
-aligned TCGA with `-T 0`, so about a third of genuine *pks* reads come out "mapped" to a short
-spurious hit and would never be extracted. `auto` switches this on when the input's `@PG` chain
-shows `bwa mem` and off otherwise, per sample, and records the decision in the QC summary
-(`extract_low_score_mode`) and in `provenance/input_header.tsv`.
-
-The minimum run — quantify the island and score the evidence:
+**2. Profile a metagenome.** Replace the example paths with your own.
 
 ```bash
 nextflow run main.nf -profile local \
-  --sample       samples.csv \
-  --input_data_type bam \
-  --sample_type  wgs \
-  --hg38_db      /refs/human-GRC-db.mmi \
-  --t2t_phix_db  /refs/human-GCA-phix-db.mmi \
-  --outdir       results
+  --sample samples.csv \
+  --sample_type metagenome \
+  --input_data_type fastq \
+  --hg38_db /refs/human-GRC-db.mmi \
+  --t2t_phix_db /refs/human-GCA-phix-db.mmi \
+  --outdir results
 ```
 
-Only `--hg38_db` (or, for RNA-seq, `--rna_splice_db`) and `--t2t_phix_db` are ever required; each optional stage needs its own
-database, listed in its guide. On a cluster, swap `-profile local` for your scheduler (`conf/`
-has TSCC, Biowulf, Slurm, PBS Pro, LSF and SGE) and add `-resume`. Start reading at
-`results/cohort/qc/pks.qc.summary.tsv`, which shows where each sample lost its reads.
+**3. Open `results/cohort/pks_cohort_report.html`.** Check the QC table before interpreting missing or zero evidence. Add `-resume` to repeat a run using cached tasks.
 
-## Adding capabilities
+<details>
+<summary><strong>Other inputs: BAM, CRAM, single-end FASTQ</strong></summary>
 
-Each row adds flags to the command above. Nothing is replaced.
+For aligned BAM/CRAM input, use:
 
-| To also get | Add | Details |
+```csv
+patient,alignment
+TUMOR_01,/data/TUMOR_01.bam
+TUMOR_02,/data/TUMOR_02.cram
+```
+
+- Set `--input_data_type auto` to accept BAM and CRAM in this sheet. The legacy `bam` column is also supported; a `cram` column is not.
+- CRAM additionally requires `--cram_reference /refs/matching_reference.fa`.
+- Do not mix alignment and FASTQ columns in one sheet. `auto` selects the route from the header, not separately for each row.
+- For single-end FASTQ, omit `fastq2` or leave it empty. ONT/HiFi input must have one stream per sample.
+- BAM/CRAM must have reference sequences in its header (`@SQ`). Convert unaligned BAMs to FASTQ first.
+- Extraction retains primary unmapped reads. With `--extract_low_score_mapped auto` (default), a detected BWA-MEM alignment also contributes primary mapped reads with `AS < 30`. Use `on` or `off` to override.
+- IDs must start with a letter or number and contain only letters, numbers, `.`, `_`, or `-`.
+
+</details>
+
+## Add the analyses you need
+
+| Analysis | Switch or setting | Availability |
 |---|---|---|
-| island reassembly, two assemblers | `--sample_type wgs` | [assembly](docs/running/assembly.md) |
-| exome evidence (off-target DNA, not tiered) | `--sample_type wes` | [WES and RNA](docs/running/wes_rna.md) |
-| long reads (ONT / HiFi), wgs and rna only; WGS untiered | `--read_type ont` or `hifi` plus `--hg38_db_long`/`--rna_splice_db_long`, `--t2t_phix_db_long` | [long reads](docs/running/long_reads.md) |
-| expressed *clb* sequence from RNA-seq (not tiered) | `--sample_type rna --rna_splice_db <splice:sr index>` (replaces `--hg38_db`) | [WES and RNA](docs/running/wes_rna.md) |
-| which organism carries it | `--sample_type metagenome --enable_mags true` plus `--gtdbtk_db --checkm2_db --genomad_db` | [MAGs](docs/running/mags.md) |
-| community and neighbour context | automatic with `--enable_mags` | [community context](docs/running/community_context.md) |
-| strain type and phylogroup | automatic; disable with `--enable_strain_typing false` | [strain typing](docs/running/strain_typing.md) |
-| read-level taxonomic support (species abundances) | `--pks_taxa true` or `--pks_community_taxa true`, plus `--kraken_db --bracken_read_length` | [taxonomy](docs/running/taxonomy.md) |
-| a specificity check on the supporting reads, or a carrier attribution — two different questions, never one number | `--pks_locus_specificity true` and/or `--pks_carrier_attribution true`, plus a panel from `scripts/build_specificity_panels.py` | [specificity and carrier attribution](docs/running/specificity.md) |
-| profile-model search instead of alignment | `--profiling_method hmm` or `both` | [HMM modes](docs/running/hmm.md) |
-| faster profiling on metagenomes | `--prefilter_mode balanced --kraken_db <dir>`. The default `--prefilter_mode auto` already turns this on for any metagenome run given `--kraken_db`; pass `--prefilter_mode off` to keep every read | [prefilter](docs/prefilter.md) |
+| Alignment profiling | `--profiling_method bowtie2` (default) | All supported sample/read combinations; uses minimap2 for long reads |
+| Nucleotide HMM profiling | `--profiling_method hmm` or `both` | HMM-only: metagenomes; `both`: all supported sample/read combinations |
+| Targeted island reassembly | `--tumor_targeted_assembly true` (default) | Short-read WGS; `broad_island` and `extensive_island` by default |
+| Community assembly and genome binning | `--enable_mags true` | Short-read metagenomes |
+| Prophage and flanking-gene context | Included with MAG analysis | Metagenome genome bins |
+| Seven-locus *E. coli* strain typing | On with MAG analysis; disable using `--enable_strain_typing false` | Recovered genome bins; not WGS contigs |
+| Island-read taxonomy | `--pks_taxa true` | Short reads with alignment profiling |
+| Whole-community taxonomy | `--pks_community_taxa true` | Short reads with the balanced prefilter |
+| Locus-specificity challenge | `--pks_locus_specificity true` | Short-read WGS/metagenomes with alignment profiling |
+| Candidate-organism comparison | `--pks_carrier_attribution true` | All four short-read sample modes with alignment profiling |
 
-## Databases
+<details>
+<summary><strong>Metagenome genome binning: databases, outputs, and interpretation</strong></summary>
 
-Only the first two are ever required. Every run checks each one before submitting a single
-task, and reports everything wrong with them in one pass rather than failing on the first.
+Add these flags to the metagenome quick-start command:
 
-| Flag | Needed for |
+```bash
+--enable_mags true \
+--gtdbtk_db /db/gtdbtk \
+--checkm2_db /db/checkm2/uniref100.KO.1.dmnd \
+--genomad_db /db/genomad
+```
+
+MEGAHIT assembles the community; MetaBAT2 groups contigs into metagenome-assembled genomes (MAGs). CheckM2 estimates genome quality, GTDB-Tk assigns taxonomy, and Prokka/geNomad support gene and prophage annotation.
+
+Every recovered bin, plus the pooled **unbinned** contigs, is aligned to the canonical island. Genome-level locus evidence is separate from sample read evidence. Protein HMM hits alone do not establish a *pks*-positive genome. An unbinned hit is not an additional positive genome or an identified organism.
+
+Start with `genomes/pks_mag_summary.tsv` and `genomes/mag_status.tsv` under each sample. No contigs or bins means no reconstruction, not demonstrated biological absence. Add `--save_intermediates true` to publish assembly and bin FASTAs; these are not retained in the results directory by default.
+
+Community tables describe prophages, nearby integrase/tRNA features, and co-occurring bins. They support hypotheses about interaction or mobility, not proof of physical proximity, transfer, or prophage induction. Default strain typing uses the *E. coli* Achtman scheme and requires enough assembled sequence to recover its loci.
+
+</details>
+
+<details>
+<summary><strong>WGS, WES, RNA, and long-read settings</strong></summary>
+
+**Short-read WGS:** change `--sample_type` to `wgs`. Targeted assembly recruits island/flank reads and recovers mates from the full host-depleted stream, then compares MEGAHIT and metaSPAdes reconstructions. For read profiling alone, set `--tumor_targeted_assembly false`.
+
+**WES:** use `--sample_type wes`. Optionally supply `--wes_capture_bed /refs/targets.bed` for input-alignment capture QC. FASTQ input has no input-alignment capture metrics. WES evidence depends on capture and off-target sampling; a negative does not establish absence.
+
+**RNA:** use `--sample_type rna` and replace `--hg38_db` with `--rna_splice_db /refs/GRCh38.splice_sr.mmi` (or FASTA). Optional settings are `--rna_junctions_bed /refs/junctions.bed` and `--rna_library_type polyA|total|unknown`. Human depletion is splice-aware. RNA evidence reflects expression and library preparation, not genomic island completeness or demonstrated toxin activity. `clb_transcripts_detected` counts genes with ≥3 assigned reads by default, not reconstructed transcripts.
+
+**ONT/HiFi:** add `--read_type ont` or `hifi` to a WGS/RNA run. Supply `--hg38_db_long` (WGS) or `--rna_splice_db_long` (RNA), plus `--t2t_phix_db_long`. Use FASTA or indexes built for the appropriate long-read preset; short-read indexes are not interchangeable. Long-read targeted reassembly, MAG analysis, Bracken taxonomy, `--pks_locus_specificity`, and `--pks_carrier_attribution` are not supported.
+
+</details>
+
+<details>
+<summary><strong>Alignment, HMMs, prefiltering, and optional read checks</strong></summary>
+
+**Alignment:** short reads map to the full IHE3034 reference genome with Bowtie2, followed by MAPQ ≥40 filtering and assignment to *clbA–clbS*. Long reads use minimap2 and featureCounts long-read mode. Gene counts are read counts, not fragment counts.
+
+**HMMs:** read profiling uses nucleotide models and `nhmmscan` (default E-value `1e-10`). `both` keeps alignment and HMM counts separate. HMM-only metagenome runs have no alignment coverage, `read_evidence.tsv`, or alignment-dependent optional checks; MAG analysis remains available independently. `--hmm_chunking true` enables chunked scanning. The protein HMM search in MAG analysis is a separate step.
+
+**Prefilter:** `--prefilter_mode auto` becomes `balanced` for a metagenome supplied with `--kraken_db`, and `off` otherwise. Balanced mode uses KrakenUniq to retain the selected bacterial group and DIAMOND to rescue *clb*-like reads from the rejected set; rescue must remain enabled. It does not narrow assembly input or the metagenome RPM denominator. Set `--prefilter_mode off` explicitly if you want unfiltered profiling.
+
+**Taxonomy:** `--pks_taxa true` describes island-aligned reads. `--pks_community_taxa true` describes the complete non-host classification report and requires balanced prefiltering. Both require `--kraken_db` and a matching `--bracken_read_length` model. These outputs are **read-level taxonomic support, not carrier attribution**. Whole-community taxonomy can run with HMM-only profiling; island-read taxonomy cannot.
+
+**Locus specificity:** compares supporting reads with a *pks*-negative decoy panel. It distinguishes retained support, cross-mapping, insufficient power, and incomplete measurement.
+
+**Carrier attribution:** compares supporting reads with a *pks*-positive carrier panel and reports ambiguity at strain/genus level. It identifies the best-supported candidate within that panel; it does not physically link the island to a reconstructed genome. Both optional checks need prepared panels: see [panel setup](docs/running/specificity.md).
+
+</details>
+
+## Read the results
+
+**[Open the example HTML report](https://htmlpreview.github.io/?https://github.com/AlexandrovLab/pksProfiler/blob/main/examples/results/cohort_report/pks_cohort_report.html)**
+
+Explore a synthetic WGS cohort before running the pipeline. This example illustrates the report layout and evidence displays; it is not a validation dataset or an example of every supported mode.
+
+[HTML source](examples/results/cohort_report/pks_cohort_report.html) · [Report table (TSV)](examples/results/cohort_report/pks_cohort_report.tsv) · [QC table](examples/results/cohort_report/pks.qc.summary.tsv)
+
+In a completed run, open `results/cohort/pks_cohort_report.html`. Where targeted WGS assembly produced plots, its **contigs** links open `by_sample/<sample>/figures/contig_validation.svg`: the IHE3034 reference gene track, aligned MEGAHIT/metaSPAdes contigs, and raw read depth across the *pks* region. Keep the report with its `by_sample` output tree, because figure panels use relative file links. The bundled synthetic example shows the cohort layout; it does not include every run-specific plot.
+
+| Start here | What to look for |
 |---|---|
-| `--hg38_db`, `--t2t_phix_db` | removing human reads — every run (`rna` takes `--rna_splice_db` in place of `--hg38_db`) |
-| `--rna_splice_db`, `--rna_junctions_bed` | splice-aware human depletion for `--sample_type rna` (prebuilt: `bash scripts/download_rna_references.sh <dir>`, ~12 GB) |
-| `--hg38_db_long`, `--rna_splice_db_long`, `--t2t_phix_db_long` | the same passes for `--read_type ont`/`hifi` (index built with the long-read preset, or FASTA) |
-| `--pangenome_db` | optional extra human-read removal pass |
-| `--kraken_db` | read-level taxonomic support (species abundances), and the optional prefilter |
-| `--genomad_db` | prophage detection |
-| `--gtdbtk_db`, `--checkm2_db` | naming and quality-scoring draft genomes |
+| `cohort/pks_cohort_report.html` | Cohort overview, mode-specific evidence, and enabled analyses |
+| `cohort/pks.master_summary.tsv` | One sample per row, joining the enabled stages |
+| `cohort/qc/pks.qc.summary.tsv` | Read attrition, missing stages, and terminal status |
+| `cohort/gene_counts/pks.gene.counts.{align,hmm}.txt` | One *clb* gene per row, one sample per column; methods stay separate |
+| `by_sample/<sample>/` | Evidence, alignments, assemblies, genome bins, and optional checks |
+| `RUN_REPORT.txt` | Run settings, references, software versions, and provenance |
 
-### Which database build did this run use?
+**Metagenome abundance** is `pks_reads × 1,000,000 / host_depleted_reads`. The denominator is the complete final host-depleted stream, before optional profiling prefiltering. A zero denominator is reported as `NA`.
 
-T7 (Ludmil, 28 Sep). A path is not a version. Unpack a newer GTDB release over
-`.../gtdbtk_r232`, or re-download the geNomad database in place, and every run before and
-after reports the same `--gtdbtk_db` line — so a results tree could not say which
-reference produced it.
+**A missing result is not a negative.** Check QC and stage status first. For short WGS, QC's `completed_negative` includes `localized_indeterminate`; inspect `read_evidence.tsv` to distinguish weak evidence from zero reads.
 
-`conf/databases.tsv` freezes the set: for each database, the release it declares about
-itself, its path on TSCC, its size and file count, a fingerprint, and a real content
-`sha256` of one small release-defining file. `scripts/record_database_versions.sh`
-recomputes the fingerprint at the end of every run for the databases that run was
-actually pointed at, compares it with the frozen one, writes `runs/database_versions.tsv`,
-and RUN_REPORT.txt prints it under **DATABASE VERSIONS (as read)** with a `frozen` /
-`CHANGED` / `not_in_manifest` verdict per database. A run against a substituted database
-says so in its own report.
+<details>
+<summary><strong>Short-read WGS tiers and mode-specific files</strong></summary>
 
-The fingerprint is a `sha256` over a sorted listing of every file's path and size, not a
-checksum of the bytes, because the set is 706 GB — KrakenUniq's `database.kdb` alone is
-574 GB — and reading all of it on every run costs tens of minutes to learn nothing. The
-listing takes under a second, and a rebuilt, re-downloaded or extended database changes
-it. What it cannot see is an in-place edit that preserves every file's size; the frozen
-`key_file_sha256` is the backstop for that, checked by hand with `sha256sum`. Sizes are
-hashed and mtimes are not: an `rsync` or a restore from backup rewrites mtimes without
-changing the data, and that is the same database.
+Each positive WGS tier requires **all three thresholds**. Breadth is the fraction of the canonical 50,768-bp island covered at ≥1×.
 
-Bracken and MLST have no row: Bracken's read-length models are the
-`database<N>mers.kmer_distrib` files inside the KrakenUniq directory, already covered by
-that row, and mlst's PubMLST scheme snapshot ships inside the conda package, frozen by
-`mlst=2.35.0` in `conda_envs/mlst_env.yml`. Both are explained in `conf/databases.tsv`.
+| Tier | Assigned reads | Genes detected | Island breadth |
+|---|---:|---:|---:|
+| `extensive_island` | ≥100 | ≥10 | ≥15% |
+| `broad_island` | ≥30 | ≥8 | ≥7.5% |
+| `multi_gene` | ≥5 | ≥3 | ≥1% |
+| `localized_indeterminate` | ≥1; below `multi_gene` criteria | — | — |
+| `negative` | 0 | 0 | — |
 
-To re-freeze after a deliberate database change, run
-`scripts/record_database_versions.sh` over the new paths and update `conf/databases.tsv`
-from its output — in a commit that says what changed and why.
+These are operational evidence tiers, not calibrated probabilities or clinical diagnoses. Short WGS also reports fragment/deduplication sensitivity checks without replacing the primary raw-read tier.
+
+| Mode | Per-sample evidence file |
+|---|---|
+| WGS | `read_evidence.tsv` (tiered only for short reads) |
+| Metagenome | `read_evidence.tsv` (`untiered`, plus RPM) |
+| WES | `wes_evidence.tsv` |
+| RNA | `rna_evidence.tsv` |
+
+The four read-evidence files above require alignment profiling; HMM-only runs instead produce HMM counts. Targeted WGS results are in `contigs/final_evidence/final_pks_evidence.tsv`. Metagenome genome results are in `genomes/pks_mag_summary.tsv`; status is in `genomes/mag_status.tsv`.
+
+</details>
 
 ## Software
 
-Every task runs in a conda environment from `conda_envs/`, pinned as below (generated from those files).
-T6 (Ludmil, 28 Sep): every package each environment declares now carries an exact version. Nothing is
-left to conda's solve -- `htslib`, `r-base` and the R packages used to be listed with no version at all,
-and the engines underneath CheckM2, geNomad, GTDB-Tk, Prokka and mlst (TensorFlow, keras, prodigal,
-pplacer, fastANI, blast ...) were not declared at all, so a rebuild months from now could change results
-without a line of this repo changing. Each pin names the version that was already resolving when it was
-frozen, so pinning recorded the validated build rather than moving it; see
-`pksProfiler_analysis/.../T6T7` for the A/B evidence. Reference *databases* are frozen separately, in
-`conf/databases.tsv`.
-RUN_REPORT.txt records what each task actually ran, and which database build it read.
+Nextflow creates the task-specific environments from [`conda_envs/`](conda_envs/). Keep the environments and work directory available when resuming. Use `-profile mamba` for Mamba or replace `local` with your scheduler profile; see [`conf/`](conf/).
 
-| Environment | Pinned versions |
+<details>
+<summary><strong>Pinned environment versions</strong></summary>
+
+| Environment | Pinned packages |
 |---|---|
 | `checkm2_env.yml` | python 3.12.15, checkm2 1.1.0, diamond 2.2.8, tensorflow 2.19.1, scikit-learn 1.9.1, numpy 2.5.4 |
 | `fastp_env.yml` | fastp 1.3.7 |
@@ -247,168 +281,17 @@ RUN_REPORT.txt records what each task actually ran, and which database build it 
 | `targeted_recruit_env.yml` | python 3.11.9, bowtie2 2.5.5 |
 | `targeted_spades_env.yml` | python 3.11.9, spades 4.3.0 |
 
-Nextflow >= 24.10.0 (CI runs 24.10.0).
+</details>
 
-## How strong is the evidence?
+## Further documentation
 
-Read-level evidence is a tier, not a yes/no call. All three criteria must hold, and a sample gets
-the highest tier it satisfies.
+- **Inputs:** [BAM/CRAM](docs/running/bam.md) · [FASTQ](docs/running/fastq.md)
+- **Modes:** [WES/RNA](docs/running/wes_rna.md) · [Long reads](docs/running/long_reads.md) · [HMMs](docs/running/hmm.md)
+- **Assembly:** [WGS reassembly](docs/running/assembly.md) · [Metagenome binning](docs/running/mags.md) · [Community context](docs/running/community_context.md) · [Strain typing](docs/running/strain_typing.md)
+- **Read analyses:** [Taxonomy](docs/running/taxonomy.md) · [Prefilter](docs/prefilter.md) · [Specificity and attribution](docs/running/specificity.md)
+- **Reference:** [Outputs](docs/output.md) · [HPC](docs/hpc.md) · [Glossary](docs/glossary.md) · [HMM model provenance](ref/hmm/PROVENANCE.md) · [Tool citations](CITATIONS.md)
 
-| Tier | *clb* reads | *clb* genes | Island breadth at ≥1× | Reassembled by default? |
-|---|---:|---:|---:|:--:|
-| `extensive_island` | ≥100 | ≥10 | ≥15% | yes |
-| `broad_island` | ≥30 | ≥8 | ≥7.5% | yes |
-| `multi_gene` | ≥5 | ≥3 | ≥1% | no |
-| `localized_indeterminate` | ≥1, but fails one of the above | | | no |
-| `negative` | 0 | — | — | no |
-
-*Breadth* is the fraction of the island's 50,768 bp covered by at least one read. Every threshold
-is a parameter, e.g. `--tumor_broad_island_min_pks_reads 50`. The thresholds apply to
-`--sample_type wgs` only; the `tumor_` prefix in their names is historical and was kept when
-the sample types were renamed (`tumor_wgs` → `wgs`). Metagenome runs report the same evidence
-without a tier.
-
-> **These tiers rank how strong the evidence is. They are not a validated positive/negative test.**
-> They were fitted on cohorts where every sample already carried at least one *pks* read, so what
-> they measure is how well designated positives are retained — not where true positive stops and
-> background mapping begins. A small nonzero breadth is **indeterminate**, not positive. No tier
-> here is a clinical result.
->
-> The one specificity result we have: across **420 matched TCGA tumour/normal pairs**, 0 of 420
-> normals were positive at breadth ≥ 0.05 and above. That bounds the false-positive rate in
-> matched normal tissue; it does not validate the boundaries, which sit well above it.
->
-> 15% and 7.5% are v0.0.1's 20% and 10% converted for a change of measurement axis, not a
-> recalibration — see [`CHANGELOG.md`](CHANGELOG.md).
-
-Strain typing carries a similar limit. MLST reports a type only from exact allele calls, and a
-partial profile is reported as `insufficient_loci` rather than guessed at. On fragmented,
-low-coverage tumour contigs that is the usual outcome: no tumour-derived assembly in the v0.0.2
-test set was typeable.
-
-## Output
-
-```text
-results/
-├── RUN_REPORT.txt          what produced this tree: commit, parameters, databases, versions
-├── by_sample/<sample>/     everything this one sample produced
-│   ├── read_evidence.tsv   evidence tier, reads, genes, breadth
-│   ├── counts.txt          reads per clb gene
-│   ├── alignment/          bam, coverage, per-sample QC
-│   ├── contigs/            recruitment, both assemblies, final evidence
-│   ├── genomes/            draft genomes, completeness, species, annotation
-│   ├── community/          prophages, flanking genes, producer-neighbour tables
-│   ├── strain/             sequence type, clonal complex, phylogroup
-│   └── figures/            coverage plot, taxa barplots, contig validation
-├── cohort/                 gene counts, QC summary, taxonomy, master summary, cohort report
-└── runs/                   Nextflow report, timeline, trace, and every run's record
-```
-
-The sample directory is the unit: if it is not under `by_sample/<sample>/`, it is not about that
-sample. Both sample types write the same paths — `--sample_type` decides which directories exist,
-not where they sit. A sample with no *pks* reads stays in every table as a row of zeros rather
-than disappearing, so "tested and negative" is distinguishable from "never ran", and
-`pks.qc.summary.tsv` carries a `status` column so a sample that failed mid-run is visible rather
-than silently absent.
-
-### One table with everything
-
-Each stage writes its own results, which is awkward to read across. `cohort/pks.master_summary.tsv`
-joins them into one row per sample — whatever ran, with `NA` where a stage did not — and is written
-automatically at the end of every run. You can also run it by hand against a finished (or partly
-finished) results directory, since it only reads published output:
-
-```bash
-python3 scripts/build_master_summary.py --results results \
-  --output results/cohort/pks.master_summary.tsv
-```
-
-The width of the table tells you what the run did: with everything enabled you get read counts,
-the evidence tier and breadth, the structural call from reassembly, the *pks*-positive genome's
-species and completeness, prophage and neighbour counts, island mobility flags, and the sequence
-type and phylogroup — about 30 columns.
-
-### What the output looks like, and what it answers
-
-Every example below is synthetic data committed to the repository, so you can open it before
-running anything. These are the four files worth knowing about; the rest are in the
-[output reference](docs/output.md).
-
-**Is the island there, and how much of it?** — `cohort/gene_counts/pks.gene.counts.align.txt`,
-one row per *clb* gene and one column per sample. A sample with none is a column of nineteen
-zeros, not a missing column, so a negative is a result rather than an absence.
-
-| | Alignment counts | HMM counts |
-|---|---|---|
-| Synthetic positive | [table](examples/results/synthetic_positive/pks.gene.counts.align.txt) | [table](examples/results/synthetic_positive/pks.gene.counts.hmm.txt) |
-| Synthetic negative | [table](examples/results/synthetic_negative/pks.gene.counts.align.txt) | [table](examples/results/synthetic_negative/pks.gene.counts.hmm.txt) |
-
-Run both methods with `--profiling_method both` and the two appear side by side, never merged
-— they answer the same question by different means and are worth disagreeing in the open.
-
-**Did this sample really have nothing, or did it lose its reads on the way?** —
-`cohort/qc/pks.qc.summary.tsv`, one row per sample whether or not it had reads. Read it left to
-right and the answer is in the drop:
-
-| Sample | input_alignment_records | extracted_unmapped_reads | reads_after_fastp | reads_after_hg38 | reads_after_t2t_phix | num_clb_genes_align | reads_clb_genes_align | taxonomy_status | status |
-|---|---:|---:|---:|---:|---:|---:|---:|---|---|
-| SYNTHETIC_01 | 921,440,112 | 14,882,301 | 14,701,118 | 612,447 | 318,902 | 14 | 412 | species_identified | complete |
-| SYNTHETIC_04 | 870,552,901 | 12,904,663 | 12,781,220 | 533,907 | 262,884 | 8 | 37 | below_rank_threshold | complete |
-| SYNTHETIC_08 | 889,447,002 | 13,774,552 | 13,640,775 | 570,119 | 280,447 | 0 | 0 | no_pks_reads | complete |
-
-[Full example, all 17 columns](examples/results/cohort_report/pks.qc.summary.tsv).
-`input_alignment_records` is the library, not the already-extracted subset, so the first drop
-is measurable rather than assumed. `status` separates a partial run from a complete one, and
-`taxonomy_status` says why a sample is not in the species table instead of leaving it absent.
-
-**Which samples in this cohort are worth looking at?** —
-`cohort/pks_cohort_report.html`, one page across every sample: evidence tier, reads, genes,
-island breadth, and the assembly call where there is one. It arranges the pipeline's own
-outputs and derives nothing, so it cannot disagree with the run it describes. Plain HTML with
-no JavaScript, so it also renders inside a sandboxed viewer such as JupyterLab.
-
-[**▶ Open the example cohort report**](https://htmlpreview.github.io/?https://github.com/AlexandrovLab/pksProfiler/blob/main/examples/results/cohort_report/pks_cohort_report.html)
- · [source](examples/results/cohort_report/pks_cohort_report.html) · [same data as TSV](examples/results/cohort_report/pks_cohort_report.tsv)
-
-**What produced these numbers?** — `RUN_REPORT.txt`, at the top of the results tree: the
-commit, the flags actually typed, which stages were enabled, digests of every reference and
-database, the version and path of every tool each task actually ran (checked against its
-pin; a mismatch stops the run by default), which tasks ran, cached or failed with a path
-to each failure's log, and checksums of the cohort tables. Every run keeps its own copy under
-`runs/reports/`, so a `-resume`d tree carries the history of all the runs that built it.
-
-## Running on HPC
-
-Swap `-profile local` for your scheduler and add `-resume` so an interrupted run continues rather
-than restarting. Profiles for TSCC, Biowulf, Slurm, PBS Pro, LSF and SGE are in [`conf/`](conf).
-
-Three things that catch people out: **Java 17+ must be present on the compute nodes**, not just the
-login node, concurrent runs each need their own launch directory or they will collide on
-Nextflow's session lock, and a tool directory your shell puts ahead of conda on PATH shadows
-the pinned environments (every task checks, and stops the run if so). Resource requests are sized from a measured 2,000-sample run rather than
-guessed, and every request keeps a `* task.attempt` multiplier so a task that genuinely needs more
-gets it on retry. See the [HPC guide](docs/hpc.md).
-
-## Documentation
-
-| Guide | |
-|---|---|
-| [BAM and CRAM mode](docs/running/bam.md) · [FASTQ mode](docs/running/fastq.md) | input modes |
-| [HMM and combined modes](docs/running/hmm.md) | profile-model search, and how it differs from alignment |
-| [Island reassembly](docs/running/assembly.md) | evidence tiers, targeted assembly, mobility context |
-| [Genome-resolved analysis](docs/running/mags.md) | recovering draft genomes from a mixed sample |
-| [Community context](docs/running/community_context.md) | prophages, island mobility, neighbouring organisms |
-| [Strain typing](docs/running/strain_typing.md) | sequence type, clonal complex, phylogroup |
-| [Taxonomy](docs/running/taxonomy.md) · [Read prefilter](docs/prefilter.md) | abundances; optional narrowing before profiling |
-| [Output reference](docs/output.md) · [Glossary](docs/glossary.md) | what every file contains; terms |
-| [HPC guide](docs/hpc.md) | schedulers, resources, known pitfalls |
-| [Resume behaviour](docs/running/resume.md) | what `-resume` reuses, and why an rc1 results tree will not resume into v1.0.0 |
-| [Reference models](ref/hmm/PROVENANCE.md) | how the *clb* profile models were built, and what they are not calibrated for |
-| [Host-depletion references](docs/host_depletion_references.md) | exactly which assemblies, decoys and phiX are in `--hg38_db` and `--t2t_phix_db`, and how they were built |
-| [Tool citations](CITATIONS.md) | every tool the pipeline calls, with DOIs |
-
-Tests run on every push: `bash tests/run_checks.sh` for the full set, or
-`python3 -m unittest discover -s tests` for the fast checks that need no Nextflow.
+<!-- Documentation reviewed against the v1.0.0 tree (6 November 2026). Structure and flow follow the October 2026 documentation review; facts re-verified against this revision. -->
 
 ## Citation
 
