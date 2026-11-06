@@ -145,25 +145,33 @@ jobs:
         with:
           miniconda-version: latest
           auto-update-conda: false
-          auto-activate-base: true
+          # NOT activated. With base active it is on PATH in every login shell, and base
+          # always carries its own python -- 3.14.9 on the current image. Nextflow
+          # inherits that PATH and a task sees base's python ahead of the one its own
+          # environment pins (3.12.15 in pks_align_env), so --tool_version_check strict
+          # refuses the run. conda itself stays reachable through condabin, which is all
+          # the checks need; the steps below that genuinely want base ask for it.
+          auto-activate-base: false
       - name: Cache the pipeline's conda environments
         # Keyed on the environment files' content, which is exactly what Nextflow hashes
         # an environment from, so a cache hit is a genuine reuse and not an approximation.
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/conda_cache
-          key: pks-conda-${{ runner.os }}-${{ hashFiles('conda_envs/*.yml') }}
+          # v2: a failed run still saves its cache in the post step, so the partial
+          # environments left by the red v1.0.0 builds were being restored into later
+          # runs. Nextflow only checks that an environment directory exists, so a
+          # half-built one is reused as though complete and its tools resolve from
+          # elsewhere on PATH. Bump this suffix to discard such a cache.
+          key: pks-conda-v2-${{ runner.os }}-${{ hashFiles('conda_envs/*.yml') }}
       - name: Install minimap2 and samtools for fixture building
         # Into a DEDICATED environment, never base.
         #
-        # setup-miniconda sets auto-activate-base: true, so every `shell: bash -l`
-        # step activates base and puts its bin on PATH. Nextflow inherits that PATH
-        # and hands it to each task, where it sits AHEAD of the task's own pinned
-        # conda environment. Installing these two into base therefore made every task
-        # resolve minimap2, samtools and bgzip (which samtools brings via htslib) from
-        # base instead -- samtools 1.21 against a pinned 1.24 -- and
-        # --tool_version_check strict refused the run, correctly. Two v1.0.0 tags went
-        # red this way before the cause was understood.
+        # Base is no longer auto-activated (see the Miniconda step), but these still
+        # do not belong in it: anything in base lands on PATH the moment anything
+        # activates it, and would then sit ahead of each task's pinned environment.
+        # samtools also brings bgzip via htslib, so one `-n base` install displaced
+        # three pinned tools at once and --tool_version_check strict refused the run.
         #
         # A separate env keeps base clean, so nothing shadows the pinned environments.
         # The fixture builders need only MINIMAP2_BIN and find samtools beside it, so
@@ -232,7 +240,7 @@ jobs:
         # its own step for why). Without them those tests error rather than skip, and
         # the assertion would fail for the wrong reason.
         shell: bash -l {0}
-        run: pip install "pandas==2.3.0" "matplotlib==3.10.3"
+        run: conda activate base && pip install "pandas==2.3.0" "matplotlib==3.10.3"
       - name: Assert the critical tests actually ran
         # rc2 review 2.3: "Fail the release if critical tests are skipped. The fast test
         # environment can skip rescue, fragment-support and competitive-realignment tests
@@ -252,6 +260,7 @@ jobs:
         env:
           CONDA_CACHE_DIR: ${{ runner.temp }}/conda_cache
         run: |
+          conda activate base
           python tests/assert_required_coverage.py -q \
             --json "${{ runner.temp }}/required-coverage.json"
       - name: Keep the required-coverage summary
