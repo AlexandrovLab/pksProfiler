@@ -5,16 +5,17 @@
 #
 # Produced by tests/record_local_execution_checks.sh. Do not hand-edit.
 #
-# commit: 21fdc406e07abe2eae579d7a9e6575920aa0b221
-# source_digest: bdb4e2d393e408f6b2cd3f4ad4b35f8816c31d0057daa1f9e2636e2ce4137b0b
-# recorded_on: 2026-10-22
+# commit: 11567eff5336e2be2d14c12cecc4f74dfb4580cc
+# source_digest: 6160fb5999cc97dbf0bfdf5e30d94345f32e5134a51f5efcaecd4c2c09881fa2
+# recorded_on: 2026-11-06
 # recorded_by: ammalabbasi <amabbasi@ucsd.edu>
-# host: tscc-14-32
-# signed_off: ammalabbasi <amabbasi@ucsd.edu> ran these on tscc-14-32 and confirms the results above
+# host: tscc-1-31
+# signed_off: ammalabbasi <amabbasi@ucsd.edu> ran these on tscc-1-31 and confirms the results above
+# skip_waiver: tests/check_metagenome_mag_execution.sh: conda cache quota on the restricted tree blocks rebuilding the fastp env; this check last passed on 2026-10-22 (25 assertions, commit 21fdc40), and since that tree the digest scope changed only by the version string and one null param declaration -- nothing this check exercises. Decision: Ammal Abbasi, 2026-11-06.
 #
 # DB_ROOT=/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs
 # CONDA_CACHE_DIR=/tscc/lustre/restricted/alexandrov-ddn/users/amabbasi/pksProfiler/pksProfiler_analysis/v1.0.0-rc1_validation/run_2026-10-22/RC4/conda_cache
 #
 check	status	tests	duration_s	log
-tests/assert_required_coverage.py	pass	1423	89	/tscc/lustre/restricted/alexandrov-ddn/users/amabbasi/pksProfiler/pksProfiler_analysis/v1.0.0-rc1_validation/run_2026-10-22/RC4/logs3/mag_record_logs/assert_required_coverage.log
-tests/check_metagenome_mag_execution.sh	pass	25	64	/tscc/lustre/restricted/alexandrov-ddn/users/amabbasi/pksProfiler/pksProfiler_analysis/v1.0.0-rc1_validation/run_2026-10-22/RC4/logs3/mag_record_logs/check_metagenome_mag_execution.log
+tests/assert_required_coverage.py	pass	1428	54	.local_execution_logs/assert_required_coverage.log
+tests/check_metagenome_mag_execution.sh	skipped	0	0	-
