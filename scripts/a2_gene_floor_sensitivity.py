@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""A2: how much of the cohort's positivity rests on genes seen once?
+
+rc2 review item A2 (Ludmil, 15 Oct):
+
+    One-read gene floor: full-cohort sensitivity at >=1, >=2, >=3 reads per gene; for every
+    positive report how many qualifying genes rest on exactly one read; focus on the +20
+    newly positive.
+
+`clb_genes_detected` counts a clb gene as present at >= 1 assigned read
+(scripts/classify_tumor_pks_evidence.py), and the gene count is one of the three criteria
+every tier requires. So a gene carried by a single read can be what lifts a sample over a
+tier boundary. This re-derives each sample's gene count and tier at floors of 1, 2 and 3
+reads per gene, using the SAME tier rules, and reports how the cohort moves.
+
+PRIVACY: this reads a per-sample count matrix, which is derived from protected data, and
+writes ONLY pooled aggregates -- counts of samples, never a sample identifier, never a row.
+Run it yourself; it is written so its output can be pasted into a report.
+
+    python3 scripts/a2_gene_floor_sensitivity.py \\
+        --gene-counts results/cohort/gene_counts/pks.gene.counts.align.txt \\
+        --master      results/cohort/pks.master_summary.tsv \\
+        --out         a2_gene_floor.tsv
+
+With --baseline-master <an older run's master summary>, the samples positive now but not
+in that run are reported as their own group: the "newly positive" he asked to focus on.
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import sys
+from pathlib import Path
+
+# scripts/classify_tumor_pks_evidence.py: all three criteria must hold.
+TIERS = [("extensive_island", 100, 10, 15.0),
+         ("broad_island", 30, 8, 7.5),
+         ("multi_gene", 5, 3, 1.0)]
+POSITIVE = {t[0] for t in TIERS}
+FLOORS = (1, 2, 3)
+
+
+def tier_for(reads, genes, breadth):
+    for name, min_reads, min_genes, min_breadth in TIERS:
+        if reads >= min_reads and genes >= min_genes and breadth >= min_breadth:
+            return name
+    return "localized_indeterminate" if reads >= 1 else "negative"
+
+
+def num(x, default=0.0):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return default
+
+
+def read_matrix(path):
+    """{sample: [per-gene counts]} from a gene x sample matrix (genes in rows)."""
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        rows = [l.rstrip("\n").split("\t") for l in fh if l.strip() and not l.startswith("#")]
+    if not rows:
+        sys.exit(f"{path}: empty")
+    samples = rows[0][1:]
+    per_sample = {s: [] for s in samples}
+    for row in rows[1:]:
+        for sample, value in zip(samples, row[1:]):
+            per_sample[sample].append(num(value))
+    return per_sample
+
+
+def read_master(path):
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        return {r["sample"]: r for r in csv.DictReader(fh, delimiter="\t")}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--gene-counts", required=True,
+                    help="cohort/gene_counts/pks.gene.counts.align.txt")
+    ap.add_argument("--master", required=True, help="cohort/pks.master_summary.tsv")
+    ap.add_argument("--baseline-master", default=None,
+                    help="an earlier run's master summary; samples positive now and not "
+                         "then are reported separately as the newly positive")
+    ap.add_argument("--out", default="a2_gene_floor.tsv")
+    a = ap.parse_args()
+
+    counts = read_matrix(a.gene_counts)
+    master = read_master(a.master)
+    baseline = read_master(a.baseline_master) if a.baseline_master else None
+
+    shared = [s for s in master if s in counts]
+    if not shared:
+        sys.exit("no samples in common between the matrix and the master summary")
+
+    newly = set()
+    if baseline is not None:
+        for s in shared:
+            was = (baseline.get(s, {}).get("read_evidence") or "").strip()
+            now = (master[s].get("read_evidence") or "").strip()
+            if now in POSITIVE and was not in POSITIVE:
+                newly.add(s)
+
+    groups = [("all samples", shared)]
+    if baseline is not None:
+        groups.append((f"newly positive (vs baseline, n={len(newly)})", sorted(newly)))
+
+    out_rows, notes = [], []
+    for label, members in groups:
+        if not members:
+            notes.append(f"{label}: no samples; nothing to report")
+            continue
+        for floor in FLOORS:
+            tally, single_dependent, genes_on_one = {}, 0, 0
+            for s in members:
+                row = master[s]
+                reads = num(row.get("pks_reads"))
+                breadth = num(row.get("island_breadth_1x"))
+                vals = counts[s]
+                genes_at_floor = sum(1 for v in vals if v >= floor)
+                tier = tier_for(reads, genes_at_floor, breadth)
+                tally[tier] = tally.get(tier, 0) + 1
+                if floor == 1:
+                    ones = sum(1 for v in vals if v == 1)
+                    genes_on_one += ones
+                    # Would dropping its single-read genes cost this sample its tier?
+                    if tier in POSITIVE and ones:
+                        if tier_for(reads, sum(1 for v in vals if v >= 2), breadth) != tier:
+                            single_dependent += 1
+            positives = sum(n for t, n in tally.items() if t in POSITIVE)
+            for tier in ["extensive_island", "broad_island", "multi_gene",
+                         "localized_indeterminate", "negative"]:
+                out_rows.append([label, floor, tier, tally.get(tier, 0),
+                                 f"{100*tally.get(tier,0)/len(members):.1f}"])
+            out_rows.append([label, floor, "ANY_POSITIVE", positives,
+                             f"{100*positives/len(members):.1f}"])
+            if floor == 1:
+                out_rows.append([label, 1, "genes_resting_on_exactly_one_read", genes_on_one, ""])
+                out_rows.append([label, 1, "positives_that_lose_their_tier_at_floor_2",
+                                 single_dependent, f"{100*single_dependent/max(1,positives):.1f}"])
+
+    with open(a.out, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh, delimiter="\t")
+        w.writerow(["# A2 gene-floor sensitivity. Pooled counts only, no sample identifiers."])
+        w.writerow(["# Tier rules are classify_tumor_pks_evidence.py's; only the gene floor varies."])
+        w.writerow(["group", "gene_floor_reads", "metric", "samples", "percent_of_group"])
+        w.writerows(out_rows)
+
+    print(f"samples analysed   {len(shared)}")
+    if baseline is not None:
+        print(f"newly positive     {len(newly)}")
+    print()
+    for label, floor, metric, n, pct in out_rows:
+        if metric in ("ANY_POSITIVE", "genes_resting_on_exactly_one_read",
+                      "positives_that_lose_their_tier_at_floor_2"):
+            print(f"  {label:<34} floor>={floor}  {metric:<42} {n:>6} {pct:>6}")
+    for n in notes:
+        print(f"  NOTE {n}")
+    print(f"\nwrote {a.out}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
