@@ -87,6 +87,34 @@ class TheWorkflowRunsTheRealChecksOnATag(unittest.TestCase):
             with self.subTest(script=script):
                 self.assertIn(script, job)
 
+    def test_the_job_installs_every_external_tool_its_checks_resolve(self):
+        """The v1.0.0 tag build failed because the job installed minimap2 but not samtools.
+
+        The execution checks need two tools that a stock runner does not carry and that
+        Nextflow does not provide for them: minimap2, to build the .mmi fixtures, and
+        samtools, to sort and index the BAM fixtures. Nextflow builds its own copies
+        inside the pipeline's conda envs, but the fixture builders run BEFORE the
+        pipeline and resolve these from the environment. Installing one and not the
+        other fails only at tag time, in the job that nothing else exercises.
+        """
+        job = CI.split("  e2e-execution:", 1)[1].split("\n  release-gate:", 1)[0]
+        install = [l for l in job.splitlines() if "conda install" in l]
+        self.assertTrue(install, "the job installs no fixture tools at all")
+        installed = " ".join(install)
+        for tool in ("minimap2", "samtools"):
+            with self.subTest(tool=tool):
+                self.assertIn(tool, installed,
+                              f"{tool} is resolved by tests/check_*.sh before the pipeline "
+                              f"runs, so the job has to install it")
+
+    def test_the_resolved_tool_paths_do_not_depend_on_PATH_surviving_the_step(self):
+        """Each `run:` is its own login shell; base-env PATH did not carry over at v1.0.0."""
+        job = CI.split("  e2e-execution:", 1)[1].split("\n  release-gate:", 1)[0]
+        self.assertIn("MINIMAP2_BIN=", job,
+                      "resolve the binary once and export it, rather than trusting PATH")
+        self.assertIn("GITHUB_ENV", job,
+                      "the exported path has to reach the later steps via GITHUB_ENV")
+
     def test_the_skip_assertion_runs_where_the_tools_exist(self):
         job = CI.split("  e2e-execution:", 1)[1].split("\n  release-gate:", 1)[0]
         self.assertIn("assert_required_coverage.py", job)

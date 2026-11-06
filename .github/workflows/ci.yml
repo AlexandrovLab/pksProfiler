@@ -145,12 +145,33 @@ jobs:
         with:
           path: ${{ runner.temp }}/conda_cache
           key: pks-conda-${{ runner.os }}-${{ hashFiles('conda_envs/*.yml') }}
-      - name: Install minimap2 for fixture index building
-        # Nextflow builds its own minimap2 (and every other tool) inside the
-        # pipeline's own conda envs; this one is only for the tests/fixtures/
+      - name: Install minimap2 and samtools for fixture building
+        # Nextflow builds its own copies of these (and every other tool) inside the
+        # pipeline's own conda envs; these are only for the tests/fixtures/
         # generate_e2e_fixtures.py index-build step, before the pipeline runs.
+        #
+        # samtools is needed too, not just minimap2: the fixture builders sort and index
+        # the BAM fixtures with it. check_e2e_execution.sh and check_malformed_input_
+        # execution.sh both look for it, and it is not present on a stock runner.
+        #
+        # The path is exported rather than left to PATH. The v1.0.0 tag build failed here
+        # with "no minimap2 found" even though this install step had succeeded, because
+        # the next step runs in its own login shell and the base environment's bin
+        # directory did not reach its PATH. Resolving the binaries now, failing loudly
+        # here if the install produced none, and handing absolute paths to the checks
+        # removes that dependency: tests/check_*.sh honour MINIMAP2_BIN first.
         shell: bash -l {0}
-        run: conda install -y -n base -c bioconda -c conda-forge minimap2
+        run: |
+          conda install -y -n base -c bioconda -c conda-forge minimap2 samtools
+          mm=$(command -v minimap2 || true); [[ -x "$mm" ]] || mm="$CONDA/bin/minimap2"
+          st=$(command -v samtools || true); [[ -x "$st" ]] || st="$CONDA/bin/samtools"
+          for b in "$mm" "$st"; do
+              [[ -x "$b" ]] || { echo "::error::$b is missing after conda install"; exit 1; }
+          done
+          echo "MINIMAP2_BIN=$mm" >> "$GITHUB_ENV"
+          echo "PATH=$(dirname "$mm"):$PATH" >> "$GITHUB_ENV"
+          "$mm" --version
+          "$st" --version | head -1
       - name: Run the real end-to-end execution check
         shell: bash -l {0}
         env:
