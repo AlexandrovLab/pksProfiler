@@ -112,10 +112,18 @@ jobs:
   # job, on the tagged commit, like main does.
   e2e-execution:
     name: End-to-end execution
+    # Release-candidate branches run this too, not only main and tags. Twice on
+    # 6 Nov 2026 a v1.0.0 tag went red here on a fault that no branch build could
+    # have shown, because this job was the only thing that exercised it and it did
+    # not run until the tag existed. A release branch is exactly where the cost of
+    # running it is worth paying: by then the pushes are few and a red tag is dear.
+    # Ordinary feature/** branches are deliberately still excluded.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/fix/v')) ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')) ||
       startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 180

@@ -79,6 +79,19 @@ class TheWorkflowRunsTheRealChecksOnATag(unittest.TestCase):
         self.assertIn("startsWith(github.ref, 'refs/tags/v')", condition,
                       "a v* tag must run the real execution checks, not only unit tests")
 
+    def test_a_release_branch_runs_the_execution_job_before_the_tag_exists(self):
+        """Two v1.0.0 tags went red on a fault only this job could show.
+
+        It used to run on main, tags, schedules and dispatch only, so a release branch
+        could be green through every push and still fail the moment it was tagged --
+        which is the worst moment to find out, because the tag then has to be moved.
+        Release-candidate branches now run it too.
+        """
+        job = CI.split("  e2e-execution:", 1)[1].split("\n  release-gate:", 1)[0]
+        condition = job.split("runs-on:", 1)[0]
+        self.assertIn("refs/heads/fix/v", condition,
+                      "a fix/v* release branch must run the execution checks before it is tagged")
+
     def test_the_execution_job_runs_every_execution_check_the_runner_can(self):
         job = CI.split("  e2e-execution:", 1)[1].split("\n  release-gate:", 1)[0]
         for script in ("check_e2e_execution.sh", "check_malformed_input_execution.sh",
