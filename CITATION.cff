@@ -11,6 +11,7 @@ authors:
 repository-code: "https://github.com/AlexandrovLab/pksProfiler"
 license: BSD-2-Clause
 version: '1.0.0'
+date-released: '2026-11-06'
 keywords:
   - colibactin
   - pks island
