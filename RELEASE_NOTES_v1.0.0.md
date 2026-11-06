@@ -1,74 +1,86 @@
 # pksProfiler v1.0.0
 
-The first release. It is the tree the rc2 review's reproducibility and operational items
-were closed on, and it is what every number we report was produced with.
+pksProfiler finds and characterises the *pks* island — the 19 *clb* genes that produce
+colibactin, a bacterial toxin that damages human DNA — in sequencing data. One pipeline
+covers gut metagenomes, whole-genome, whole-exome and RNA sequencing, short reads or long.
 
-**No analytical parameter, threshold or positivity rule changed anywhere in the rc line.**
-A sample's tier under v1.0.0 is the tier v1.0.0-rc1 computed for it. The work since rc1 is
-reproducibility, failure handling and documentation.
+## What every run does, in every assay
 
-## What it does
+- **Takes FASTQ, BAM or CRAM.** Aligned input has its reads extracted first; FASTQ enters
+  directly. BAM and CRAM are detected per file.
+- **Removes human reads** against GRCh38 and T2T/phiX, splice-aware for RNA, and reports
+  how many reads survive each step.
+- **Counts reads on all 19 *clb* genes**, `clbA` through `clbS`, by alignment to the
+  canonical IHE3034 island. Nucleotide HMMs can run instead of, or alongside, alignment —
+  the two are always reported as separate numbers, never merged.
+- **Measures how much of the island is covered**, as the fraction of its 50,768 bp seen at
+  1×, 2× and 3×.
+- **Writes a per-sample evidence file** whose fields suit the assay, plus one cohort table
+  joining every sample and every stage that ran.
+- **Records what it did**: every parameter, reference, database fingerprint and tool
+  version, so a run can be reproduced or audited later.
 
-Detects and characterises the 19 *clb* genes of the *pks* island in gut metagenomes, WGS,
-WES and RNA-seq, with a separate evidence report per assay. Read profiling is the core;
-metagenomes can add community assembly and genome binning, and short-read WGS can add
-targeted reassembly of the island from its own reads.
+## What each assay adds
 
-## Reproducibility
+- **Gut metagenomes** — *clb* reads per million host-depleted reads, so cohorts of
+  different depth can be compared. Optionally assembles the community (MEGAHIT), groups
+  contigs into genomes (MetaBAT2), assesses their quality (CheckM2) and taxonomy (GTDB-Tk),
+  and reports which recovered genome carries the island, with its prophage and
+  flanking-gene context and seven-locus *E. coli* strain type.
+- **Whole-genome sequencing** — short reads get an evidence tier: `extensive_island`,
+  `broad_island`, `multi_gene`, `localized_indeterminate` or `negative`, each requiring a
+  read count, a gene count and an island breadth together. Qualifying samples then have the
+  island reassembled from their own reads with two assemblers independently (MEGAHIT and
+  metaSPAdes), and agreement between them is reported.
+- **Whole-exome sequencing** — off-target *clb* reads are counted and reported as
+  exploratory evidence, with capture QC when a target BED is supplied.
+- **RNA-seq** — expressed *clb* sequence and expression breadth, with the number of genes
+  passing a configurable read threshold.
 
-- **Release CI runs the real execution tests on the tag itself**, not only unit tests and
-  graph checks. The two checks a GitHub runner cannot perform — a zero-skip unit run, which
-  needs R, and the metagenome MAG check, which needs ~100 GB of real GTDB-Tk, CheckM2 and
-  geNomad data — are recorded on the cluster against a content digest of everything that
-  changes a run. The gate recomputes that digest from the tagged tree and refuses a
-  mismatch, an unsigned record, a failure, or a check that asserted nothing.
-- **A skipped check must be a signed, written-down waiver.** The gate prints it on every tag
-  build and still refuses a skip of the unit gate, a skip with no stated reason, and a
-  failure dressed as a waiver.
-- **Databases are frozen** in `conf/databases.tsv` with a content checksum of each one's
-  release-defining file; every run recomputes a fingerprint and prints frozen or CHANGED.
-- **Environments are pinned and solved.** All 18 conda environments pin exact versions, and
-  `conda_envs/solved/` records what the solver actually installed — every package, build,
-  channel URL and md5 — for the 11 the recorded release checks built.
-- **Host-depletion references are documented**, including that the index named `phix`
-  contains no phiX.
-- **Resume behaviour is documented**: a changed scripts digest means `-resume` will not
-  reuse most tasks from an earlier release.
+## Optional analyses, switched on per run
 
-## Robustness
+- Island-read taxonomy, and whole-community taxonomy (KrakenUniq/Bracken)
+- Locus-detection specificity against a *pks*-negative decoy panel
+- Carrier attribution against a *pks*-positive panel, reporting ambiguity at strain and
+  genus level
+- A prefilter that keeps the bacterial fraction and rescues *clb*-like reads from what it
+  discards
 
-- One sample failing in `lowScoreRescueProfile` no longer stops the cohort; the
-  failure-policy test now discovers per-sample processes from the source rather than a
-  hand-maintained list.
-- MAG analysis survives a failed CheckM2 or GTDB-Tk task, and a run in which *every* sample
-  fails upstream now ends with its WHAT FAILED report instead of crashing.
+## What you get out
 
-## Interpretation limits
+Everything lands under one results directory.
 
-These are operational evidence tiers, not calibrated probabilities and not a clinical
-result. Read them with the cohort's QC: a missing result is not a negative.
+| | |
+|---|---|
+| `cohort/pks_cohort_report.html` | **The report to open first.** Self-contained HTML: every sample with its evidence, the measurements behind each call, whichever optional analyses ran, and a closing section stating where each number came from |
+| `cohort/pks.master_summary.tsv` | One row per sample, one column per measurement, joining every stage that ran |
+| `cohort/qc/pks.qc.summary.tsv` | Read attrition step by step, which stages ran, and how each sample ended |
+| `cohort/gene_counts/pks.gene.counts.align.txt` and `.hmm.txt` | One *clb* gene per row, one sample per column — alignment and HMM kept apart |
+| `by_sample/<sample>/` | That sample's evidence file, alignments, coverage plots, assembled contigs, recovered genomes and optional-analysis outputs |
+| `RUN_REPORT.txt` | Parameters, references, database fingerprints, software versions, and what failed |
 
-- **Depth decides what a negative means.** A sample with no *clb* reads is only a negative
-  if the run could have detected the island had it been there. Minimum analysable depths at
-  a 5-read gate and 80% power are roughly 0.56M (WES), 1.6M (WGS) and 6.6M (metagenome)
-  non-host reads; a metagenome needs about four times a tumour genome's depth to earn the
-  word. v1.0.0 does **not** compute this per sample — it is an analysis you run on the tag.
-- **The one-read gene floor is not inflating cohorts.** A *clb* gene counts as present at
-  one assigned read. On an 840-sample WGS cohort, requiring two reads moves positivity from
-  14.3% to 13.9%, and the strongest tier is unchanged; the sensitivity sits in the marginal
-  tiers, where it should.
-- **Duplicate collapse changes nothing measurable; fragment collapse does.** On the same
-  cohort, no positive is lost to deduplication, while fragment collapse costs 9 of 120.
-- **Cohorts are not pooled.** Aligner, duplicate marking and upstream filtering differ
-  between cohorts in ways that can move prevalence on their own, so raw prevalence is not
-  combined across them.
+Where WGS reassembly ran, the report links a per-sample figure showing the reference gene
+track, the contigs each assembler produced, and read depth across the island, so a call can
+be inspected rather than taken on trust.
 
-## Not in this release
+## Running it
 
-Per-sample detection power and a depth-adjusted tier were implemented and then removed
-before the tag: the depth-adjusted ladder needs a per-level assessability floor that does
-not exist yet, and shipping half of it would have been worse than shipping none. The
-analysis stands on its own and can be merged back when that floor is defined.
+Linux, Nextflow 24.10 or newer, Java 17, and Conda or Mamba. Every process uses a pinned
+environment built on first run. You supply a sample sheet and the human-depletion indexes;
+the bacterial reference and *clb* models ship with the pipeline. The README has a quick
+start that runs in one command once the references are in place.
 
-V8a locus specificity and V8b carrier attribution remain off by default and labelled
-experimental; they are not calibrated on real controls.
+## Reading the results honestly
+
+- **A missing result is not a negative.** Check the QC table first: a sample that failed a
+  stage, or had too few reads to be informative, is not the same as one with no island.
+- **Tiers are evidence categories, not probabilities**, and not a clinical result.
+- **Depth decides what a negative means.** Shallow sequencing can miss a real island,
+  and metagenomes need substantially more depth than tumour genomes before absence means
+  anything. The tools to quantify this per cohort are documented separately.
+- **Taxonomy at read level is support, not attribution.** Finding *clb* reads classified to
+  a species is not the same as showing that species carries the island; that needs the
+  genome-resolved or carrier-attribution analyses.
+- **Do not pool raw prevalence across cohorts** without checking that aligner, duplicate
+  handling and upstream filtering match, because those differ between public datasets and
+  can move prevalence on their own.
