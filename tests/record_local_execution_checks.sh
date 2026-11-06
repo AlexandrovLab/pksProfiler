@@ -45,6 +45,20 @@ if [[ -z "${DB_ROOT:-}" ]]; then
     echo "ERROR: set DB_ROOT to the directory holding the GTDB-Tk, CheckM2 and geNomad databases" >&2
     exit 2
 fi
+# SKIP_CHECKS: space-separated check paths to record as `skipped` instead of running.
+# SKIP_REASON (required with it) goes into the record as a `skip_waiver:` header line,
+# under the same sign-off as everything else -- the verifier refuses a skip without it,
+# and refuses any skip of the unit gate. A skip is a signed decision, never a default.
+if [[ -n "${SKIP_CHECKS:-}" && -z "${SKIP_REASON:-}" ]]; then
+    echo "ERROR: SKIP_CHECKS without SKIP_REASON. Skipping a release check is a signed" >&2
+    echo "       decision: say why, and the reason goes into the record." >&2
+    exit 2
+fi
+if [[ " ${SKIP_CHECKS:-} " == *" tests/assert_required_coverage.py "* ]]; then
+    echo "ERROR: the unit gate cannot be skipped: it runs anywhere Python runs." >&2
+    exit 2
+fi
+
 if [[ -z "${CONDA_CACHE_DIR:-}" ]]; then
     echo "ERROR: set CONDA_CACHE_DIR to a conda cache outside the work directory" >&2
     exit 2
@@ -60,9 +74,18 @@ fi
 mkdir -p "$LOG_DIR"
 rows=()
 
+waiver_lines=()
+
 run_check() {
     local name=$1 label=$2
     shift 2
+    if [[ " ${SKIP_CHECKS:-} " == *" $name "* ]]; then
+        echo "==> $label"
+        echo "    skipped  ($SKIP_REASON)"
+        rows+=("$name"$'\t'"skipped"$'\t'"0"$'\t'"0"$'\t'"-")
+        waiver_lines+=("# skip_waiver: $name: $SKIP_REASON")
+        return 0
+    fi
     local log="$LOG_DIR/$(basename "$label").log"
     echo "==> $label"
     local start=$SECONDS
@@ -118,6 +141,7 @@ source_digest=$(python3 "$repo_dir/tests/verify_local_execution_record.py" --pri
     echo "# recorded_by: $(git -C "$repo_dir" config user.name) <$(git -C "$repo_dir" config user.email)>"
     echo "# host: $(hostname)"
     echo "# signed_off: $signed_off"
+    for w in ${waiver_lines[@]+"${waiver_lines[@]}"}; do echo "$w"; done
     echo "#"
     echo "# DB_ROOT=$DB_ROOT"
     echo "# CONDA_CACHE_DIR=$CONDA_CACHE_DIR"

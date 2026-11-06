@@ -31,7 +31,10 @@ rather than trusting it:
     It is also strictly stronger -- it is false for a dirty tree, which a sha is not;
   * the commit is recorded too, and reported, as human context for which commit the
     person was on;
-  * every required check must be present with status `pass`;
+  * every required check must be present with status `pass` -- or, for a check other
+    than the unit gate itself, status `skipped` together with a `skip_waiver:` header
+    line naming the check and giving a substantive, signed-off reason. The waiver is
+    part of the record, so it is as visible and as attributable as a pass;
   * each row carries the number of assertions/tests that ran, and a count of zero is
     refused -- a check that ran and asserted nothing is not evidence;
   * the record must be signed off by a person, by name. Producing it is a deliberate act
@@ -91,6 +94,10 @@ REQUIRED_CHECKS = {
 }
 
 HEADER_KEYS = ("commit", "source_digest", "recorded_on", "recorded_by", "host", "signed_off")
+
+# The unit gate can never be waived: it runs anywhere Python runs, so there is no
+# environment that justifies skipping it, and it is the check that counts the skips.
+NEVER_SKIPPABLE = {"tests/assert_required_coverage.py"}
 COLUMNS = ["check", "status", "tests", "duration_s", "log"]
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -109,6 +116,10 @@ def parse(path):
                 key = key.strip().lower().replace(" ", "_")
                 if key in HEADER_KEYS:
                     header[key] = value.strip()
+                elif key == "skip_waiver":
+                    # "# skip_waiver: <check>: <reason>" -- may appear once per check
+                    check, _, reason = value.strip().partition(":")
+                    header.setdefault("skip_waivers", {})[check.strip()] = reason.strip()
             continue
         fields = line.split("\t")
         if seen_columns is None:
@@ -165,11 +176,21 @@ def verify(header, rows, digest):
             problems.append(f"{row['check']} appears twice")
         by_check[row["check"]] = row
 
+    waivers = header.get("skip_waivers", {})
     for check, why in sorted(REQUIRED_CHECKS.items()):
         row = by_check.get(check)
         if row is None:
             problems.append(f"required check missing from the record: {check} ({why})")
             continue
+        if row["status"] == "skipped":
+            if check in NEVER_SKIPPABLE:
+                problems.append(f"{check} may not be skipped: it is the unit gate itself")
+            elif len(waivers.get(check, "")) < 20:
+                problems.append(
+                    f"{check} is recorded as skipped without a skip_waiver header naming "
+                    f"it and giving a substantive reason; a skip nobody wrote down is "
+                    f"not a waiver")
+            continue  # a waived skip asserts nothing, so the tests/log demands below do not apply
         if row["status"] != "pass":
             problems.append(f"{check} is recorded as {row['status']!r}, not 'pass'")
         if not row["tests"].isdigit() or int(row["tests"]) <= 0:
@@ -223,6 +244,9 @@ def main(argv=None):
           f"{header.get('recorded_by', '(none)')} on {header.get('host', '(none)')}")
     print(f"signed off     {header.get('signed_off', '(none)')}")
     print()
+    for check, reason in sorted(header.get("skip_waivers", {}).items()):
+        print(f"WAIVED        {check}")
+        print(f"              {reason}")
     print(f"{'check':46s}{'status':10s}{'tests':>8s}{'seconds':>10s}")
     for row in rows:
         print(f"{row['check']:46s}{row['status']:10s}{row['tests']:>8s}{row['duration_s']:>10s}")

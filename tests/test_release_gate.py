@@ -250,6 +250,52 @@ class TheRecordedResultCannotBeFaked(unittest.TestCase):
         problems = self.verify(self.build(rows=rows))
         self.assertTrue(any("asserted nothing" in p for p in problems))
 
+    WAIVER = ("conda cache quota blocks rebuilding one env; the check last passed "
+              "2026-10-22 and nothing it exercises changed since")
+
+    def skipped_rows(self):
+        return [{"check": "tests/assert_required_coverage.py", "status": "pass",
+                 "tests": "1423", "seconds": "74", "log": "logs/a.log"},
+                {"check": "tests/check_metagenome_mag_execution.sh", "status": "skipped",
+                 "tests": "0", "seconds": "0", "log": "-"}]
+
+    def test_a_skip_nobody_waived_is_refused(self):
+        problems = self.verify(self.build(rows=self.skipped_rows()))
+        self.assertTrue(any("skip_waiver" in p for p in problems), problems)
+
+    def test_a_waived_skip_of_the_mag_check_is_accepted(self):
+        record_text = self.build(
+            rows=self.skipped_rows(),
+            skip_waiver=f"tests/check_metagenome_mag_execution.sh: {self.WAIVER}")
+        self.assertEqual(self.verify(record_text), [])
+
+    def test_a_flippant_waiver_is_refused(self):
+        record_text = self.build(
+            rows=self.skipped_rows(),
+            skip_waiver="tests/check_metagenome_mag_execution.sh: because")
+        problems = self.verify(record_text)
+        self.assertTrue(any("substantive" in p for p in problems), problems)
+
+    def test_the_unit_gate_can_never_be_waived(self):
+        rows = [{"check": "tests/assert_required_coverage.py", "status": "skipped",
+                 "tests": "0", "seconds": "0", "log": "-"},
+                {"check": "tests/check_metagenome_mag_execution.sh", "status": "pass",
+                 "tests": "25", "seconds": "64", "log": "logs/m.log"}]
+        record_text = self.build(
+            rows=rows, skip_waiver=f"tests/assert_required_coverage.py: {self.WAIVER}")
+        problems = self.verify(record_text)
+        self.assertTrue(any("unit gate" in p for p in problems), problems)
+
+    def test_a_waived_skip_is_still_not_a_pass_for_a_failed_check(self):
+        # a fail with a waiver header is still a fail
+        rows = [{"check": name, "status": "fail", "tests": "0", "seconds": "9",
+                 "log": "logs/x.log"} for name in record.REQUIRED_CHECKS]
+        record_text = self.build(
+            rows=rows,
+            skip_waiver=f"tests/check_metagenome_mag_execution.sh: {self.WAIVER}")
+        problems = self.verify(record_text)
+        self.assertTrue(any("not releasable" in p for p in problems), problems)
+
     def test_an_unsigned_record_is_refused(self):
         problems = self.verify(self.build(signed_off=None))
         self.assertTrue(any("signed_off" in p for p in problems))
