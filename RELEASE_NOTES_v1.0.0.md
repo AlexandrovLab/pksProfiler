@@ -70,6 +70,24 @@ environment built on first run. You supply a sample sheet and the human-depletio
 the bacterial reference and *clb* models ship with the pipeline. The README has a quick
 start that runs in one command once the references are in place.
 
+## What CI checks, and what it does not
+
+Continuous integration on GitHub runs the unit suite and compiles the workflow against
+the Nextflow version this release declares as its floor. It does **not** run the
+end-to-end execution checks: that job has never passed on a GitHub-hosted image, for
+reasons specific to that image rather than to the pipeline, and it is kept available to
+run on demand rather than left failing in front of the release.
+
+Those end-to-end checks are run and recorded on the cluster instead, under the pipeline's
+default strict tool-version enforcement, and the release gate verifies that record
+against a content digest of the tagged tree, so it cannot be a result from an earlier
+state of the code. One further check, the metagenome genome-binning run, needs about
+100 GB of reference data and is recorded as skipped under a signed waiver that the gate
+prints on every tag build.
+
+The short version: the pipeline's behaviour is verified where it actually runs, and the
+release says so rather than implying a green tick covers more than it does.
+
 ## Reading the results honestly
 
 - **A missing result is not a negative.** Check the QC table first: a sample that failed a
