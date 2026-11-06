@@ -330,8 +330,14 @@ class CIWiring(unittest.TestCase):
         self.assertNotIn("pull_request", condition)
 
     def test_the_conda_environments_are_cached_between_runs(self):
+        # Restore and save are deliberately separate: the combined actions/cache@v4
+        # saves in a post step even when the job FAILED, so a half-built environment
+        # from a red run was restored into the next one and broke it in a place far
+        # from the cause. See test_a_failed_run_never_saves_its_conda_environments
+        # in tests/test_release_gate.py.
         job = CI[CI.index("e2e-execution:"):]
-        self.assertIn("actions/cache@v4", job)
+        self.assertIn("actions/cache/restore@v4", job)
+        self.assertIn("actions/cache/save@v4", job)
         self.assertIn("hashFiles('conda_envs/*.yml')", job)
 
     def test_the_execution_outputs_are_retained(self):

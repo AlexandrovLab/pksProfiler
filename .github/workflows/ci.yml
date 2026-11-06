@@ -152,18 +152,22 @@ jobs:
           # refuses the run. conda itself stays reachable through condabin, which is all
           # the checks need; the steps below that genuinely want base ask for it.
           auto-activate-base: false
-      - name: Cache the pipeline's conda environments
-        # Keyed on the environment files' content, which is exactly what Nextflow hashes
-        # an environment from, so a cache hit is a genuine reuse and not an approximation.
-        uses: actions/cache@v4
+      - name: Restore the pipeline's conda environments
+        # RESTORE here, SAVE only at the end and only on success. actions/cache does
+        # both in one step, and its save runs in a post step even when the job FAILED.
+        # That is what kept the v1.0.0 builds red: a failed run saved its half-built
+        # environments, the next run restored them, conda activate on a partial env
+        # prepends a bin directory that has no python in it, and the lookup falls
+        # through to whatever python is next on PATH. The error then reads as a PATH
+        # problem when the real fault is the environment not being what its yml says.
+        # Bumping the key did not help, because the next failure re-poisoned the new key.
+        id: conda-cache
+        uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/conda_cache
-          # v2: a failed run still saves its cache in the post step, so the partial
-          # environments left by the red v1.0.0 builds were being restored into later
-          # runs. Nextflow only checks that an environment directory exists, so a
-          # half-built one is reused as though complete and its tools resolve from
-          # elsewhere on PATH. Bump this suffix to discard such a cache.
-          key: pks-conda-v2-${{ runner.os }}-${{ hashFiles('conda_envs/*.yml') }}
+          # Keyed on the environment files' content, which is exactly what Nextflow
+          # hashes an environment from, so a hit is a genuine reuse.
+          key: pks-conda-v3-${{ runner.os }}-${{ hashFiles('conda_envs/*.yml') }}
       - name: Install minimap2 and samtools for fixture building
         # Into a DEDICATED environment, never base.
         #
@@ -313,6 +317,14 @@ jobs:
           conda activate base
           python tests/assert_required_coverage.py -q \
             --json "${{ runner.temp }}/required-coverage.json"
+      - name: Save the conda environments, only if everything passed
+        # Never cache what a failed run built: a partial environment poisons every
+        # later run, and the symptom appears far from the cause.
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/conda_cache
+          key: pks-conda-v3-${{ runner.os }}-${{ hashFiles('conda_envs/*.yml') }}
       - name: Keep the required-coverage summary
         if: always()
         uses: actions/upload-artifact@v4

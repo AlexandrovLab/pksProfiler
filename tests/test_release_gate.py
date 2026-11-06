@@ -92,6 +92,29 @@ class TheWorkflowRunsTheRealChecksOnATag(unittest.TestCase):
         self.assertIn("refs/heads/fix/v", condition,
                       "a fix/v* release branch must run the execution checks before it is tagged")
 
+    def test_a_failed_run_never_saves_its_conda_environments(self):
+        """actions/cache saves in a post step even when the job failed.
+
+        That kept the v1.0.0 builds red for several rounds: a failed run saved its
+        half-built environments, the next run restored them, `conda activate` on a
+        partial environment prepended a bin directory with no python in it, and the
+        lookup fell through to base's python -- reported as a PATH problem when the
+        real fault was the environment not matching its yml. Bumping the cache key did
+        not help, because the next failure re-poisoned the new key.
+
+        So: restore and save are separate steps, and the save is guarded by success().
+        """
+        job = CI.split("  e2e-execution:", 1)[1].split("\n  release-gate:", 1)[0]
+        self.assertNotIn("uses: actions/cache@", job,
+                         "the combined cache action saves on failure too; use "
+                         "cache/restore plus a cache/save guarded by success()")
+        self.assertIn("actions/cache/restore@", job, "the job should restore a cache")
+        save = job.split("actions/cache/save@", 1)
+        self.assertEqual(len(save), 2, "the job should save the cache in its own step")
+        # the guard must be on the save step, in the few lines before it
+        self.assertIn("if: success()", save[0][-400:],
+                      "the cache save must be guarded by success()")
+
     def test_the_execution_job_runs_every_execution_check_the_runner_can(self):
         job = CI.split("  e2e-execution:", 1)[1].split("\n  release-gate:", 1)[0]
         for script in ("check_e2e_execution.sh", "check_malformed_input_execution.sh",
