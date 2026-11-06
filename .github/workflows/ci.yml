@@ -154,34 +154,36 @@ jobs:
           path: ${{ runner.temp }}/conda_cache
           key: pks-conda-${{ runner.os }}-${{ hashFiles('conda_envs/*.yml') }}
       - name: Install minimap2 and samtools for fixture building
-        # Nextflow builds its own copies of these (and every other tool) inside the
-        # pipeline's own conda envs; these are only for the tests/fixtures/
-        # generate_e2e_fixtures.py index-build step, before the pipeline runs.
+        # Into a DEDICATED environment, never base.
         #
-        # samtools is needed too, not just minimap2: the fixture builders sort and index
-        # the BAM fixtures with it. check_e2e_execution.sh and check_malformed_input_
-        # execution.sh both look for it, and it is not present on a stock runner.
+        # setup-miniconda sets auto-activate-base: true, so every `shell: bash -l`
+        # step activates base and puts its bin on PATH. Nextflow inherits that PATH
+        # and hands it to each task, where it sits AHEAD of the task's own pinned
+        # conda environment. Installing these two into base therefore made every task
+        # resolve minimap2, samtools and bgzip (which samtools brings via htslib) from
+        # base instead -- samtools 1.21 against a pinned 1.24 -- and
+        # --tool_version_check strict refused the run, correctly. Two v1.0.0 tags went
+        # red this way before the cause was understood.
         #
-        # The path is exported rather than left to PATH. The v1.0.0 tag build failed here
-        # with "no minimap2 found" even though this install step had succeeded, because
-        # the next step runs in its own login shell and the base environment's bin
-        # directory did not reach its PATH. Resolving the binaries now, failing loudly
-        # here if the install produced none, and handing absolute paths to the checks
-        # removes that dependency: tests/check_*.sh honour MINIMAP2_BIN first.
+        # A separate env keeps base clean, so nothing shadows the pinned environments.
+        # The fixture builders need only MINIMAP2_BIN and find samtools beside it, so
+        # this env never has to be on PATH at all.
         shell: bash -l {0}
         run: |
-          conda install -y -n base -c bioconda -c conda-forge minimap2 samtools
-          mm=$(command -v minimap2 || true); [[ -x "$mm" ]] || mm="$CONDA/bin/minimap2"
-          st=$(command -v samtools || true); [[ -x "$st" ]] || st="$CONDA/bin/samtools"
+          conda create -y -n fixtures -c bioconda -c conda-forge minimap2 samtools
+          mm="$CONDA/envs/fixtures/bin/minimap2"
+          st="$CONDA/envs/fixtures/bin/samtools"
           for b in "$mm" "$st"; do
-              [[ -x "$b" ]] || { echo "::error::$b is missing after conda install"; exit 1; }
+              [[ -x "$b" ]] || { echo "::error::$b is missing after conda create"; exit 1; }
           done
-          # ONLY the absolute path, never PATH. Prepending the base environment's bin
-          # to PATH makes every later Nextflow task resolve minimap2, samtools and bgzip
-          # from it instead of from its own pinned conda environment, and
-          # --tool_version_check strict then refuses the run (samtools 1.21 against a
-          # pinned 1.24, and so on). The checks need these two binaries only to build
-          # fixtures before the pipeline starts; the pipeline must keep finding its own.
+          for b in minimap2 samtools bgzip; do
+              if command -v "$b" >/dev/null 2>&1; then
+                  echo "::error::$b is on PATH from the base environment; it will shadow" \
+                       "every task's pinned conda env. Install fixture tools into their" \
+                       "own environment, not base."
+                  exit 1
+              fi
+          done
           echo "MINIMAP2_BIN=$mm" >> "$GITHUB_ENV"
           "$mm" --version
           "$st" --version | head -1

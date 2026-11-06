@@ -111,7 +111,8 @@ class TheWorkflowRunsTheRealChecksOnATag(unittest.TestCase):
         other fails only at tag time, in the job that nothing else exercises.
         """
         job = CI.split("  e2e-execution:", 1)[1].split("\n  release-gate:", 1)[0]
-        install = [l for l in job.splitlines() if "conda install" in l]
+        install = [l for l in job.splitlines()
+                   if "conda install" in l or "conda create" in l]
         self.assertTrue(install, "the job installs no fixture tools at all")
         installed = " ".join(install)
         for tool in ("minimap2", "samtools"):
@@ -127,6 +128,24 @@ class TheWorkflowRunsTheRealChecksOnATag(unittest.TestCase):
                       "resolve the binary once and export it, rather than trusting PATH")
         self.assertIn("GITHUB_ENV", job,
                       "the exported path has to reach the later steps via GITHUB_ENV")
+
+    def test_fixture_tools_are_not_installed_into_the_base_environment(self):
+        """Installing them into base is what shadowed every task's pinned environment.
+
+        setup-miniconda auto-activates base in every `shell: bash -l` step, so anything
+        in base lands on PATH, is inherited by Nextflow, and sits ahead of each task's
+        own conda environment. samtools also brings bgzip via htslib, so one `-n base`
+        install displaced three pinned tools at once and --tool_version_check strict
+        refused the run. Two v1.0.0 tags went red before this was understood.
+        """
+        job = CI.split("  e2e-execution:", 1)[1].split("\n  release-gate:", 1)[0]
+        for line in job.splitlines():
+            if "conda install" in line or "conda create" in line:
+                with self.subTest(line=line.strip()[:70]):
+                    self.assertNotIn("-n base", line,
+                                     "fixture tools must go in their own environment")
+                    self.assertNotIn("--name base", line,
+                                     "fixture tools must go in their own environment")
 
     def test_the_job_never_puts_the_base_environment_on_PATH(self):
         """Exporting PATH here shadows every task's pinned conda environment.
