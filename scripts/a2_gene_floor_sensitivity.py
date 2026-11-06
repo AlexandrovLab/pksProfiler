@@ -33,9 +33,13 @@ import sys
 from pathlib import Path
 
 # scripts/classify_tumor_pks_evidence.py: all three criteria must hold.
-TIERS = [("extensive_island", 100, 10, 15.0),
-         ("broad_island", 30, 8, 7.5),
-         ("multi_gene", 5, 3, 1.0)]
+# Breadth is a FRACTION in the evidence files, not a percentage: classify_tumor_pks_evidence.py
+# defaults are .15 / .075 / .01 and island_breadth_1x is written with "%.6f". Using 15/7.5/1
+# here silently made every sample fail the breadth criterion and reported 0 positives on a
+# cohort with ~120; sanity_check() below now refuses that rather than printing it.
+TIERS = [("extensive_island", 100, 10, 0.15),
+         ("broad_island", 30, 8, 0.075),
+         ("multi_gene", 5, 3, 0.01)]
 POSITIVE = {t[0] for t in TIERS}
 FLOORS = (1, 2, 3)
 
@@ -99,6 +103,23 @@ def main():
             now = (master[s].get("read_evidence") or "").strip()
             if now in POSITIVE and was not in POSITIVE:
                 newly.add(s)
+
+    # The tiers this run already recorded, recomputed independently below. If the two
+    # disagree wildly the re-derivation is wrong (a units or column mismatch), and a wrong
+    # answer that looks plausible is worse than no answer -- so stop and say so.
+    recorded = sum(1 for s in shared
+                   if (master[s].get("read_evidence") or "").strip() in POSITIVE)
+    rederived = sum(1 for s in shared
+                    if tier_for(num(master[s].get("pks_reads")),
+                                sum(1 for v in counts[s] if v >= 1),
+                                num(master[s].get("island_breadth_1x"))) in POSITIVE)
+    if recorded and abs(rederived - recorded) > max(2, 0.05 * recorded):
+        sys.exit(f"re-derivation disagrees with the recorded tiers: {rederived} positives at "
+                 f"floor 1 versus {recorded} recorded. Check column names and breadth units "
+                 f"(breadth is a fraction, not a percent) before trusting any number here.")
+    if not recorded:
+        print("NOTE: no recorded positives in this cohort; nothing to cross-check against.",
+              file=sys.stderr)
 
     groups = [("all samples", shared)]
     if baseline is not None:
