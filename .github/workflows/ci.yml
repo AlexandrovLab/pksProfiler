@@ -168,8 +168,13 @@ jobs:
           for b in "$mm" "$st"; do
               [[ -x "$b" ]] || { echo "::error::$b is missing after conda install"; exit 1; }
           done
+          # ONLY the absolute path, never PATH. Prepending the base environment's bin
+          # to PATH makes every later Nextflow task resolve minimap2, samtools and bgzip
+          # from it instead of from its own pinned conda environment, and
+          # --tool_version_check strict then refuses the run (samtools 1.21 against a
+          # pinned 1.24, and so on). The checks need these two binaries only to build
+          # fixtures before the pipeline starts; the pipeline must keep finding its own.
           echo "MINIMAP2_BIN=$mm" >> "$GITHUB_ENV"
-          echo "PATH=$(dirname "$mm"):$PATH" >> "$GITHUB_ENV"
           "$mm" --version
           "$st" --version | head -1
       - name: Run the real end-to-end execution check

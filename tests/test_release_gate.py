@@ -115,6 +115,24 @@ class TheWorkflowRunsTheRealChecksOnATag(unittest.TestCase):
         self.assertIn("GITHUB_ENV", job,
                       "the exported path has to reach the later steps via GITHUB_ENV")
 
+    def test_the_job_never_puts_the_base_environment_on_PATH(self):
+        """Exporting PATH here shadows every task's pinned conda environment.
+
+        The second v1.0.0 tag attempt did exactly this: the fixture-tool step wrote
+        `PATH=<miniconda>/bin:$PATH` to GITHUB_ENV so later steps could find minimap2.
+        Nextflow tasks then resolved minimap2, samtools and bgzip from the base
+        environment instead of their own pinned ones -- samtools 1.21 against a pinned
+        1.24 -- and --tool_version_check strict refused the run, correctly. The fixture
+        builders need only MINIMAP2_BIN, and find samtools beside it; the pipeline must
+        keep resolving its own tools. See the PATH-shadowing note in docs/hpc.md.
+        """
+        job = CI.split("  e2e-execution:", 1)[1].split("\n  release-gate:", 1)[0]
+        for line in job.splitlines():
+            stripped = line.strip()
+            if "GITHUB_ENV" in stripped and stripped.lstrip('echo "').startswith("PATH="):
+                self.fail(f"the job exports PATH to later steps, which shadows every "
+                          f"task's pinned environment: {stripped}")
+
     def test_the_skip_assertion_runs_where_the_tools_exist(self):
         job = CI.split("  e2e-execution:", 1)[1].split("\n  release-gate:", 1)[0]
         self.assertIn("assert_required_coverage.py", job)
