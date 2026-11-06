@@ -1,0 +1,16 @@
+# Solved environment for conda_envs/fastplong_env.yml
+# Captured 2026-11-06 from the frozen release-check cache
+# (cache env env-438c849e117ca6df26c0e12b918e4216; 8 packages).
+# Recreate:  conda create --prefix <dir> --file <this file>
+# This file may be used to create an environment using:
+# $ conda create --name <env> --file <this file>
+# platform: linux-64
+@EXPLICIT
+https://conda.anaconda.org/conda-forge/linux-64/libgomp-16.2.0-he0feb66_7.conda#d904c7ddd95e026254b4b80808ee9e12
+https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda#a9f577daf3de00bca7c3c76c0ecbd1de
+https://conda.anaconda.org/conda-forge/linux-64/libgcc-16.2.0-ha9f2e26_7.conda#735629b400b70eeab21a2ba8f5b1c2ce
+https://conda.anaconda.org/conda-forge/linux-64/isa-l-2.32.1-hb03c661_0.conda#aee2e139304e7b59d3369222bb9eb288
+https://conda.anaconda.org/conda-forge/linux-64/libdeflate-1.25-hd45a770_1.conda#40f9b31aa9cf007789867df0decd0492
+https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-16.2.0-h934c35e_7.conda#9b6707e0caca917fa6ea9ee473f37a5d
+https://conda.anaconda.org/conda-forge/linux-64/libhwy-1.3.0-h4c17acf_1.conda#c2a0c1d0120520e979685034e0b79859
+https://conda.anaconda.org/bioconda/linux-64/fastplong-0.7.1-h43da1c4_0.conda#6f3f97e3184fee70cbbdcecb12eeaef4

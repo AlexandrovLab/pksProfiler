@@ -83,7 +83,10 @@ PER_SAMPLE_FILTERS = {
     ("pks_mag.nf", 'unitID != "unbinned"'),
     ("pks_mag.nf", 'unitID == "unbinned"'),
     ("pks_mag.nf", "gene_count"),
-    ("pks_mag.nf", "has_bins == null"),
+    # The binless-detection join (6 Nov 2026): keeps the left-only [sampleID, null]
+    # rows -- a sample with locus evidence and no bins. Decides from the join shape
+    # alone, never from the sample, so a tumour and its normal are treated alike.
+    ("pks_mag.nf", "row.size() == 2 && row[1] == null"),
     # rc2: the join sentinel and the left-orphaned remainder rows a failed-and-ignored
     # CheckM2/GTDB-Tk task leaves behind -- keyed on task outcome, never on sample type.
     ("pks_mag.nf", "row[0] == SENTINEL"),

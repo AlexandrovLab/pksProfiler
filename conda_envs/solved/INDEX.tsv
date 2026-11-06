@@ -1,0 +1,20 @@
+# Written by scripts/record_solved_environments.py on 2026-11-06; cache: /tscc/lustre/restricted/alexandrov-ddn/users/amabbasi/pksProfiler/pksProfiler_analysis/v1.0.0-rc1_validation/run_2026-10-22/RC4/conda_cache
+yml	cache_env	status	lock_sha256	note
+checkm2_env	-	not_captured	-	its env is not in this cache (not built by the recorded checks)
+fastp_env	env-d15612242667a9471affc562777eeb05	captured	5305678f82ea1f4e2e1cb4358521933f1421dba1989574af971c5e6acbfb7e2e	8 packages
+fastplong_env	env-438c849e117ca6df26c0e12b918e4216	captured	4b80aff4122372bb47db6366e010e0d138abdf2a186d69b7b69ae1df1143877d	8 packages
+genomad_env	-	not_captured	-	its env is not in this cache (not built by the recorded checks)
+gtdbtk_env	-	not_captured	-	its env is not in this cache (not built by the recorded checks)
+krakenUniq_bracken_env	-	not_captured	-	its env is not in this cache (not built by the recorded checks)
+megahit_env	env-8e1a4d17f375440b674955bd108455cc	captured	e4bcf1faf3f5649226ee48672d0c6a944e7c35830cc06a4d8e204506721e4ce1	24 packages
+metabat2_env	env-20a6be4c49053eb2cb6814319cfbbbfc	captured	7666ed30e58d0641104109612e42ea4f36351a234e28506b82fbd42842d6047d	35 packages
+minimap2_env	env-a8df6046d98f609ea1e16a7f162b74d1	captured	f3530eafab7ae4aa041dac8b488c96b55d2b548b3d3fb9843542ab3eddb0a985	29 packages
+mlst_env	-	not_captured	-	its env is not in this cache (not built by the recorded checks)
+pks_align_env	env-9d9f96c71c5cf8c8fe78110e937fa43d	captured	0776486d83964b1d2b4cc27dd772633a3dd3d8c0535642f400a9378ab26d5ba2	202 packages
+pks_hmm_env	env-92e57aeb53b33f5b3b7761e9fa9cd0db	captured	b08e10497bc6b7f893b115dcba9726a8cfdcc422041b77abdb12d4d37951a802	49 packages
+prefilter_env	-	not_captured	-	its env is not in this cache (not built by the recorded checks)
+prokka_env	-	not_captured	-	its env is not in this cache (not built by the recorded checks)
+samtools_env	env-38a4c8652626abb027ea1c842ff82f14	captured	e8a22923d54846c29fe8bc688659906c595963b55cfdd12cdf14516edbb8bff9	39 packages
+targeted_alignment_env	env-ebdd88054409f40fcf04d49a555d6266	captured	c760cf6c8b95feea7a5bd142c97c3f4c9db20854ded30f8da60761ea3fc6e95a	35 packages
+targeted_recruit_env	env-18e998135f542a1bd6fe946af698ad34	captured	0dcffc13d9b4fc2d4dd880b1bfcdedf2cdcaf8795761a2ab3ba7ab438eb2f131	33 packages
+targeted_spades_env	env-7fe937242d931f9afe5def3f97c804ef	captured	e736b87aa69af7886e29de4f0b872ed66fa20be43f0a43a263d9851800df77f1	40 packages

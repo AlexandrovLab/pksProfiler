@@ -114,7 +114,7 @@ nextflow run main.nf -profile local \
   --outdir results
 ```
 
-**3. Open `results/cohort/pks_cohort_report.html`.** Check the QC table before interpreting missing or zero evidence. Add `-resume` to repeat a run using cached tasks.
+**3. Open `results/cohort/pks_cohort_report.html`.** Check the QC table before interpreting missing or zero evidence. Add `-resume` to repeat a run using cached tasks — [what `-resume` does and does not reuse](docs/running/resume.md) matters when the pipeline version changed between runs.
 
 <details>
 <summary><strong>Other inputs: BAM, CRAM, single-end FASTQ</strong></summary>
