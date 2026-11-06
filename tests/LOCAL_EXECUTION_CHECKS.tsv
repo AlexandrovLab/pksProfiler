@@ -5,8 +5,8 @@
 #
 # Produced by tests/record_local_execution_checks.sh. Do not hand-edit.
 #
-# commit: 11567eff5336e2be2d14c12cecc4f74dfb4580cc
-# source_digest: 6160fb5999cc97dbf0bfdf5e30d94345f32e5134a51f5efcaecd4c2c09881fa2
+# commit: 6ab04d2a4262b2dbe12baacce87796180a9fd785
+# source_digest: 23b0dde1273daacb5daf0027ed3c006a981e88bd7624c751b20229fefdae67e4
 # recorded_on: 2026-11-06
 # recorded_by: ammalabbasi <amabbasi@ucsd.edu>
 # host: tscc-1-31
@@ -17,5 +17,5 @@
 # CONDA_CACHE_DIR=/tscc/lustre/restricted/alexandrov-ddn/users/amabbasi/pksProfiler/pksProfiler_analysis/v1.0.0-rc1_validation/run_2026-10-22/RC4/conda_cache
 #
 check	status	tests	duration_s	log
-tests/assert_required_coverage.py	pass	1428	54	.local_execution_logs/assert_required_coverage.log
+tests/assert_required_coverage.py	pass	1430	63	.local_execution_logs/assert_required_coverage.log
 tests/check_metagenome_mag_execution.sh	skipped	0	0	-
