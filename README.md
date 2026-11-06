@@ -5,41 +5,93 @@
 
 **Profile the colibactin-encoding *pks* island in metagenomes and cancer sequencing data.**
 
-pksProfiler is a Nextflow pipeline for detecting and characterizing the 19 *clb* genes that make up the *pks* island. These genes encode colibactin, a bacterial toxin that can damage human DNA. The pipeline supports gut metagenomes, whole-genome sequencing (WGS), whole-exome sequencing (WES), and RNA-seq, with different evidence reports for each.
+pksProfiler is a Nextflow pipeline for detecting and characterizing the 19 *clb* genes that make up the *pks* island. These genes encode colibactin, a bacterial toxin that can damage human DNA.
 
-Start with read profiling. Add genome binning for metagenomes or targeted island reassembly for short-read WGS when you need assembled-sequence evidence.
+It supports four assays, each with its own evidence report:
+
+- **Gut metagenomes** — *clb* reads, genes and island breadth, plus reads per million host-depleted reads; optional community assembly and genome binning
+- **Whole-genome sequencing (WGS)** — genomic *pks* evidence; short reads receive evidence tiers, and qualifying samples get targeted island reassembly
+- **Whole-exome sequencing (WES)** — exploratory off-target *clb* DNA evidence
+- **RNA-seq** — expressed *clb* sequence and expression breadth
 
 ![pksProfiler workflow: read preparation; read-level clb profiling by alignment and nucleotide HMMs; targeted reassembly for qualifying short-read WGS; optional metagenome reconstruction with binning, QC, taxonomy and prophage context; sample summaries and a linked cohort report](assets/pksProfiler_workflow.png)
 
-**[Interactive workflow](docs/interactive-workflow.html)** — Hover directly over a step to reveal an enlarged view, technical steps, parameters, outputs, and code links. Tap a step on touch screens. Download the HTML file and open it in your browser; GitHub displays its source rather than running the interactions. The same file can be hosted on GitHub Pages.
+## Quick start
+
+Requires **Linux, Nextflow ≥24.10, Java 17+ on compute nodes, and Conda or Mamba**. Processes use pinned Conda environments; container profiles are not provided. Clone the repository and run from its directory. Human-depletion references must be supplied separately; the canonical bacterial reference and *clb* models are included.
+
+**1. Prepare a CSV.** Use unique sample IDs in `patient`.
+
+```csv
+patient,fastq1,fastq2
+SAMPLE_01,/data/SAMPLE_01_R1.fastq.gz,/data/SAMPLE_01_R2.fastq.gz
+```
+
+**2. Choose your sample mode.** One `--sample_type` per run — it is required and has no default.
+
+| Your data | Use |
+|---|---|
+| Gut metagenome | `--sample_type metagenome` |
+| Whole-genome sequencing | `--sample_type wgs` |
+| Whole-exome sequencing | `--sample_type wes` |
+| RNA-seq | `--sample_type rna` |
+
+**3. Run it.** Replace the example paths with your own, and `<MODE>` with your choice above.
+
+```bash
+nextflow run main.nf -profile local \
+  --sample samples.csv \
+  --sample_type <MODE> \
+  --input_data_type fastq \
+  --hg38_db /refs/human-GRC-db.mmi \
+  --t2t_phix_db /refs/human-GCA-phix-db.mmi \
+  --outdir results
+```
+
+RNA-seq replaces `--hg38_db` with `--rna_splice_db`, because human depletion has to be
+splice-aware; long reads take `--read_type ont|hifi` and their own indexes. Both are set out
+in [Choose your sample mode](#choose-your-sample-mode) below.
+
+**4. Open `results/cohort/pks_cohort_report.html`.** Check the QC table before interpreting missing or zero evidence. Add `-resume` to repeat a run using cached tasks — [what `-resume` does and does not reuse](docs/running/resume.md) matters when the pipeline version changed between runs.
+
+<details>
+<summary><strong>Other inputs: BAM, CRAM, single-end FASTQ</strong></summary>
+
+For aligned BAM/CRAM input, use:
+
+```csv
+patient,alignment
+TUMOR_01,/data/TUMOR_01.bam
+TUMOR_02,/data/TUMOR_02.cram
+```
+
+- Set `--input_data_type auto` to accept BAM and CRAM in this sheet. The legacy `bam` column is also supported; a `cram` column is not.
+- CRAM additionally requires `--cram_reference /refs/matching_reference.fa`.
+- Do not mix alignment and FASTQ columns in one sheet. `auto` selects the route from the header, not separately for each row.
+- For single-end FASTQ, omit `fastq2` or leave it empty. ONT/HiFi input must have one stream per sample.
+- BAM/CRAM must have reference sequences in its header (`@SQ`). Convert unaligned BAMs to FASTQ first.
+- Extraction retains primary unmapped reads. With `--extract_low_score_mapped auto` (default), a detected BWA-MEM alignment also contributes primary mapped reads with `AS < 30`. Use `on` or `off` to override.
+- IDs must start with a letter or number and contain only letters, numbers, `.`, `_`, or `-`.
+
+</details>
 
 ## Choose your sample mode
 
-Set **one `--sample_type` per run**. Input format, read technology, and profiling method are separate choices.
+One `--sample_type` per run. It fixes which read technologies and which assembly steps are
+available; input format and profiling method are separate choices. What each mode reports,
+and how to read it, is in [Read the results](#read-the-results).
 
-| Sample type | What it measures | Assembly support |
+| Sample type | Read technology | Assembly support |
 |---|---|---|
-| **`metagenome`** | *clb* reads, genes, island breadth, and reads per million host-depleted reads; **untiered** | Optional community assembly and genome binning |
-| **`wgs`** | Genomic *pks* evidence; short reads receive evidence tiers | Targeted reassembly for qualifying short-read samples, on by default |
-| **`wes`** | Exploratory off-target *clb* DNA evidence; **untiered** | None |
-| **`rna`** | Expressed *clb* sequence and expression breadth; **untiered** | None |
+| **`metagenome`** | short only | Optional community assembly and genome binning |
+| **`wgs`** | short, ONT, HiFi | Targeted island reassembly, short reads only, on by default |
+| **`wes`** | short only | None |
+| **`rna`** | short, ONT, HiFi | None |
 
-**ONT and PacBio HiFi are supported for WGS and RNA only.** Long-read WGS is untiered and does not run targeted reassembly. WES and metagenomes require short reads.
-
-### What does “untiered” mean?
-
-**Measurements are reported, but no short-read WGS evidence category is assigned.** It does not mean negative, failed, or low confidence.
-
-| Data | How to read the result |
-|---|---|
-| Short-read WGS | Reads, genes, and island coverage determine an evidence tier such as `multi_gene` or `broad_island`. |
-| Long-read WGS | Counts and coverage are reported without those tiers: a long read covers far more sequence than a short read, so the same cutoffs are not directly transferable. |
-| Metagenomes | Read counts, genes, coverage, and reads per million are reported without WGS tiers. Genome bins receive a separate assessment of assembled-locus evidence if MAG analysis is enabled. |
-| WES | Off-target DNA measurements are reported without WGS tiers; capture efficiency changes what is sampled. |
-| RNA | Expression measurements are reported without WGS tiers; RNA abundance and library preparation do not measure genomic island completeness. |
-
-The output uses the literal value `untiered` in `read_evidence.tsv` for metagenomes and long-read WGS. WES/RNA instead have their own evidence files. HMM-only profiling produces HMM counts without an alignment-based read-evidence file.
-
+Which host-depletion index each mode takes is in
+[Reference downloads and databases](#reference-downloads-and-databases); the per-mode flags,
+and what long reads do not support, are in
+[Add the analyses you need](#add-the-analyses-you-need).
 
 ## Reference downloads and databases
 
@@ -91,52 +143,6 @@ The shared RNA index was built with minimap2 `splice:sr` from GRCh38.d1.vd1; jun
 
 All three MAG databases are required when `--enable_mags true`. The download helpers above are Slurm scripts: adapt their scheduler/environment settings to your site. Record database releases; a directory name alone does not establish which build it contains. The pipeline's [database manifest](conf/databases.tsv) records the audited builds.
 
-## Quick start
-
-Requires **Linux, Nextflow ≥24.10, Java 17+ on compute nodes, and Conda or Mamba**. Processes use pinned Conda environments; container profiles are not provided. Clone the repository and run from its directory. Human-depletion references must be supplied separately; the canonical bacterial reference and *clb* models are included.
-
-**1. Prepare a CSV.** Use unique sample IDs in `patient`.
-
-```csv
-patient,fastq1,fastq2
-STOOL_01,/data/STOOL_01_R1.fastq.gz,/data/STOOL_01_R2.fastq.gz
-```
-
-**2. Profile a metagenome.** Replace the example paths with your own.
-
-```bash
-nextflow run main.nf -profile local \
-  --sample samples.csv \
-  --sample_type metagenome \
-  --input_data_type fastq \
-  --hg38_db /refs/human-GRC-db.mmi \
-  --t2t_phix_db /refs/human-GCA-phix-db.mmi \
-  --outdir results
-```
-
-**3. Open `results/cohort/pks_cohort_report.html`.** Check the QC table before interpreting missing or zero evidence. Add `-resume` to repeat a run using cached tasks — [what `-resume` does and does not reuse](docs/running/resume.md) matters when the pipeline version changed between runs.
-
-<details>
-<summary><strong>Other inputs: BAM, CRAM, single-end FASTQ</strong></summary>
-
-For aligned BAM/CRAM input, use:
-
-```csv
-patient,alignment
-TUMOR_01,/data/TUMOR_01.bam
-TUMOR_02,/data/TUMOR_02.cram
-```
-
-- Set `--input_data_type auto` to accept BAM and CRAM in this sheet. The legacy `bam` column is also supported; a `cram` column is not.
-- CRAM additionally requires `--cram_reference /refs/matching_reference.fa`.
-- Do not mix alignment and FASTQ columns in one sheet. `auto` selects the route from the header, not separately for each row.
-- For single-end FASTQ, omit `fastq2` or leave it empty. ONT/HiFi input must have one stream per sample.
-- BAM/CRAM must have reference sequences in its header (`@SQ`). Convert unaligned BAMs to FASTQ first.
-- Extraction retains primary unmapped reads. With `--extract_low_score_mapped auto` (default), a detected BWA-MEM alignment also contributes primary mapped reads with `AS < 30`. Use `on` or `off` to override.
-- IDs must start with a letter or number and contain only letters, numbers, `.`, `_`, or `-`.
-
-</details>
-
 ## Add the analyses you need
 
 | Analysis | Switch or setting | Availability |
@@ -168,7 +174,7 @@ MEGAHIT assembles the community; MetaBAT2 groups contigs into metagenome-assembl
 
 Every recovered bin, plus the pooled **unbinned** contigs, is aligned to the canonical island. Genome-level locus evidence is separate from sample read evidence. Protein HMM hits alone do not establish a *pks*-positive genome. An unbinned hit is not an additional positive genome or an identified organism.
 
-Start with `genomes/pks_mag_summary.tsv` and `genomes/mag_status.tsv` under each sample. No contigs or bins means no reconstruction, not demonstrated biological absence. Add `--save_intermediates true` to publish assembly and bin FASTAs; these are not retained in the results directory by default.
+No contigs or bins means no reconstruction, not demonstrated biological absence; the files to start from are listed under [Read the results](#read-the-results). Add `--save_intermediates true` to publish assembly and bin FASTAs; these are not retained in the results directory by default.
 
 Community tables describe prophages, nearby integrase/tRNA features, and co-occurring bins. They support hypotheses about interaction or mobility, not proof of physical proximity, transfer, or prophage induction. Default strain typing uses the *E. coli* Achtman scheme and requires enough assembled sequence to recover its loci.
 
@@ -226,6 +232,20 @@ In a completed run, open `results/cohort/pks_cohort_report.html`. Where targeted
 **Metagenome abundance** is `pks_reads × 1,000,000 / host_depleted_reads`. The denominator is the complete final host-depleted stream, before optional profiling prefiltering. A zero denominator is reported as `NA`.
 
 **A missing result is not a negative.** Check QC and stage status first. For short WGS, QC's `completed_negative` includes `localized_indeterminate`; inspect `read_evidence.tsv` to distinguish weak evidence from zero reads.
+
+### What “untiered” means
+
+**Measurements are reported, but no short-read WGS evidence category is assigned.** It does not mean negative, failed, or low confidence.
+
+| Data | How to read the result |
+|---|---|
+| Short-read WGS | Reads, genes, and island coverage determine an evidence tier such as `multi_gene` or `broad_island`. |
+| Long-read WGS | Counts and coverage are reported without those tiers: a long read covers far more sequence than a short read, so the same cutoffs are not directly transferable. |
+| Metagenomes | Read counts, genes, coverage, and reads per million are reported without WGS tiers. Genome bins receive a separate assessment of assembled-locus evidence if MAG analysis is enabled. |
+| WES | Off-target DNA measurements are reported without WGS tiers; capture efficiency changes what is sampled. |
+| RNA | Expression measurements are reported without WGS tiers; RNA abundance and library preparation do not measure genomic island completeness. |
+
+The output uses the literal value `untiered` in `read_evidence.tsv` for metagenomes and long-read WGS. WES/RNA instead have their own evidence files. HMM-only profiling produces HMM counts without an alignment-based read-evidence file.
 
 <details>
 <summary><strong>Short-read WGS tiers and mode-specific files</strong></summary>
