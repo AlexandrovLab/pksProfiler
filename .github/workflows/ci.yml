@@ -195,6 +195,56 @@ jobs:
           echo "MINIMAP2_BIN=$mm" >> "$GITHUB_ENV"
           "$mm" --version
           "$st" --version | head -1
+      - name: Take every interpreter off PATH before the pipeline runs
+        # Nextflow activates each task's own conda environment, which supplies that
+        # task's pinned python. Anything that provides `python` EARLIER on PATH wins
+        # instead, and --tool_version_check strict then refuses the run rather than
+        # report numbers produced by unpinned tools.
+        #
+        # This runner has two such sources, and fixing them one at a time just moved
+        # the failure: the base conda environment (python 3.14.9) and
+        # actions/setup-python's tool cache (3.11). Rather than name them, drop every
+        # PATH entry that carries a python binary. Nextflow, java and conda live in
+        # directories that do not, and the step fails loudly if that stops being true.
+        shell: bash -l {0}
+        run: |
+          # Match `python` only, never python3: the task scripts invoke `python`, and
+          # /usr/bin carries python3, so matching python3 would strip /usr/bin and take
+          # grep, sed and awk with it. System directories are kept unconditionally for
+          # the same reason -- if one of them holds a python, that is the image's own
+          # and was equally true when this job last passed.
+          #
+          # `|| [ -n "$d" ]` is not decoration: the substitution has no trailing
+          # newline, so a plain `while read` drops the LAST entry of PATH silently.
+          clean=$(printf '%s' "$PATH" | tr ':' '\n' | while read -r d || [ -n "$d" ]; do
+              [ -n "$d" ] || continue
+              case "$d" in
+                  /usr/bin|/bin|/usr/local/bin|/usr/sbin|/sbin)
+                      printf '%s\n' "$d"; continue ;;
+              esac
+              if [ -x "$d/python" ]; then continue; fi
+              printf '%s\n' "$d"
+          done | paste -sd: -)
+          export PATH="$clean"
+          for need in nextflow conda java; do
+              command -v "$need" >/dev/null 2>&1 || {
+                  echo "::error::$need is no longer on PATH after removing interpreters"
+                  exit 1; }
+          done
+          # A python left in a system directory cannot be removed without breaking the
+          # shell, and is not what shadowed the tasks: the strays were conda's base and
+          # the setup-python tool cache. Report it, do not fail on it.
+          if command -v python >/dev/null 2>&1; then
+              case "$(command -v python)" in
+                  /usr/bin/*|/bin/*|/usr/local/bin/*)
+                      echo "note: system python remains at $(command -v python)" ;;
+                  *)
+                      echo "::error::a non-system python is still on PATH at $(command -v python)"
+                      exit 1 ;;
+              esac
+          fi
+          echo "PATH=$clean" >> "$GITHUB_ENV"
+          echo "clean PATH: $clean"
       - name: Run the real end-to-end execution check
         shell: bash -l {0}
         env:
