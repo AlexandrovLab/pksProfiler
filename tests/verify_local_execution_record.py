@@ -117,9 +117,23 @@ def parse(path):
                 if key in HEADER_KEYS:
                     header[key] = value.strip()
                 elif key == "skip_waiver":
-                    # "# skip_waiver: <check>: <reason>" -- may appear once per check
+                    # "# skip_waiver: <check>: [since=<sha>] <reason>", once per check.
+                    #
+                    # since= is what stops a rationale outliving the tree it was reasoned
+                    # about. The v1.0.0 record carried a waiver saying nothing the MAG
+                    # check exercises had changed since 2026-10-22; by then the tree held
+                    # a later fix to Modules/pks_mag.nf, which is the module that check
+                    # exists to exercise, and Modules/ is inside the source digest. The
+                    # sentence was false and nothing could tell. With since=, the verifier
+                    # recomputes what changed and expires the waiver itself.
                     check, _, reason = value.strip().partition(":")
-                    header.setdefault("skip_waivers", {})[check.strip()] = reason.strip()
+                    reason = reason.strip()
+                    since = ""
+                    m = re.match(r"since=(\S+)\s+(.*)", reason)
+                    if m:
+                        since, reason = m.group(1), m.group(2).strip()
+                    header.setdefault("skip_waivers", {})[check.strip()] = {
+                        "reason": reason, "since": since}
             continue
         fields = line.split("\t")
         if seen_columns is None:
@@ -134,6 +148,31 @@ def parse(path):
     if seen_columns is None:
         raise SystemExit(f"{path}: no column header row")
     return header, rows
+
+
+def digest_scope_changes_since(commit, root=ROOT):
+    """Files inside SOURCE_PATHS that differ between `commit` and the working tree.
+
+    None if the commit cannot be resolved. The record itself and its logs are excluded
+    for the same reason the digest excludes them: committing the record must not expire
+    the waiver that record carries.
+    """
+    try:
+        done = subprocess.run(["git", "-C", str(root), "diff", "--name-only", commit, "--"]
+                              + list(SOURCE_PATHS),
+                              capture_output=True, text=True)
+    except OSError:
+        return None
+    if done.returncode != 0:
+        return None
+    changed = set()
+    for name in done.stdout.split("\n"):
+        name = name.strip()
+        if not name or any(name == x or name.startswith(x.rstrip("/") + "/")
+                           for x in SOURCE_EXCLUDE):
+            continue
+        changed.add(name)
+    return changed
 
 
 def head_commit():
@@ -183,13 +222,35 @@ def verify(header, rows, digest):
             problems.append(f"required check missing from the record: {check} ({why})")
             continue
         if row["status"] == "skipped":
+            waiver = waivers.get(check) or {}
             if check in NEVER_SKIPPABLE:
                 problems.append(f"{check} may not be skipped: it is the unit gate itself")
-            elif len(waivers.get(check, "")) < 20:
+            elif len(waiver.get("reason", "")) < 20:
                 problems.append(
                     f"{check} is recorded as skipped without a skip_waiver header naming "
                     f"it and giving a substantive reason; a skip nobody wrote down is "
                     f"not a waiver")
+            elif not waiver.get("since"):
+                problems.append(
+                    f"{check}'s waiver does not say which tree it was reasoned against. "
+                    f"Add `since=<commit>` after the check name, naming the commit whose "
+                    f"state the reason describes, so a later change to the code this "
+                    f"check exercises expires the waiver instead of outliving it")
+            else:
+                changed = digest_scope_changes_since(waiver["since"])
+                if changed is None:
+                    problems.append(
+                        f"{check}'s waiver names since={waiver['since']}, which is not a "
+                        f"commit in this repository")
+                elif changed:
+                    shown = ", ".join(sorted(changed)[:5])
+                    more = f" (+{len(changed) - 5} more)" if len(changed) > 5 else ""
+                    problems.append(
+                        f"{check}'s waiver was reasoned against {waiver['since']}, but "
+                        f"{len(changed)} file(s) inside the source digest have changed "
+                        f"since then: {shown}{more}. The reason may no longer be true, so "
+                        f"it has expired: re-run the check, or write a waiver that "
+                        f"describes THIS tree")
             continue  # a waived skip asserts nothing, so the tests/log demands below do not apply
         if row["status"] != "pass":
             problems.append(f"{check} is recorded as {row['status']!r}, not 'pass'")
@@ -244,9 +305,10 @@ def main(argv=None):
           f"{header.get('recorded_by', '(none)')} on {header.get('host', '(none)')}")
     print(f"signed off     {header.get('signed_off', '(none)')}")
     print()
-    for check, reason in sorted(header.get("skip_waivers", {}).items()):
-        print(f"WAIVED        {check}")
-        print(f"              {reason}")
+    for check, waiver in sorted(header.get("skip_waivers", {}).items()):
+        since = waiver.get("since") or "(no tree named)"
+        print(f"WAIVED        {check}   reasoned against {since}")
+        print(f"              {waiver.get('reason', '')}")
     print(f"{'check':46s}{'status':10s}{'tests':>8s}{'seconds':>10s}")
     for row in rows:
         print(f"{row['check']:46s}{row['status']:10s}{row['tests']:>8s}{row['duration_s']:>10s}")

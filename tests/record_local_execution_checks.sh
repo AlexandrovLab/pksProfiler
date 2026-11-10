@@ -83,7 +83,17 @@ run_check() {
         echo "==> $label"
         echo "    skipped  ($SKIP_REASON)"
         rows+=("$name"$'\t'"skipped"$'\t'"0"$'\t'"0"$'\t'"-")
-        waiver_lines+=("# skip_waiver: $name: $SKIP_REASON")
+        # since=<commit> binds the reason to the tree it describes. verify_local_
+        # execution_record.py recomputes what has changed inside the source digest since
+        # that commit and expires the waiver if the code the check exercises moved. Set
+        # SKIP_SINCE to the commit the reason is about -- normally the one at which the
+        # check last passed, NOT HEAD, or the binding asserts nothing.
+        if [[ -z "${SKIP_SINCE:-}" ]]; then
+            echo "ERROR: SKIP_CHECKS needs SKIP_SINCE too: the commit whose state" >&2
+            echo "       SKIP_REASON describes, usually where the check last passed." >&2
+            exit 2
+        fi
+        waiver_lines+=("# skip_waiver: $name: since=$SKIP_SINCE $SKIP_REASON")
         return 0
     fi
     local log="$LOG_DIR/$(basename "$label").log"
