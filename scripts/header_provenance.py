@@ -32,9 +32,10 @@ aligners (STAR, minimap2, bowtie2) is not bwa's, so the threshold means nothing 
 Detecting `mem` needs the @PG CL; it is read in memory, only its program and subcommand
 tokens and the -T value are looked at, and none of it is written anywhere. Four more
 columns record the decision:
-  aligner_bwa_mem           yes | no | unconfirmed (a bwa @PG with no CL, or not `mem`)
+  aligner_bwa_mem           yes | no | not_mem (aln/sampe/samse: no AS tag) | no_cl (unknown)
   bwa_min_score             the -T in that CL, "default" when not given, NA without bwa mem
-  extract_low_score_mapped  on_auto_bwa_mem | off_auto_not_bwa_mem | on_requested | off_requested
+  extract_low_score_mapped  on_auto_bwa_mem | off_auto_not_bwa_mem | off_auto_no_as_tag
+                            | on_requested | off_requested
   extract_min_as            the AS threshold in force (NA when off)
 
 The cohort summary (and RUN_REPORT.txt's INPUT ALIGNMENTS section, which reads it) holds
@@ -100,7 +101,8 @@ BWA_PROGRAMS = ("bwa", "bwa-mem2")
 LOW_SCORE_REQUESTS = ("auto", "on", "off")
 # The extract_low_score_mode QC metric and the extract_low_score_mapped column: on/off
 # and why. scripts/build_qc_summary.py accepts exactly these.
-LOW_SCORE_STATES = ("on_auto_bwa_mem", "off_auto_not_bwa_mem", "on_requested", "off_requested")
+LOW_SCORE_STATES = ("on_auto_bwa_mem", "off_auto_not_bwa_mem", "off_auto_no_as_tag",
+                   "on_requested", "off_requested")
 
 
 def _program(token):
@@ -111,11 +113,23 @@ def bwa_mem_evidence(text):
     """(aligner_bwa_mem, bwa_min_score) from a header's @PG records.
 
     yes: some @PG's CL runs `bwa mem` / `bwa-mem2 mem` (also inside a wrapper, e.g.
-    `sentieon bwa mem`); bwa_min_score is its -T, or "default". unconfirmed: a bwa @PG
-    (by PN or ID) whose CL is absent or runs another subcommand (aln/sampe/samse, which
-    write no AS tag anyway). no: nothing from bwa. The CL is never returned.
+    `sentieon bwa mem`); bwa_min_score is its -T, or "default". no: nothing from bwa.
+    The CL is never returned.
+
+    The two remaining cases used to share one `unconfirmed` value, and both fell to the
+    same lossy branch. They are not the same thing (Ludmil's v3 review, Tier A item 1):
+
+      not_mem   a bwa @PG that ran aln/sampe/samse. Those subcommands emit no AS tag at
+                all -- verified empirically, not assumed: tests/check_bwa_sampe_tags.sh
+                aligns synthetic reads and finds 0/8 sampe records carry AS:i while 8/8
+                mem records do. There is nothing for a low-AS rescue to act on, so `off`
+                is the only correct answer and the run should continue.
+      no_cl     a bwa @PG whose CL is absent, so WHICH subcommand ran is unknown. It may
+                have been `mem`, whose reads would be rescuable. Treating this as `off`
+                silently lowers sensitivity, which is exactly the fail-closed path the
+                review flagged; low_score_decision refuses it instead.
     """
-    found, unconfirmed, scores = False, False, []
+    found, no_cl, not_mem, scores = False, False, False, []
     for line in text.splitlines():
         if not line.startswith("@PG\t"):
             continue
@@ -137,10 +151,20 @@ def bwa_mem_evidence(text):
             continue
         label = (t.get("PN") or re.sub(r"([.-]\d+|-[0-9A-F]{6,})$", "", t.get("ID", ""), flags=re.I)).lower()
         if label in BWA_PROGRAMS:
-            unconfirmed = True
+            # A bwa @PG that is not `mem`. Which of the two cases depends on whether the
+            # CL is there to read: an absent CL hides the subcommand, a present one names
+            # a subcommand that is not mem.
+            if t.get("CL"):
+                not_mem = True
+            else:
+                no_cl = True
     if found:
         return "yes", ",".join(dict.fromkeys(scores))
-    return ("unconfirmed" if unconfirmed else "no"), "NA"
+    if no_cl:
+        return "no_cl", "NA"
+    if not_mem:
+        return "not_mem", "NA"
+    return "no", "NA"
 
 
 def low_score_decision(request, bwa_mem):
@@ -151,13 +175,31 @@ def low_score_decision(request, bwa_mem):
         return "on_requested"
     if request == "off":
         return "off_requested"
-    return "on_auto_bwa_mem" if bwa_mem == "yes" else "off_auto_not_bwa_mem"
+    if bwa_mem == "yes":
+        return "on_auto_bwa_mem"
+    if bwa_mem == "not_mem":
+        # bwa, but aln/sampe/samse: no AS tag exists to rescue on. `off` is not a
+        # fallback here, it is the only possible answer, and it is recorded as its own
+        # state so a cohort summary can tell it apart from "some other aligner".
+        return "off_auto_no_as_tag"
+    if bwa_mem == "no_cl":
+        # The fail-closed path the v3 review flagged. We cannot tell whether `mem` ran,
+        # so we cannot tell whether rescuable reads exist. Refuse rather than quietly
+        # take the narrower path and report a possibly lower tier.
+        raise ValueError(
+            "this input carries a bwa @PG with no command line, so whether it ran "
+            "`bwa mem` cannot be determined, and neither can whether low-AS mapped "
+            "reads are rescuable. Pass --extract_low_score_mapped on or off explicitly "
+            "to say which behaviour you want for it; `auto` will not guess, because "
+            "guessing `off` silently lowers sensitivity.")
+    return "off_auto_not_bwa_mem"
 
 
 def low_score_reason(state, bwa_mem, bwa_min_score, min_as):
     """One line for the task log: what was decided and from what."""
     seen = {"yes": f"bwa mem in the @PG chain (-T {bwa_min_score})",
-            "unconfirmed": "a bwa @PG without a `bwa mem` command line",
+            "not_mem": "a bwa @PG running aln/sampe/samse, which emit no AS tag",
+            "no_cl": "a bwa @PG with no command line, so the subcommand is unknown",
             "no": "no bwa mem in the @PG chain"}[bwa_mem]
     if state.startswith("on"):
         text = f"on ({state}): also extracting primary mapped records with AS:i < {min_as}; {seen}"

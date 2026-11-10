@@ -237,12 +237,36 @@ class AutoDetection(unittest.TestCase):
                 self.assertEqual(row["extract_low_score_mapped"], "off_auto_not_bwa_mem")
                 self.assertEqual(row["extract_min_as"], "NA")
 
-    def test_bwa_without_a_mem_command_line_is_unconfirmed_and_off(self):
-        for pg in (PG_ALN, PG_NO_CL):
-            with self.subTest(pg=pg):
-                row = hp.parse_header(header(pg), "A")
-                self.assertEqual(row["aligner_bwa_mem"], "unconfirmed")
-                self.assertEqual(row["extract_low_score_mapped"], "off_auto_not_bwa_mem")
+    def test_a_non_mem_bwa_subcommand_is_off_for_a_stated_reason(self):
+        """aln/sampe/samse emit no AS tag, so there is nothing a rescue could act on.
+
+        This used to share the `unconfirmed` value and the generic off_auto_not_bwa_mem
+        state with a header we simply cannot read -- see the companion test below. They
+        are different situations and now resolve differently (Ludmil's v3 review, Tier A
+        item 1). The premise that these subcommands emit no AS is checked for real, by
+        running the aligner, in tests/check_bwa_sampe_tags.sh.
+        """
+        row = hp.parse_header(header(PG_ALN), "A")
+        self.assertEqual(row["aligner_bwa_mem"], "not_mem")
+        self.assertEqual(row["extract_low_score_mapped"], "off_auto_no_as_tag")
+
+    def test_a_bwa_pg_with_no_command_line_refuses_to_guess(self):
+        """We cannot tell whether `mem` ran, so we cannot tell whether reads are rescuable.
+
+        Guessing `off` is the fail-closed path the review flagged: it silently lowers
+        sensitivity and can report a lower tier. Refuse and make the caller say which
+        behaviour they want. C1 found no such file in any TCGA cohort, so this costs
+        nothing today.
+        """
+        with self.assertRaises(ValueError) as caught:
+            hp.parse_header(header(PG_NO_CL), "A")
+        self.assertIn("--extract_low_score_mapped", str(caught.exception))
+
+    def test_an_explicit_mode_still_works_on_an_unreadable_header(self):
+        for request, expected in (("on", "on_requested"), ("off", "off_requested")):
+            with self.subTest(request=request):
+                row = hp.parse_header(header(PG_NO_CL), "A", request)
+                self.assertEqual(row["extract_low_score_mapped"], expected)
 
     def test_explicit_on_and_off_override_detection(self):
         self.assertEqual(hp.parse_header(header(PG_STAR), "A", "on")["extract_low_score_mapped"], "on_requested")

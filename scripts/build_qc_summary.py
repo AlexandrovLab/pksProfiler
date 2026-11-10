@@ -69,7 +69,7 @@ OUTPUT_COLUMNS = [
     "extracted_low_score_mapped_reads",  # primary mapped records with AS < extract_min_as
     "extracted_reads",           # everything extraction wrote: the two above, summed
     "extract_low_score_no_as_records",  # mapped primary records with no AS tag, never added
-    "extract_low_score_mode",    # on_auto_bwa_mem / off_auto_not_bwa_mem / on_requested / off_requested
+    "extract_low_score_mode",    # on_auto_bwa_mem / off_auto_not_bwa_mem / off_auto_no_as_tag / on_requested / off_requested
     "filter_input_reads",        # what entered fastp
     "reads_after_fastp",
     "reads_after_hg38",
@@ -228,7 +228,7 @@ TEXT_METRICS = {
                         "no_species_identified", "species_identified"},
     "evidence_outcome": set(COMPLETED_STATE),
     # E1: scripts/header_provenance.py LOW_SCORE_STATES.
-    "extract_low_score_mode": {"on_auto_bwa_mem", "off_auto_not_bwa_mem",
+    "extract_low_score_mode": {"on_auto_bwa_mem", "off_auto_not_bwa_mem", "off_auto_no_as_tag",
                                "on_requested", "off_requested"},
     # rc2 review 2.1: the RESOLVED mode only. `auto` is a request, not a mode anything
     # runs in, so it is deliberately NOT an accepted value here: a fragment with that
