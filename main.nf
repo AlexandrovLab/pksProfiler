@@ -377,6 +377,11 @@ params.exact_input_counts = false
 // AS scale of STAR, minimap2 etc. is not bwa's); decided and logged per sample, and
 // recorded in QC (extract_low_score_mode) and by_sample/<s>/provenance/input_header.tsv.
 params.extract_low_score_mapped = "auto"   // auto | on | off
+// Ludmil v3 Tier A item 2: refuse a cohort whose samples did not all resolve to the same
+// low-score extraction behaviour. Off by default, because a mix is legitimate when the
+// inputs genuinely differ (bwa sampe emits no AS tag, so `off` is correct for it); the
+// RUN_REPORT warns either way. Set true when every sample is meant to be comparable.
+params.require_low_score_mode = false
 params.extract_min_as           = 30
 
 // F14: aligned bases a read must share with a clb gene to be assigned to it. One

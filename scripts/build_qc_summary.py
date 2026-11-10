@@ -11,6 +11,7 @@ counts all mean a bug, not a missing sample.
 
 import argparse
 import csv
+import sys
 import math
 import re
 from collections import defaultdict
@@ -350,6 +351,12 @@ def parse_args():
         "--excluded-samples", type=Path, default=None,
         help="sample<TAB>reason per line (reason: lower-case, digits, underscores); those "
              "samples end as excluded_<reason> whatever QC they have")
+    parser.add_argument(
+        "--require-uniform-low-score-mode", action="store_true",
+        help="refuse the cohort if its samples did not all resolve to the same "
+             "low-score extraction behaviour (some rescued, some not). Off by default: "
+             "a mix is legitimate when the inputs genuinely differ, e.g. bwa sampe "
+             "alongside bwa mem, and the RUN_REPORT warns either way")
     args = parser.parse_args()
     if args.inputs and args.inputs_file:
         parser.error("give --inputs or --inputs-file, not both")
@@ -666,6 +673,56 @@ def read_expected(path):
     return [line.strip() for line in path.read_text().splitlines() if line.strip()]
 
 
+def check_uniform_low_score_mode(output_path, required):
+    """Did every sample resolve to the same low-score extraction behaviour?
+
+    Ludmil's v3 review, Tier A item 2. The resolved mode is recorded per sample and
+    nothing compared it across the cohort, so a run could contain rescued and FLAG4-only
+    samples side by side with no warning. Those samples saw different read pools and are
+    not equally sensitive, and a prevalence difference between them -- or between this
+    cohort and another -- can be extraction rather than biology.
+
+    The comparison is on whether the rescue RAN, not on which of the five states recorded
+    it: `on_auto_bwa_mem` and `on_requested` are equally sensitive. A mix is reported
+    always, and refused only when asked for, because a mix is legitimate when the inputs
+    genuinely differ -- 17 of 1,304 TCGA WES samples are bwa sampe, which emits no AS tag
+    to rescue on, so `off` is the only correct answer for them.
+    """
+    try:
+        with open(output_path, newline="") as handle:
+            rows = list(csv.DictReader(handle, delimiter="\t"))
+    except OSError:
+        return
+    if not rows or "extract_low_score_mode" not in rows[0]:
+        return
+    modes = [(r.get("extract_low_score_mode") or "").strip() for r in rows]
+    modes = [m for m in modes if m and m != "NA"]
+    if not modes:
+        return
+    counts = {}
+    for m in modes:
+        counts[m] = counts.get(m, 0) + 1
+    rescued = sum(n for m, n in counts.items() if m.startswith("on"))
+    not_rescued = sum(n for m, n in counts.items() if m.startswith("off"))
+    if not (rescued and not_rescued):
+        return
+
+    detail = ", ".join(f"{m}={n}" for m, n in sorted(counts.items(), key=lambda kv: -kv[1]))
+    message = (f"mixed low-score extraction across this cohort: {rescued} sample(s) had "
+               f"low-AS mapped reads rescued and {not_rescued} did not ({detail}). Those "
+               f"samples are not equally sensitive.")
+    if required:
+        raise SystemExit(
+            f"ERROR: {message}\n"
+            f"       --require_low_score_mode was set, so this cohort is refused.\n"
+            f"       Either split the inconsistent samples into their own run, or pass\n"
+            f"       --extract_low_score_mapped on|off to force one behaviour for all of\n"
+            f"       them, having checked that it is correct for every input.")
+    print(f"WARNING: {message}", file=sys.stderr)
+    print("         RUN_REPORT.txt records the per-mode counts; pass "
+          "--require_low_score_mode true to refuse this.", file=sys.stderr)
+
+
 def main():
     args = parse_args()
     metrics = load_fragments(args.inputs)
@@ -677,6 +734,7 @@ def main():
 
     stages = parse_stages(args.expected_stages) if args.expected_stages is not None else None
     write_summary(metrics, args.output, expected, stages, excluded)
+    check_uniform_low_score_mode(args.output, args.require_uniform_low_score_mode)
 
 
 if __name__ == "__main__":
