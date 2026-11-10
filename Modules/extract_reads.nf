@@ -342,7 +342,8 @@ process lowScoreRescueProfile {
             -t gene \
             -F GFF \
             -g Name \
-            --largestOverlap ${featurecounts_long} \
+            --largestOverlap \
+            --minOverlap ${params.min_gene_overlap_bp} ${featurecounts_long} \
             rescued.bam
         CLB_ASSIGNED=\$(awk -F '\t' '
             \$1 ~ /^clb[A-S]\$/ { total += \$NF + 0 }

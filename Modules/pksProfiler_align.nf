@@ -93,6 +93,13 @@ process pksProfiler_align {
     # Always create a valid 19-gene count table. A successfully
     # processed sample with no aligned reads must remain in summaries
     # as an explicit zero rather than disappearing as an empty file.
+    # --minOverlap is params.min_gene_overlap_bp, not featureCounts' own default.
+    # Review item 12: --largestOverlap was passed and --minOverlap was not, so the
+    # primary counts used featureCounts' built-in 1 bp while Modules/pks_taxa.nf and
+    # Modules/pks_targeted.nf both honoured the configured value. At the shipped default
+    # of 1 the two agree by coincidence and nothing is wrong -- C2 confirmed every
+    # production run used 1 -- but at any other value the lanes would have disagreed
+    # silently, the primary counts answering to a rule the run did not report.
     featureCounts \
         -T "${task.cpus}" \
         -a clb_genes.gff \
@@ -100,7 +107,8 @@ process pksProfiler_align {
         -t gene \
         -F GFF \
         -g Name \
-        --largestOverlap ${featurecounts_long} \
+        --largestOverlap \
+        --minOverlap ${params.min_gene_overlap_bp} ${featurecounts_long} \
         "${bam}"
 
     python "${params.scripts}/validate_featurecounts.py" \
