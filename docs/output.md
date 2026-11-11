@@ -240,11 +240,21 @@ call depends on how the reads are counted; it is not a different call.
 **Metagenome abundance** (26 Sep mode memo section 5). `pks_reads_per_million` is
 `pks_reads * 1e6 / host_depleted_reads`, where `host_depleted_reads` is the final
 host-depleted count (`reads_after_pangenome` when that pass ran, else
-`reads_after_t2t_phix`) -- host depletion, not the prefiltered profiling input, so the rate
-does not move with `--prefilter_mode`. It is the primary metagenome quantity because stool
+`reads_after_t2t_phix`) -- host depletion, not the prefiltered profiling input, so the
+*denominator* does not move with `--prefilter_mode`. The rate can still move, because
+under `--prefilter_mode balanced` the numerator `pks_reads` is counted on the narrowed
+profiling input while the denominator stays pre-prefilter; the prefilter is built to
+retain clb-bearing reads, but rates from runs in different prefilter modes are not
+guaranteed comparable. It is the primary metagenome quantity because stool
 cohorts differ greatly in depth; the raw `pks_reads` stays beside it. `NA` for other modes
 (and when nothing survived depletion). It is in `read_evidence.tsv`, the cohort report TSV
 and `pks.master_summary.tsv`.
+
+`host_depleted_stage` names the pass that produced that denominator -- `pangenome` or
+`t2t_phix`. Read it before comparing rates between runs: a run with `--pangenome_db` set
+divides by a smaller, more deeply depleted denominator than one without, so the same
+sample yields a higher rate under pangenome depletion. Without this column the two are
+indistinguishable in the table.
 
 **Metagenome read pairs** (section 5, A7). Host depletion evaluates reads independently;
 the MAG lane then rebuilds R1/R2 plus singletons from the mate suffixes of the complete

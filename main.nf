@@ -1485,8 +1485,10 @@ workflow {
             : ALIGN_OUT.qc.map { sampleID, _qc -> tuple(sampleID, []) }
         if (params.sample_type in ["wgs", "metagenome", "wes", "rna"]) {
             // MAP_OUT.qc: the host-depleted read count, the denominator of the metagenome
-            // pks_reads_per_million (26 Sep mode memo section 5). Host depletion, not the
-            // prefiltered profiling input, so the rate does not move with --prefilter_mode.
+            // pks_reads_per_million (26 Sep mode memo section 5). Taken at host depletion,
+            // upstream of the prefilter, so the DENOMINATOR does not move with
+            // --prefilter_mode -- but the rate can, since balanced mode narrows what the
+            // numerator is counted on (v3 item 18; docs/output.md has the detail).
             read_evidence_input_ch = ALIGN_OUT.profile
                 .join(ALIGN_OUT.qc, by: 0)
                 .join(MAP_OUT.qc, by: 0)

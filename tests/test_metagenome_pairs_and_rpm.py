@@ -184,12 +184,17 @@ class ReadsPerMillion(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             qc = Path(tmp) / "dep.tsv"
             qc.write_text("Sample\tMetric\tValue\nS\treads_after_t2t_phix\t100\nS\treads_after_pangenome\t80\n")
-            self.assertEqual(classify.depleted_reads(qc), 80)
+            # v3 item 7: the stage comes back with the count, so the denominator says
+            # which depletion pass produced it.
+            self.assertEqual(classify.depleted_reads(qc), (80, "pangenome"))
             qc.write_text("Sample\tMetric\tValue\nS\treads_after_t2t_phix\t100\nS\treads_after_pangenome\tNA\n")
-            self.assertEqual(classify.depleted_reads(qc), 100)
+            self.assertEqual(classify.depleted_reads(qc), (100, "t2t_phix"),
+                             "with no pangenome pass the denominator is the T2T+phiX "
+                             "survivor count, and must say so")
 
     def test_only_metagenome_rows_carry_it_and_the_raw_count_stays(self):
-        self.assertEqual(classify.SCHEMAS["metagenome"][-2:], ["host_depleted_reads", "pks_reads_per_million"])
+        self.assertEqual(classify.SCHEMAS["metagenome"][-3:],
+                         ["host_depleted_reads", "host_depleted_stage", "pks_reads_per_million"])
         self.assertIn("pks_reads", classify.SCHEMAS["metagenome"])
         for mode in ("wgs", "wes", "rna"):
             self.assertNotIn("pks_reads_per_million", classify.SCHEMAS[mode])
@@ -206,6 +211,9 @@ class ReadsPerMillion(unittest.TestCase):
         self.assertIn('"pks_reads_per_million", "pks_reads"', report)
         source = (ROOT / "scripts/build_master_summary.py").read_text()
         self.assertIn('"pks_reads_per_million", "pks_reads", "host_depleted_reads"', source)
+        self.assertIn('"host_depleted_stage"', source,
+                      "v3 item 7: the stage must travel with the count into the master "
+                      "summary, or the rate is not self-describing there either")
         docs = (ROOT / "docs/output.md").read_text()
         self.assertIn("pks_reads_per_million", docs)
         self.assertIn("mate_pairing.tsv", docs)
@@ -219,7 +227,8 @@ class ReadsPerMillion(unittest.TestCase):
             fields = classify.SCHEMAS["metagenome"]
             row = classify.evidence_row("metagenome", "M1", 12, 3, (0.1, 0.05, 0.01),
                                         {"multi_gene": (5, 3, .01), "broad_island": (30, 8, .075),
-                                         "extensive_island": (100, 10, .15)}, depleted=3_000_000)
+                                         "extensive_island": (100, 10, .15)},
+                                        depleted=3_000_000, depleted_stage="t2t_phix")
             with ev.open("w", newline="") as fh:
                 w = csv.DictWriter(fh, fields, delimiter="\t"); w.writeheader(); w.writerow(row)
             (d / "manifest.tsv").write_text("sample\tkind\tpath\nM1\tread_evidence\tinputs/1/read_evidence.tsv\n")
@@ -231,6 +240,8 @@ class ReadsPerMillion(unittest.TestCase):
                 got = list(csv.DictReader(fh, delimiter="\t"))[0]
         self.assertEqual((got["pks_reads_per_million"], got["pks_reads"], got["host_depleted_reads"]),
                          ("4.0000", "12", "3000000"))
+        self.assertEqual(got["host_depleted_stage"], "t2t_phix",
+                         "the stage must survive the trip into the master summary")
 
 
 if __name__ == "__main__":

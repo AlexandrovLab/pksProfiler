@@ -35,3 +35,16 @@ results/
 # pksProfiler-v3-working tree, so it is not usable outside the lab and is
 # deliberately not published. Preserved in ../dev-scripts/.
 scripts/run_mag_smoke.sbatch
+
+# Validation RESULTS and the per-cohort command files that produce them. The scripts
+# under validation/ are tracked; what they emit is not. Two reasons: the outputs are
+# regenerable, and several carry sample identifiers or SRA accessions, which must not
+# enter git history (global rule 2) and which the push guard's identifier pattern would
+# block anyway. Force-add deliberately (git add -f) if a specific result is evidence
+# worth publishing AND carries no identifier.
+validation/*.tsv
+validation/a45_audit_commands*.sh
+validation/a45_parts/
+validation/item6_parts/
+validation/*.out
+validation/*.err

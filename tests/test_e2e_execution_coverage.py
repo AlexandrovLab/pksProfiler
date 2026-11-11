@@ -306,20 +306,36 @@ class AssertionsCoverTheMatePairRegressionGuard(unittest.TestCase):
 
 
 class CIWiring(unittest.TestCase):
-    """F21: "Run the suite in CI on a pinned Nextflow/tool environment." The real
-    execution tests now run on every push to main and nightly, not only when someone
-    remembers to dispatch them."""
+    """F21: "Run the suite in CI on a pinned Nextflow/tool environment."
+
+    The real execution job ran on every push to main, on v* tags and nightly until
+    2026-11-06, when it became dispatch-only because it could not be made to pass on a
+    GitHub-hosted runner. v3 review items 19 and 20 then removed the nightly cron and the
+    prose describing the triggers it no longer had: a schedule that fires daily and runs
+    only the unit tests implies nightly execution coverage that does not exist.
+    """
 
     def test_ci_references_the_e2e_script(self):
         self.assertIn("check_e2e_execution.sh", CI)
 
     def test_the_execution_job_is_dispatchable(self):
-        # v1.0.0: dispatch-only (see ci.yml and RELEASE_NOTES_v1.0.0.md). The job and
-        # its schedule block must survive so it stays fixable for v1.0.1.
-        self.assertIn("schedule:", CI)
-        self.assertIn('cron: "0 7 * * *"', CI)
         job = CI[CI.index("e2e-execution:"):]
         self.assertIn("github.event_name == 'workflow_dispatch'", job)
+
+    def test_there_is_no_schedule_implying_nightly_execution(self):
+        # v3 item 20. The cron existed to run THIS job nightly; with the job
+        # dispatch-only it ran nothing the push and pull_request triggers did not
+        # already run, while leaving "nightly CI" to be inferred. If a schedule comes
+        # back, it must come back with the execution job actually on it.
+        self.assertNotIn("schedule:", CI)
+        self.assertNotIn("cron:", CI)
+
+    def test_ci_does_not_claim_triggers_it_does_not_have(self):
+        # v3 item 19: the prose above the job claimed push-to-main, nightly and v* tag.
+        # A reader deciding whether a release tag was executed in CI relies on it.
+        header = CI[:CI.index("e2e-execution:")]
+        self.assertNotIn("nightly on the schedule above", header)
+        self.assertIn("manual dispatch only", header)
 
     def test_it_is_still_not_on_every_pull_request(self):
         # A cold GitHub-hosted runner has no persistent conda cache (unlike
