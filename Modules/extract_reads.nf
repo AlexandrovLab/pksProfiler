@@ -112,6 +112,28 @@ process extractReads {
 
 		samtools quickcheck -v "${alignment}"
 
+    # THE EXTRACTION MASK IS -F 2304, AND THAT IS DELIBERATE (v3 review item 10).
+    # 2304 = 0x100 secondary + 0x800 supplementary. Two other flags pass through on
+    # purpose, and they are here for opposite reasons:
+    #
+    #   0x400 DUPLICATE -- RETAINED, and must NOT be added to this mask. The submitter's
+    #   markdup assigned that flag in HUMAN coordinate space. Our reads are the ones that
+    #   failed to map to human or mapped weakly, so they had no usable human coordinates
+    #   and two genuine PCR copies of one pks fragment were invisible to that markdup:
+    #   the flag carries no information about duplication among these reads. Duplicates
+    #   only become identifiable once the reads are aligned to IHE3034, which is where the
+    #   pipeline re-marks them -- scripts/compute_fragment_support_variants.py, the
+    #   dup_marked and dup_collapsed variants behind tier_robustness. Excluding 0x400 here
+    #   would apply a human-coordinate verdict to a microbial question and would drop
+    #   bacterial reads whose only offence was a spurious human alignment. Changing this
+    #   line changes every published result.
+    #
+    #   0x200 QCFAIL -- also retained, but for want of a reason rather than a reason.
+    #   Unlike 0x400 it has no standard definition: it means whatever the upstream
+    #   pipeline decided, and pipelines differ in whether they set it at all. So it is
+    #   now COUNTED (extracted_qcfail_reads, tallied in the awk below) and left in the
+    #   stream. Decide an exclusion policy from what cohorts actually show, not before.
+    #
     # Retain every primary unmapped alignment record, regardless of
     # whether its mate is mapped, unmapped, or absent. The alignment is
     # decoded only once; the extracted-read count comes from the FASTQ.
@@ -149,7 +171,15 @@ process extractReads {
             -v names="${sampleID}.low_score_rescued.names" '
             /^@/ { print; next }
             {
-                if (int(\$2 / 4) % 2 == 1) { unmapped++; print; next }
+                # v3 item 10: FLAG 0x200 (QCFAIL) is counted, never filtered on. -F 2304
+                # excludes secondary and supplementary only, so a record the submitter
+                # flagged as failing vendor QC reaches profiling exactly as before; this
+                # only makes it visible. Upstream pipelines differ in whether they set
+                # 0x200 at all and on what basis, so the policy decision needs the counts
+                # first. Tallied here because this awk already visits every candidate
+                # record -- it costs nothing.
+                qcfail = int(\$2 / 512) % 2
+                if (int(\$2 / 4) % 2 == 1) { unmapped++; if (qcfail) qcf++; print; next }
                 score = ""
                 for (i = 12; i <= NF; i++) if (\$i ~ /^AS:[if]:/) { score = substr(\$i, 6); break }
                 if (score == "") { no_as++; next }
@@ -158,11 +188,11 @@ process extractReads {
                     # exactly one of the first/last-segment bits is set.
                     first = int(\$2 / 64) % 2; last = int(\$2 / 128) % 2
                     print \$1 (first && !last ? "/1" : last && !first ? "/2" : "") > names
-                    low++; print; next
+                    low++; if (qcfail) qcf++; print; next
                 }
                 other++
             }
-            END { printf "%d\\t%d\\t%d\\t%d\\n", unmapped, low, no_as, other > counts }' |
+            END { printf "%d\\t%d\\t%d\\t%d\\t%d\\n", unmapped, low, no_as, other, qcf > counts }' |
         samtools fastq \
             -@ "${task.cpus}" \
             -N \
@@ -202,7 +232,7 @@ process extractReads {
 		# (filter_input_reads). extracted_unmapped_reads keeps its meaning, FLAG 4 records
 		# only; extracted_low_score_mapped_reads is E1's addition. Off: all of it is FLAG 4.
 		if [[ "\$LOW_SCORE" == "on" ]]; then
-		    read -r UNMAPPED_READS LOW_SCORE_READS NO_AS_RECORDS OTHER_RECORDS < extract.classes
+		    read -r UNMAPPED_READS LOW_SCORE_READS NO_AS_RECORDS OTHER_RECORDS QCFAIL_EXTRACTED < extract.classes
 		    if [[ "\$OTHER_RECORDS" != 0 || \$((UNMAPPED_READS + LOW_SCORE_READS)) != "\$EXTRACTED_READS" ]]; then
 		        echo "ERROR: ${sampleID}: extraction classes do not add up: FLAG 4 \$UNMAPPED_READS + low-score \$LOW_SCORE_READS != \$EXTRACTED_READS FASTQ reads (unclassified: \$OTHER_RECORDS)" >&2
 		        exit 1
@@ -212,6 +242,15 @@ process extractReads {
 		    UNMAPPED_READS=\$EXTRACTED_READS
 		    LOW_SCORE_READS=0
 		    NO_AS_RECORDS=""
+		    # v3 item 10: the off branch pipes the alignment straight into samtools fastq,
+		    # which emits FASTQ and so carries no FLAG for an awk to read. Counting QCFAIL
+		    # here would mean a second decode of the whole alignment -- hours on a 60 GiB
+		    # CRAM -- for a diagnostic, so it is reported as NA rather than paid for
+		    # silently. The rescue branch above measures it for free, which covers the
+		    # cohorts aligned with -T 0 (TCGA); a cohort run with rescue off can be
+		    # measured on demand with:
+		    #     samtools view -c -f 0x204 -F 2304 <alignment>
+		    QCFAIL_EXTRACTED=""
 		fi
 
 	# F09: a library denominator that does not come from the extraction itself. The QC
@@ -250,6 +289,12 @@ process extractReads {
 	printf "%s\textracted_reads\t%s\n" "${sampleID}" "\$EXTRACTED_READS" >> "\$QC"
 	if [[ -n "\$NO_AS_RECORDS" ]]; then
 	    printf "%s\textract_low_score_no_as_records\t%s\n" "${sampleID}" "\$NO_AS_RECORDS" >> "\$QC"
+	fi
+	# v3 item 10: how many extracted reads the submitter had flagged QCFAIL (0x200).
+	# Counted, never filtered on -- the extraction mask stays -F 2304. Absent in the
+	# rescue-off branch, which cannot see FLAGs; see the note where it is set.
+	if [[ -n "\$QCFAIL_EXTRACTED" ]]; then
+	    printf "%s\textracted_qcfail_reads\t%s\n" "${sampleID}" "\$QCFAIL_EXTRACTED" >> "\$QC"
 	fi
 	printf "%s\textract_low_score_mode\t%s\n" "${sampleID}" "\$LOW_SCORE_STATE" >> "\$QC"
 	"""

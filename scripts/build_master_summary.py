@@ -39,6 +39,9 @@ from build_qc_summary import LOW_SCORE_RESCUE_COLUMNS, TIER_ROBUSTNESS_COLUMNS, 
 # that produces it left no files behind.
 QC_COLUMNS = ["input_alignment_records", "total_primary_reads", "extracted_unmapped_reads",
               "extracted_low_score_mapped_reads", "extracted_reads",
+              # v3 item 10: counted, never filtered on. Blank where a rescue-off run
+              # could not read FLAGs without a second decode.
+              "extracted_qcfail_reads",
               "filter_input_reads", "reads_after_fastp", "reads_after_hg38", "reads_after_t2t_phix",
               "reads_mapped_ihe3034_mapq40", "num_clb_genes_align", "reads_clb_genes_align",
               "num_clb_genes_hmm", "reads_clb_genes_hmm"]

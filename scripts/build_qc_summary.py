@@ -70,6 +70,12 @@ OUTPUT_COLUMNS = [
     "extracted_low_score_mapped_reads",  # primary mapped records with AS < extract_min_as
     "extracted_reads",           # everything extraction wrote: the two above, summed
     "extract_low_score_no_as_records",  # mapped primary records with no AS tag, never added
+    # v3 item 10: extracted reads the submitter had flagged QCFAIL (0x200). COUNTED, never
+    # filtered on -- extraction's mask stays -F 2304. 0x200 has no standard meaning across
+    # pipelines, so cohorts can differ in how much flagged-bad data reaches profiling, and
+    # that difference was invisible. Blank for a rescue-off run, which cannot read FLAGs
+    # without a second decode; Modules/extract_reads.nf says so at the source.
+    "extracted_qcfail_reads",
     "extract_low_score_mode",    # on_auto_bwa_mem / off_auto_not_bwa_mem / off_auto_no_as_tag / on_requested / off_requested
     "filter_input_reads",        # what entered fastp
     "reads_after_fastp",
@@ -460,6 +466,7 @@ def output_row(sample, values):
         "extracted_low_score_mapped_reads": values.get("extracted_low_score_mapped_reads"),
         "extracted_reads": values.get("extracted_reads"),
         "extract_low_score_no_as_records": values.get("extract_low_score_no_as_records"),
+        "extracted_qcfail_reads": values.get("extracted_qcfail_reads"),
         "extract_low_score_mode": values.get("extract_low_score_mode"),
         "filter_input_reads": values.get("filter_input_reads"),
         # A6: named for its MAPQ >= 40 filter (was reads_mapped_ihe3034).
