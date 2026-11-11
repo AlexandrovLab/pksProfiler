@@ -223,19 +223,25 @@ Explore a synthetic WGS cohort before running the pipeline. This example illustr
 
 [HTML source](examples/results/cohort_report/pks_cohort_report.html) · [Report table (TSV)](examples/results/cohort_report/pks_cohort_report.tsv) · [QC table](examples/results/cohort_report/pks.qc.summary.tsv)
 
-In a completed run, open `results/cohort/pks_cohort_report.html`. Where targeted WGS assembly produced plots, its **contigs** links open `by_sample/<sample>/figures/island_reconstruction.pdf`, published beside `circos.pdf`:
+In a completed run, open `results/cohort/pks_cohort_report.html`. Keep it with its `by_sample` tree — figure panels use relative links.
 
-![Island reconstruction from targeted WGS assembly: the 19 clb genes as strand-aware arrows coloured by enzyme class, above the metaSPAdes and MEGAHIT contigs that align to them, above read depth across the same window, all on one coordinate axis](assets/island_reconstruction_wgs_example.png)
+Each sample gets `figures/island_reconstruction.pdf` beside `circos.pdf`: genes, the contigs that rebuild the island, and read depth, on one axis.
 
-Three panels on one coordinate axis: the 19 `clb` genes as strand-aware arrows coloured by enzyme class, the contigs that align to them, and read depth. Each contig carries its aligned length and percent identity; each row label gives the contig count and the share of the island that source recovers. Alignments are filtered the way the pipeline filters them — at least 90% identity and MAPQ at least 20 — so the coverage shown is the coverage reported. For WGS the two rows are the two assemblers, and their agreement is the evidence.
+<details>
+<summary><strong>WGS</strong> — metaSPAdes vs MEGAHIT; agreement is the evidence</summary>
 
-Keep the report with its `by_sample` output tree, because figure panels use relative file links. The bundled synthetic example shows the cohort layout; it does not include every run-specific plot.
+![clb genes as strand-aware arrows above metaSPAdes and MEGAHIT contigs, above read depth, on one coordinate axis](assets/island_reconstruction_wgs_example.png)
 
-The same figure is drawn for a metagenome, where the contig rows become each recovered **bin** carrying island sequence, ordered by how much it recovers, and then the **unbinned pool**:
+Drawn automatically. Contigs carry length and identity; row labels give contig count and island share. Filtered at ≥90% identity, MAPQ ≥20.
 
-![The same three-panel figure for a metagenome: clb genes above contigs grouped by the bin they landed in, with the unbinned pool drawn in grey as the last row, above read depth](assets/island_reconstruction_metagenome_example.png)
+</details>
 
-Island sequence inside a bin can be attributed to a candidate organism; island sequence in the unbinned pool shows the island is present but says nothing about who carries it, so the unbinned row is always drawn in grey and always last. The MAG lane is optional, so this one is run by hand:
+<details>
+<summary><strong>Metagenome</strong> — one row per bin, unbinned pool last in grey</summary>
+
+![clb genes above contigs grouped by bin, unbinned pool in grey as the last row, above read depth](assets/island_reconstruction_metagenome_example.png)
+
+Island sequence in a bin points to a carrier; in the unbinned pool it shows presence only. The MAG lane is optional, so run this one by hand:
 
 ```bash
 python3 scripts/plot_island_reconstruction.py --mode metagenome \
@@ -244,7 +250,9 @@ python3 scripts/plot_island_reconstruction.py --mode metagenome \
     --out island_reconstruction.pdf --also png
 ```
 
-Both figures above are drawn from synthetic alignments, not from a real sample. See [docs/output.md](docs/output.md) for the full description.
+</details>
+
+Both examples use synthetic data. Full description: [docs/output.md](docs/output.md).
 
 | Start here | What to look for |
 |---|---|
