@@ -1547,7 +1547,8 @@ workflow {
                 // links, and nothing waited for it before.
                 report_display_gate = report_display_gate.mix(
                     targetedPksAssembly.out.plots
-                        .map { sampleID, plot -> tuple(sampleID, 'figure_contig_validation', plot) })
+                        .map { sampleID, _pdf, png ->
+                            tuple(sampleID, 'figure_island_reconstruction', png) })
             }
         }
     }

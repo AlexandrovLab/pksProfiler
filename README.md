@@ -223,7 +223,18 @@ Explore a synthetic WGS cohort before running the pipeline. This example illustr
 
 [HTML source](examples/results/cohort_report/pks_cohort_report.html) · [Report table (TSV)](examples/results/cohort_report/pks_cohort_report.tsv) · [QC table](examples/results/cohort_report/pks.qc.summary.tsv)
 
-In a completed run, open `results/cohort/pks_cohort_report.html`. Where targeted WGS assembly produced plots, its **contigs** links open `by_sample/<sample>/figures/contig_validation.svg`: the IHE3034 reference gene track, aligned MEGAHIT/metaSPAdes contigs, and raw read depth across the *pks* region. Keep the report with its `by_sample` output tree, because figure panels use relative file links. The bundled synthetic example shows the cohort layout; it does not include every run-specific plot.
+In a completed run, open `results/cohort/pks_cohort_report.html`. Where targeted WGS assembly produced plots, its **contigs** links open `by_sample/<sample>/figures/island_reconstruction.pdf`: the 19 `clb` genes as strand-aware arrows coloured by enzyme class, the MEGAHIT and metaSPAdes contigs that align to them, and read depth — all on one coordinate axis. Each contig carries its aligned length and percent identity; each row label gives the contig count and the share of the island that assembler recovers. Keep the report with its `by_sample` output tree, because figure panels use relative file links. The bundled synthetic example shows the cohort layout; it does not include every run-specific plot.
+
+The same figure can be drawn for a metagenome, where the contig rows become each recovered **bin** carrying island sequence and then the **unbinned pool**. That lane is optional, so it is run by hand rather than automatically:
+
+```bash
+python3 scripts/plot_island_reconstruction.py --mode metagenome \
+    --sample-dir results/by_sample/<sample> \
+    --gff ref/annotations/IHE3034.clbA-clbS.gff \
+    --out island_reconstruction.pdf --also png
+```
+
+Island sequence inside a bin can be attributed to a candidate organism; island sequence in the unbinned pool shows the island is present but says nothing about who carries it, so the unbinned row is always drawn in grey and always last. See [docs/output.md](docs/output.md) for the full description.
 
 | Start here | What to look for |
 |---|---|
@@ -302,7 +313,7 @@ Nextflow creates the task-specific environments from [`conda_envs/`](conda_envs/
 | `prefilter_env.yml` | python 3.11.9, krakenuniq 1.0.4, diamond 2.2.8 |
 | `prokka_env.yml` | prokka 1.15.6, blast 2.16.0, barrnap 1.10.6, aragorn 1.2.41, hmmer 3.4, infernal 1.1.5, minced 0.4.2 |
 | `samtools_env.yml` | python 3.10.22, samtools 1.24, htslib 1.24 |
-| `targeted_alignment_env.yml` | minimap2 2.31, python 3.11.9 |
+| `targeted_alignment_env.yml` | minimap2 2.31, python 3.11.9, matplotlib-base 3.10.3 |
 | `targeted_recruit_env.yml` | python 3.11.9, bowtie2 2.5.5 |
 | `targeted_spades_env.yml` | python 3.11.9, spades 4.3.0 |
 

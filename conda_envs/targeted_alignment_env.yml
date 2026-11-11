@@ -5,3 +5,8 @@ channels:
 dependencies:
   - minimap2=2.31
   - python=3.11.9
+  # summarizeTargetedPksEvidence draws the published island-reconstruction figure
+  # (scripts/plot_island_reconstruction.py). matplotlib-base rather than matplotlib:
+  # the figure is written to file with the Agg backend and never displayed, so the Qt
+  # and Tk stack the full package pulls in is dead weight in every task.
+  - matplotlib-base=3.10.3

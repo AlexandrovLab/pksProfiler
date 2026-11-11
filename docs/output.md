@@ -75,7 +75,11 @@ by_sample/<sample>/
 │                           taxon (read-level taxonomic support, not carrier attribution)
 ├── provenance/             input_header.tsv: the input BAM/CRAM's reference and aligner
 │                           (E3; alignment input only, see below)
-├── figures/                circos.pdf, contig_validation.svg,
+├── figures/                circos.pdf
+│                           island_reconstruction.pdf  the island, the contigs that
+│                             rebuild it, and read depth, on one axis (see below)
+│                           island_reconstruction.png  the same figure, which is what
+│                             the cohort report embeds
 │                           pks_island_taxa_barplots.pdf  (--pks_taxa: Bracken on island reads)
 │                           community_taxa_barplots.pdf   (--pks_community_taxa: whole community)
 └── intermediates/          extracted / filtered / host-depleted FASTQ  --save_intermediates
@@ -83,6 +87,45 @@ by_sample/<sample>/
 
 Both sample types write to the same paths. There is no `wgs/` or `metagenome/`
 level: `--sample_type` decides which directories exist, not where they sit.
+
+### `figures/island_reconstruction.pdf`
+
+Three panels on one coordinate axis: the 19 `clb` genes as strand-aware arrows filled by
+enzyme class, the contigs that align to them, and read depth across the same window.
+Written for every sample with a targeted WGS assembly, beside `circos.pdf`.
+
+Each contig carries its aligned length and percent identity; each row label gives the
+contig count and the share of the island that source recovers. Alignments are filtered
+the way the pipeline filters them — at least 90% identity and MAPQ at least 20 — so the
+coverage shown is the coverage reported, not a raw PAF span.
+
+The contig rows are what differ between sample types:
+
+| | rows |
+|---|---|
+| targeted WGS | **metaSPAdes** then **MEGAHIT**. Agreement between the two assemblers is the evidence. |
+| metagenome | every recovered **bin** carrying island sequence, ordered by how much it recovers, then the **unbinned pool** last and in grey. |
+
+That last distinction matters when reading a metagenome figure. Island sequence inside a
+bin can be attributed to a candidate organism. Island sequence in the unbinned pool shows
+the island is present and says nothing about who carries it — so it is never drawn in a
+bin colour and never sits above a bin.
+
+For metagenomes the figure is not produced automatically, because the MAG lane is
+optional. Draw it from a finished `--enable_mags` run with:
+
+```bash
+python3 scripts/plot_island_reconstruction.py --mode metagenome \
+    --sample-dir results/by_sample/<sample> \
+    --gff ref/annotations/IHE3034.clbA-clbS.gff \
+    --out island_reconstruction.pdf --also png
+```
+
+It reads only the PAF alignments the MAG lane already published under
+`genomes/locus_alignment/` and the depth track; no contig or read sequence is opened.
+`--label` sets the one line above the figure and defaults to the sample directory's name;
+pass `--label ""` for no line at all, which is what a cohort with controlled identifiers
+should use.
 
 ## cohort/
 

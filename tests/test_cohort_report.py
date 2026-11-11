@@ -418,8 +418,10 @@ class FiguresOpenInlineFromTheRow(unittest.TestCase):
         for sample, *_rest in COHORT[:2]:          # the two with reads
             figures = self.results / "by_sample" / sample / "figures"
             figures.mkdir(parents=True, exist_ok=True)
-            (figures / "contig_validation.svg").write_text(
-                '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>')
+            # Two figures per sample, as the link-count test below expects: the island
+            # figure, which the report embeds as a raster, and a PDF, which it can only
+            # link. Both embed paths, no extra rows.
+            (figures / "island_reconstruction.png").write_bytes(b"\x89PNG\r\n\x1a\n")
             (figures / "circos.pdf").write_text("pdf")
         self.html = Path(self.tmp.name) / "report.html"
         subprocess.run([sys.executable, str(SCRIPT), "--inputs-manifest", str(manifest_from_tree(self.results)),
@@ -448,12 +450,16 @@ class FiguresOpenInlineFromTheRow(unittest.TestCase):
     def test_nothing_navigates_away(self):
         self.assertNotIn('target="_blank"', self.text)
 
-    def test_svg_embeds_and_pdf_is_linked(self):
-        self.assertIn('type="image/svg+xml"', self.text)
+    def test_a_raster_embeds_and_a_pdf_is_linked(self):
+        # The island figure is published as both PDF and PNG; the report embeds the PNG
+        # because a PDF cannot be shown inline, and a figure behind a link is a figure
+        # most readers never open.
+        self.assertIn('<img src="../by_sample/S_ext/figures/island_reconstruction.png"',
+                      self.text)
         self.assertIn("cannot be shown inline", self.text)
 
     def test_paths_are_relative_to_the_cohort_directory(self):
-        self.assertIn('data="../by_sample/S_ext/figures/contig_validation.svg"', self.text)
+        self.assertIn('../by_sample/S_ext/figures/island_reconstruction.png', self.text)
 
     def test_a_sample_without_figures_says_none(self):
         self.assertIn(">none<", self.text)
@@ -801,7 +807,7 @@ class P0_5bTheReportReadsItsStagedInputsNotThePublishedTree(unittest.TestCase):
             build_results(stale_root, self.STALE)
             figures = stale_root / "by_sample/S_neg/figures"
             figures.mkdir(parents=True)
-            (figures / "contig_validation.svg").write_text("<svg/>")
+            (figures / "island_reconstruction.png").write_bytes(b"\x89PNG\r\n\x1a\n")
             (stale_root / "cohort/taxonomy").mkdir(parents=True)
             (stale_root / "cohort/taxonomy/pks.clb_species_support.tsv").write_text(
                 "Sample\tSpecies\tTaxID\t" + "\t".join(GENES) + "\tTotal\n"
@@ -844,7 +850,7 @@ class P0_5bTheReportReadsItsStagedInputsNotThePublishedTree(unittest.TestCase):
         self.assertNotIn("Read-level taxonomic support: species", html)
         # Figures: the run made a circos plot for S_ext and nothing for S_neg.
         self.assertIn("../by_sample/S_ext/figures/circos.pdf", html)
-        self.assertNotIn("../by_sample/S_neg/figures/contig_validation.svg", html)
+        self.assertNotIn("../by_sample/S_neg/figures/island_reconstruction.png", html)
 
     def test_a_missing_published_tree_changes_nothing(self):
         import shutil

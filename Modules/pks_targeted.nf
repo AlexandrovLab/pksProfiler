@@ -187,13 +187,15 @@ process summarizeTargetedPksEvidence {
     label 'targeted_alignment'
     publishDir { "${params.sample_dir}/${sampleID}/contigs/final_evidence" }, mode: 'copy', pattern: "*.tsv", saveAs: { fn -> fn - "${sampleID}." }
     // the validation plot belongs with the other figures, not buried in final_evidence/
-    publishDir { "${params.sample_dir}/${sampleID}/figures" }, mode: 'copy', pattern: "*.svg", saveAs: { "contig_validation.svg" }
+    publishDir { "${params.sample_dir}/${sampleID}/figures" }, mode: 'copy', pattern: "*.pdf", saveAs: { "island_reconstruction.pdf" }
+    publishDir { "${params.sample_dir}/${sampleID}/figures" }, mode: 'copy', pattern: "*.png", saveAs: { "island_reconstruction.png" }
     conda "${params.targeted_alignment_env}"
     input:
     tuple val(sampleID), path(megahit_contigs), path(megahit_paf), path(metaspades_contigs), path(metaspades_paf), path(raw_coverage), path(read_evidence), path(recruitment_stats)
     output:
     tuple val(sampleID), path("${sampleID}.final_pks_evidence.tsv"), emit: evidence
-    tuple val(sampleID), path("${sampleID}.raw_depth_megahit_metaspades_IHE3034.svg"), emit: plots
+    tuple val(sampleID), path("${sampleID}.island_reconstruction.pdf"),
+          path("${sampleID}.island_reconstruction.png"), emit: plots
     script:
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
@@ -206,7 +208,29 @@ process summarizeTargetedPksEvidence {
     # from PAF fields with no adjustment), so the correct conversion from the
     # 1-based inclusive annotation is pks_start_1based-1 .. pks_end_1based, not the
     # bare pks_shift this used to pass, which silently dropped the first base.
-    python "${params.scripts}/summarize_tumor_pks_contigs.py" --sample "${sampleID}" --megahit-contigs "${megahit_contigs}" --metaspades-contigs "${metaspades_contigs}" --megahit-paf "${megahit_paf}" --metaspades-paf "${metaspades_paf}" --raw-depth "${raw_coverage}" --read-evidence "${read_evidence}" --recruitment-stats "${recruitment_stats}" --gff "${params.pks_genome_annotation}" --contig "${params.pks_contig}" --region-start "${params.pks_plot_region_start}" --region-end "${params.pks_plot_region_end}" --island-start "${params.pks_start_1based.toString().toInteger() - 1}" --island-end "${params.pks_end_1based}" --min-aligned-bp "${params.tumor_contig_min_aligned_bp}" --output-tsv "${sampleID}.final_pks_evidence.tsv" --output-svg "${sampleID}.raw_depth_megahit_metaspades_IHE3034.svg"
+    python "${params.scripts}/summarize_tumor_pks_contigs.py" --sample "${sampleID}" --megahit-contigs "${megahit_contigs}" --metaspades-contigs "${metaspades_contigs}" --megahit-paf "${megahit_paf}" --metaspades-paf "${metaspades_paf}" --raw-depth "${raw_coverage}" --read-evidence "${read_evidence}" --recruitment-stats "${recruitment_stats}" --gff "${params.pks_genome_annotation}" --contig "${params.pks_contig}" --region-start "${params.pks_plot_region_start}" --region-end "${params.pks_plot_region_end}" --island-start "${params.pks_start_1based.toString().toInteger() - 1}" --island-end "${params.pks_end_1based}" --min-aligned-bp "${params.tumor_contig_min_aligned_bp}" --output-tsv "${sampleID}.final_pks_evidence.tsv" --output-svg "${sampleID}.contig_validation_legacy.svg"
+
+    # The published figure. summarize_tumor_pks_contigs.py above still computes
+    # final_pks_evidence.tsv -- the numbers every downstream stage reads -- but its SVG
+    # was a working diagram rather than something to put in front of anyone, so it is
+    # written to a name that is not published and the figure comes from here instead.
+    # Drawing conventions live in scripts/pks_figure_style.py, shared with every other
+    # figure of this island so they cannot drift apart.
+    #
+    # --paf rather than directory discovery: a task stages its inputs flat, so the
+    # layout the standalone script walks does not exist here. metaspades first, which
+    # puts the two assemblers in the same order and the same colours in every figure.
+    python "${params.scripts}/plot_island_reconstruction.py" \
+        --sample-dir . \
+        --paf "metaspades=${metaspades_paf}" \
+        --paf "megahit=${megahit_paf}" \
+        --coverage "${raw_coverage}" \
+        --gff "${params.pks_genome_annotation}" \
+        --contig "${params.pks_contig}" \
+        --island-start "${params.pks_start_1based}" \
+        --island-end "${params.pks_end_1based}" \
+        --label "${sampleID}" \
+        --out "${sampleID}.island_reconstruction.pdf" --also png
     """
 }
 
