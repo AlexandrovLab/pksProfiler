@@ -54,16 +54,23 @@ def read_master(path):
 
 
 def read_sheet(path):
-    """patient -> alignment from the v0.0.1-style sample sheet (CSV)."""
+    """patient -> alignment path from the sample sheet (CSV).
+
+    The sheets in use name the path column differently by era: the TCGA WGS sheet says
+    `bam`, the v0.0.1 release format says `alignment`, CRAM cohorts may say `cram`.
+    """
     mapping = {}
     with open(path, encoding="utf-8", errors="replace", newline="") as handle:
         reader = csv.DictReader(handle)
-        if not reader.fieldnames or "alignment" not in reader.fieldnames:
-            sys.exit(f"{path} has no alignment column; expected patient,alignment")
+        fieldnames = reader.fieldnames or []
+        column = next((c for c in ("alignment", "bam", "cram") if c in fieldnames), None)
+        if column is None:
+            sys.exit(f"{path} has none of the columns alignment/bam/cram; "
+                     f"expected a patient,<path> sheet")
         for row in reader:
             name = sample_of(row)
-            if name and row.get("alignment"):
-                mapping[name] = row["alignment"].strip()
+            if name and row.get(column):
+                mapping[name] = row[column].strip()
     return mapping
 
 
