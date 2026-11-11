@@ -208,12 +208,10 @@ process summarizeTargetedPksEvidence {
     # from PAF fields with no adjustment), so the correct conversion from the
     # 1-based inclusive annotation is pks_start_1based-1 .. pks_end_1based, not the
     # bare pks_shift this used to pass, which silently dropped the first base.
-    python "${params.scripts}/summarize_tumor_pks_contigs.py" --sample "${sampleID}" --megahit-contigs "${megahit_contigs}" --metaspades-contigs "${metaspades_contigs}" --megahit-paf "${megahit_paf}" --metaspades-paf "${metaspades_paf}" --raw-depth "${raw_coverage}" --read-evidence "${read_evidence}" --recruitment-stats "${recruitment_stats}" --gff "${params.pks_genome_annotation}" --contig "${params.pks_contig}" --region-start "${params.pks_plot_region_start}" --region-end "${params.pks_plot_region_end}" --island-start "${params.pks_start_1based.toString().toInteger() - 1}" --island-end "${params.pks_end_1based}" --min-aligned-bp "${params.tumor_contig_min_aligned_bp}" --output-tsv "${sampleID}.final_pks_evidence.tsv" --output-svg "${sampleID}.contig_validation_legacy.svg"
+    python "${params.scripts}/summarize_tumor_pks_contigs.py" --sample "${sampleID}" --megahit-contigs "${megahit_contigs}" --metaspades-contigs "${metaspades_contigs}" --megahit-paf "${megahit_paf}" --metaspades-paf "${metaspades_paf}" --raw-depth "${raw_coverage}" --read-evidence "${read_evidence}" --recruitment-stats "${recruitment_stats}" --gff "${params.pks_genome_annotation}" --contig "${params.pks_contig}" --region-start "${params.pks_plot_region_start}" --region-end "${params.pks_plot_region_end}" --island-start "${params.pks_start_1based.toString().toInteger() - 1}" --island-end "${params.pks_end_1based}" --min-aligned-bp "${params.tumor_contig_min_aligned_bp}" --output-tsv "${sampleID}.final_pks_evidence.tsv"
 
-    # The published figure. summarize_tumor_pks_contigs.py above still computes
-    # final_pks_evidence.tsv -- the numbers every downstream stage reads -- but its SVG
-    # was a working diagram rather than something to put in front of anyone, so it is
-    # written to a name that is not published and the figure comes from here instead.
+    # The figure. summarize_tumor_pks_contigs.py above computes the evidence table;
+    # it no longer draws anything.
     # Drawing conventions live in scripts/pks_figure_style.py, shared with every other
     # figure of this island so they cannot drift apart.
     #

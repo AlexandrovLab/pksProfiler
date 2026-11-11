@@ -140,7 +140,7 @@ def structural_call(mh, ms):
 
 def main():
     p=argparse.ArgumentParser()
-    for name in ("sample","megahit-contigs","metaspades-contigs","megahit-paf","metaspades-paf","raw-depth","read-evidence","recruitment-stats","gff","output-tsv","output-svg"): p.add_argument(f"--{name}",required=True)
+    for name in ("sample","megahit-contigs","metaspades-contigs","megahit-paf","metaspades-paf","raw-depth","read-evidence","recruitment-stats","gff","output-tsv"): p.add_argument(f"--{name}",required=True)
     p.add_argument("--contig",default="NC_017628.1"); p.add_argument("--region-start",type=int,default=2183826); p.add_argument("--region-end",type=int,default=2254594)
     p.add_argument("--island-start",type=int,default=2193826); p.add_argument("--island-end",type=int,default=2244594)
     p.add_argument("--min-aligned-bp",type=int,default=200,
@@ -168,26 +168,10 @@ def main():
     # robustness columns stay in read_evidence.tsv only); without it a new evidence column
     # crashes the contig summary.
     with Path(a.output_tsv).open("w",newline="") as h: w=csv.DictWriter(h,fields,delimiter="\t",extrasaction="ignore");w.writeheader();w.writerow(result)
-    W,H,L,R=1600,1100,100,35; PW=W-L-R; sx=lambda x:L+(x-a.region_start)/(a.region_end-a.region_start)*PW
-    svg=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}"><rect width="100%" height="100%" fill="white"/>','<style>text{font-family:Arial,sans-serif;fill:#202124}.title{font-size:24px;font-weight:bold}.label{font-size:14px;font-weight:bold}.small{font-size:10px}.sub{font-size:13px}</style>',f'<text x="{L}" y="34" class="title">Canonical PKS-island contig validation</text>',f'<text x="{L}" y="58" class="sub">{html.escape(a.sample)} • IHE3034 {a.contig} • {ev["read_evidence"]} read evidence • final: {call}</text>',f'<text x="{L}" y="88" class="label">A  Standard reference clb genes</text>',f'<line x1="{L}" y1="112" x2="{W-R}" y2="112" stroke="#444"/>']
-    for left,right,strand,name in genes(a.gff,a.contig,a.region_start,a.region_end):
-        x1,x2=sx(left),sx(right); col="#3A86FF" if name.startswith("clb") else "#ADB5BD"; svg.append(f'<rect x="{x1:.1f}" y="101" width="{max(1,x2-x1):.1f}" height="22" fill="{col}" stroke="white"/>')
-        if name.startswith("clb"): svg.append(f'<text x="{(x1+x2)/2:.1f}" y="140" font-size="9" transform="rotate(48 {(x1+x2)/2:.1f} 140)">{html.escape(name)}</text>')
-    y=180
-    for assembler,color,label in (("megahit","#277DA1","B  MEGAHIT"),("metaspades","#F8961E","C  metaSPAdes")):
-        svg.append(f'<text x="{L}" y="{y}" class="label">{label}: {len(supporting[assembler])} supporting contigs (&#8805;{a.min_aligned_bp} bp each); {100*cov[assembler]:.1f}% island coverage from {len(best[assembler])} aligned contigs</text>'); y+=18
-        if not best[assembler]: svg.append(f'<text x="{L+20}" y="{y+12}" class="sub">No contig aligns at ≥90% identity, MAPQ ≥20</text>'); y+=35
-        else:
-            for hit in best[assembler][:12]:
-                x1,x2=sx(max(a.region_start,hit["start"])),sx(min(a.region_end,hit["end"])); svg.append(f'<rect x="{x1:.1f}" y="{y}" width="{max(1,x2-x1):.1f}" height="13" fill="{color}" stroke="#17212b"/>'); svg.append(f'<text x="{min(W-330,x2+5):.1f}" y="{y+10}" class="small">{html.escape(hit["contig"])} • {hit["aligned"]} bp • {100*hit["identity"]:.1f}%</text>'); y+=18
-        y+=12
-    dep=depths(a.raw_depth,a.contig,a.region_start,a.region_end); top=max(y+25,500); bottom=top+115; cap=max((d for _,d in dep),default=1)
-    svg.append(f'<text x="{L}" y="{top-12}" class="label">D  Raw reference depth (MAPQ ≥40; blank = 0)</text>')
-    bins={}
-    for pos,d in dep: bins.setdefault(int((pos-a.region_start)/(a.region_end-a.region_start)*PW),[]).append(d)
-    for b,values in bins.items():
-        height=statistics.mean(values)/cap*115; svg.append(f'<rect x="{L+b}" y="{bottom-height:.1f}" width="1" height="{height:.1f}" fill="#F94144"/>')
-    svg += [f'<line x1="{L}" y1="{bottom}" x2="{W-R}" y2="{bottom}" stroke="#444"/>',f'<rect x="{L}" y="{bottom+18}" width="{PW}" height="55" rx="7" fill="#F8F9FA" stroke="#DADCE0"/>',f'<text x="{L+14}" y="{bottom+40}" class="label">{call} • {agreement}</text>',f'<text x="{L+14}" y="{bottom+60}" class="sub">Breadth ≥1×/≥2×/≥3×: {100*float(ev["island_breadth_1x"]):.1f}% / {100*float(ev["island_breadth_2x"]):.1f}% / {100*float(ev["island_breadth_3x"]):.1f}%</text>','</svg>']
-    Path(a.output_svg).write_text("\n".join(svg))
+    # The figure this used to draw is now scripts/plot_island_reconstruction.py,
+    # which shares its drawing conventions with every other figure of this island
+    # (scripts/pks_figure_style.py). This script computes evidence; it no longer
+    # draws. --output-svg is gone rather than ignored, so a caller still passing it
+    # fails loudly instead of silently producing nothing.
 
 if __name__=="__main__": main()

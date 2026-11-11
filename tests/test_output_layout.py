@@ -152,10 +152,11 @@ class FigureTests(unittest.TestCase):
             self.assertTrue(any("figures" in t for t in TARGETS[process]),
                             f"{process} does not publish into figures/")
 
-    def test_the_contig_validation_plot_is_a_figure_not_a_result(self):
+    def test_the_island_reconstruction_plot_is_a_figure_not_a_result(self):
         targets = TARGETS["summarizeTargetedPksEvidence"]
         self.assertTrue(any("figures" in t for t in targets),
-                        "the contig validation SVG should publish alongside the other figures")
+                        "island_reconstruction.pdf/.png should publish alongside circos.pdf "
+                        "and the other figures, not under contigs/")
         self.assertTrue(any("final_evidence" in t for t in targets),
                         "the evidence table should still publish under contigs/final_evidence")
 

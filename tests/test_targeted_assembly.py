@@ -132,7 +132,7 @@ class RecruitmentStatsReachFinalEvidence(unittest.TestCase):
                  "--megahit-paf", str(d / "megahit.paf"), "--metaspades-paf", str(d / "metaspades.paf"),
                  "--raw-depth", str(d / "raw_depth.tsv"), "--read-evidence", str(d / "read_evidence.tsv"),
                  "--recruitment-stats", str(d / "stats.tsv"), "--gff", str(d / "ref.gff"),
-                 "--output-tsv", str(d / "out.tsv"), "--output-svg", str(d / "out.svg")],
+                 "--output-tsv", str(d / "out.tsv")],
                 capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             with (d / "out.tsv").open() as handle:
@@ -166,7 +166,6 @@ class RecruitmentStatsReachFinalEvidence(unittest.TestCase):
                 "fragment_ids_found\t4\npaired_fragments\t0\nsingleton_reads\t4\n"
                 "min_aligned_bases\t60\nmin_identity\t0.9\n")
             output_tsv = d / "final_pks_evidence.tsv"
-            output_svg = d / "contig_validation.svg"
             old_argv = sys.argv
             try:
                 sys.argv = [
@@ -184,7 +183,6 @@ class RecruitmentStatsReachFinalEvidence(unittest.TestCase):
                     "--region-start", "0", "--region-end", "1000",
                     "--island-start", "0", "--island-end", "1000",
                     "--output-tsv", str(output_tsv),
-                    "--output-svg", str(output_svg),
                 ]
                 summarize.main()
             finally:
