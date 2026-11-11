@@ -155,8 +155,13 @@ All three MAG databases are required when `--enable_mags true`. The download hel
 | Seven-locus *E. coli* strain typing | On with MAG analysis; disable using `--enable_strain_typing false` | Recovered genome bins; not WGS contigs |
 | Island-read taxonomy | `--pks_taxa true` | Short reads with alignment profiling |
 | Whole-community taxonomy | `--pks_community_taxa true` | Short reads with the balanced prefilter |
-| Locus-specificity challenge | `--pks_locus_specificity true` | Short-read WGS/metagenomes with alignment profiling |
-| Candidate-organism comparison | `--pks_carrier_attribution true` | All four short-read sample modes with alignment profiling |
+| Locus-specificity challenge **(experimental)** | `--pks_locus_specificity true` | Short-read WGS/metagenomes with alignment profiling |
+| Candidate-organism comparison **(experimental)** | `--pks_carrier_attribution true` | All four short-read sample modes with alignment profiling |
+
+**Experimental lanes.** `--pks_locus_specificity` (V8a) and `--pks_carrier_attribution`
+(V8b) are off by default and their thresholds are uncalibrated placeholders. Read their
+verdicts as a prompt to investigate, not as results to report, and do not use one to
+overturn a tier. See [docs/running/specificity.md](docs/running/specificity.md).
 
 <details>
 <summary><strong>Metagenome genome binning: databases, outputs, and interpretation</strong></summary>

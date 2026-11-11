@@ -105,59 +105,15 @@ process Bracken {
   # Decompress PKS reads for KrakenUniq
   zcat "${fastq_gz}" > "${sampleID}.pks.fastq"
 
-  # ------------------------------------------------------------------
-  # Per-sample Bracken read length.
-  #
-  # Bracken's abundance model is built per read length, and one global value
-  # cannot fit a multi-cohort run: in the 36-cohort infant MAG set only 11
-  # cohorts record a read length in the archive at all, and the implied
-  # single-read lengths span ~96-148 bp. Rather than guess, take the median
-  # length of the very reads this task is about to classify, then snap it to
-  # whichever database<N>mers.kmer_distrib the selected database actually ships
-  # -- so this adapts to any Bracken database rather than a hard-coded ladder.
-  # --bracken_read_length, when given, is the fallback for an empty or
-  # unmeasurable read set.
-  #
-  # Bounded cost: at most 20k reads are inspected, which is ample for a median
-  # and trivial beside the KrakenUniq classification that follows.
-  # ------------------------------------------------------------------
-  # NOTE on escaping: this lands inside a Nextflow script block, which is a
-  # Groovy string, so a backslash meant for the shell is written doubled below.
-  # Groovy raises a token recognition error on an unrecognised escape, and that
-  # applies to comments too -- so do not write one here either.
-  BRACKEN_RL=""
-  AVAIL=\$(ls "${params.kraken_db}"/database*mers.kmer_distrib 2>/dev/null \
-          | sed -E 's|.*/database([0-9]+)mers\\.kmer_distrib|\\1|' \
-          | sort -n | tr '\\n' ' ')
-
-  if [[ -s "${sampleID}.pks.fastq" && -n "\$AVAIL" ]]; then
-    MEASURED=\$(awk 'NR%4==2 {print length(\$0); n++} n>=20000 {exit}' \
-                 "${sampleID}.pks.fastq" \
-               | sort -n \
-               | awk '{v[NR]=\$1}
-                      END {if (NR) print (NR%2 ? v[(NR+1)/2]
-                                               : int((v[NR/2]+v[NR/2+1])/2))}')
-    if [[ -n "\$MEASURED" && "\$MEASURED" -gt 0 ]]; then
-      BRACKEN_RL=\$(awk -v m="\$MEASURED" \
-                     'BEGIN {best=""; bd=1e9}
-                      {for (i=1; i<=NF; i++) {
-                         d = (\$i > m) ? \$i - m : m - \$i
-                         if (d < bd) { bd = d; best = \$i }
-                       }}
-                      END {print best}' <<< "\$AVAIL")
-      echo "bracken read length: measured \${MEASURED} bp -> using \${BRACKEN_RL} (available: \$AVAIL)"
-    fi
-  fi
-
-  if [[ -z "\$BRACKEN_RL" ]]; then
-    BRACKEN_RL="${params.bracken_read_length ?: ''}"
-    if [[ -z "\$BRACKEN_RL" ]]; then
-      BRACKEN_RL=\$(awk '{print \$1}' <<< "\$AVAIL")
-      echo "bracken read length: not measurable and no --bracken_read_length; using \$BRACKEN_RL"
-    else
-      echo "bracken read length: not measurable; falling back to --bracken_read_length=\$BRACKEN_RL"
-    fi
-  fi
+  # Per-sample Bracken read length: measured from the very reads about to be
+  # classified, snapped to a length this database ships, with
+  # --bracken_read_length and then the database's smallest length as fallbacks.
+  # v3 item 13 moved this into scripts/bracken_read_length.sh so the community
+  # path (Modules/pks_prefilter.nf, sampleBracken) decides it identically; that
+  # script's header carries the reasoning.
+  BRACKEN_RL=\$(bash "${params.scripts}/bracken_read_length.sh" \
+      "${params.kraken_db}" "${params.bracken_read_length ?: ''}" \
+      fastq "${sampleID}.pks.fastq")
 
   # A valid sample can contain no PKS reads
   if [[ ! -s "${sampleID}.pks.fastq" ]]; then

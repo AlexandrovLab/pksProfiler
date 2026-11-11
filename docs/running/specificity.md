@@ -1,5 +1,20 @@
 # Two optional checks on the island reads: V8a and V8b
 
+> **EXPERIMENTAL. Not supported production lanes.**
+>
+> Both lanes are off by default and their thresholds are **placeholders that have not
+> been calibrated** against known positives and negatives. Treat a V8a or V8b verdict as
+> an indication to investigate, never as a result to report on its own, and do not use
+> one to overturn a tier the primary lane assigned.
+>
+> They stay experimental until two things are fixed: the lanes must use the canonical
+> tier parameters rather than their own, and V8a must compute exact survivor breadth
+> rather than its present approximation. Until then, nothing in these outputs belongs in
+> a figure or a manuscript claim.
+>
+> v3 review item 14. The primary detection lane is unaffected either way: these checks
+> run *after* it, on reads it already retained, and never re-run it.
+
 Both run on the reads the alignment lane already retained, never on the raw input, and
 neither re-runs primary detection. Both are off by default. They answer **different
 questions** and are deliberately kept apart — separate panels, separate scripts, separate

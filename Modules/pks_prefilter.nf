@@ -182,10 +182,22 @@ process sampleBracken {
     script:
     """
     # F15 dependency digests -- a change here must invalidate this task; lib/Provenance.groovy
-    # kraken_db ${params.dep_digest?.kraken_db}
+    # scripts now too (v3 item 13): the -r read length comes from
+    # scripts/bracken_read_length.sh, so a change to it must re-run this task.
+    # kraken_db ${params.dep_digest?.kraken_db}  scripts ${params.dep_digest?.scripts}
     set -euo pipefail
     # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
     ${ToolVersions.record(task, params, 'bracken')}
+
+    # v3 item 13: this passed -r "${params.bracken_read_length}" straight through, and
+    # that parameter defaults to null -- so --pks_community_taxa without it handed
+    # Bracken an empty -r. This process is given no FASTQ, only the KrakenUniq report
+    # and output, but column 4 of the output is the sequence length, so the same median
+    # the island path measures from reads is available here. Same script, same fallback
+    # order, so the two taxonomy paths cannot disagree.
+    BRACKEN_RL=\$(bash "${params.scripts}/bracken_read_length.sh" \
+        "${params.kraken_db}" "${params.bracken_read_length ?: ''}" \
+        kraken "${kraken_output}")
 
     # Ludmil, revised report finding 4: this called bracken -t 2 unconditionally.
     # Bracken itself fails when no taxon at the requested rank reaches its read
@@ -231,7 +243,7 @@ process sampleBracken {
       bracken -d "${params.kraken_db}" -i "${kraken_report}" \
         -o "\$bracken_output" \
         -w "\$bracken_kraken_report" \
-        -r "${params.bracken_read_length}" -l "\$LEVEL" -t 2
+        -r "\$BRACKEN_RL" -l "\$LEVEL" -t 2
     done
     """
 }

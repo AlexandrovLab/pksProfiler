@@ -370,10 +370,16 @@ order, whether or not any sample carried reads for them.
 | `by_sample/*/community/pks_community_interactions.tsv` | `--enable_mags` | producer × neighbour pair |
 | `by_sample/*/community/pks_island_mobility.tsv` | `--enable_mags` | draft genome |
 | `by_sample/*/strain/strain_types.tsv` | assembled output | typed unit |
-| `by_sample/*/locus_specificity/locus_specificity_summary.tsv` | `--pks_locus_specificity` | sample |
-| `by_sample/*/locus_specificity/locus_specificity_per_read.tsv` | `--pks_locus_specificity` | supporting read |
-| `by_sample/*/carrier_attribution/carrier_attribution.tsv` | `--pks_carrier_attribution` | sample |
-| `by_sample/*/carrier_attribution/carrier_per_read.tsv` | `--pks_carrier_attribution` | supporting read |
+| `by_sample/*/locus_specificity/locus_specificity_summary.tsv` **(experimental)** | `--pks_locus_specificity` | sample |
+| `by_sample/*/locus_specificity/locus_specificity_per_read.tsv` **(experimental)** | `--pks_locus_specificity` | supporting read |
+| `by_sample/*/carrier_attribution/carrier_attribution.tsv` **(experimental)** | `--pks_carrier_attribution` | sample |
+| `by_sample/*/carrier_attribution/carrier_per_read.tsv` **(experimental)** | `--pks_carrier_attribution` | supporting read |
+
+The four files marked experimental come from the V8a and V8b lanes, which are off by
+default and whose thresholds are uncalibrated placeholders. They are diagnostics to
+investigate, not results to report, and no tier in `read_evidence.tsv` or
+`pks.master_summary.tsv` is derived from them. See
+[running/specificity.md](running/specificity.md).
 
 ## Reading results from before v0.0.2
 
