@@ -39,6 +39,7 @@ repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 CONDA_CACHE_DIR=${CONDA_CACHE_DIR:-/tscc/lustre/restricted/alexandrov-ddn/users/amabbasi/pksProfiler/conda_cache}
 GRCH38=${GRCH38:-/tscc/projects/ps-lalexandrov/shared/Reference_Genomes/GRCh38.d1.vd1/GRCh38.d1.vd1.fa}
 KRAKEN_DB=${KRAKEN_DB:-}
+MINIMAP2_BIN=${MINIMAP2_BIN:-/tscc/projects/ps-lalexandrov/amabbasi/anaconda3/envs/minimap2_env/bin/minimap2}
 
 for tool in nextflow python3; do
     command -v "$tool" >/dev/null 2>&1 || { echo "ERROR: $tool is required." >&2; exit 1; }
@@ -49,6 +50,7 @@ if [[ -z "$KRAKEN_DB" ]]; then
     exit 1
 fi
 [[ -d "$KRAKEN_DB" ]] || { echo "ERROR: KRAKEN_DB is not a directory: $KRAKEN_DB" >&2; exit 1; }
+[[ -x "$MINIMAP2_BIN" ]] || { echo "ERROR: minimap2 not executable: $MINIMAP2_BIN" >&2; exit 1; }
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/pks-prefilter-parity-XXXXXX")
 KEEP_WORK=0
@@ -58,9 +60,17 @@ trap cleanup EXIT
 fixtures="$work/fixtures"
 echo "=== building fixtures (public references, synthetic reads)"
 python3 "$repo_dir/tests/fixtures/generate_mode_fixtures.py" \
-    --outdir "$fixtures" --grch38 "$GRCH38" > "$work/fixtures.log" 2>&1 || {
+    --out-dir "$fixtures" --grch38 "$GRCH38" > "$work/fixtures.log" 2>&1 || {
         echo "ERROR: fixture generation failed. Last 30 lines:" >&2
         tail -30 "$work/fixtures.log" >&2; KEEP_WORK=1; exit 1; }
+
+# The generator writes FASTAs; the .mmi indexes are built here, exactly as
+# check_mode_execution.sh does it. Without this the run reaches preflight and stops with
+# "--hg38_db does not exist", which is what happened on the first two attempts.
+echo "=== building host indexes ($MINIMAP2_BIN)"
+"$MINIMAP2_BIN" -d "$fixtures/hg38.mmi" "$fixtures/synthetic_hg38.fa" 2> "$work/mm2.log" &&
+"$MINIMAP2_BIN" -d "$fixtures/t2t.mmi" "$fixtures/synthetic_t2t_phix.fa" 2>> "$work/mm2.log" || {
+    cat "$work/mm2.log" >&2; echo "ERROR: index build failed." >&2; KEEP_WORK=1; exit 1; }
 
 cat > "$work/local.config" <<'EOF'
 executor {
