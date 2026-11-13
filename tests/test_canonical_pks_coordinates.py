@@ -104,3 +104,49 @@ class EveryCorrectnessSensitiveCallSiteUsesTheCanonicalValues(unittest.TestCase)
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GeneOverlapRuleReachesEveryLane(unittest.TestCase):
+    """params.min_gene_overlap_bp must reach the primary counts, not just the side lanes.
+
+    Ludmil's v3 review, item 12. Modules/pksProfiler_align.nf passed --largestOverlap to
+    featureCounts and never --minOverlap, so the primary clb counts used featureCounts'
+    own 1 bp default while Modules/pks_taxa.nf and Modules/pks_targeted.nf both honoured
+    params.min_gene_overlap_bp. At the shipped default of 1 the two agree by coincidence,
+    which is why this went unnoticed; at any other value the lanes disagree and the
+    primary counts answer to a rule the run does not report.
+
+    C2 confirmed every production run used 1, so no existing result is affected.
+    """
+
+    ALIGN = (ROOT / "Modules" / "pksProfiler_align.nf").read_text()
+
+    def test_the_primary_count_passes_the_configured_overlap(self):
+        self.assertIn("--minOverlap", self.ALIGN,
+                      "featureCounts must be told the overlap rule, not left on its default")
+        self.assertIn("--minOverlap ${params.min_gene_overlap_bp}", self.ALIGN,
+                      "and it must be the pipeline's parameter, not a literal")
+
+    def test_it_is_not_hardcoded_to_the_default(self):
+        # A literal 1 would pass today and silently ignore the parameter tomorrow.
+        self.assertNotIn("--minOverlap 1", self.ALIGN)
+
+    def test_every_lane_that_assigns_reads_to_genes_uses_the_same_parameter(self):
+        lanes = {
+            "Modules/pksProfiler_align.nf": "--minOverlap ${params.min_gene_overlap_bp}",
+            "Modules/pks_taxa.nf": "--min-overlap",
+            "Modules/pks_targeted.nf": "--min-overlap",
+        }
+        for path, needle in lanes.items():
+            with self.subTest(lane=path):
+                text = (ROOT / path).read_text()
+                self.assertIn(needle, text)
+                self.assertIn("params.min_gene_overlap_bp", text,
+                              f"{path} assigns reads to clb genes, so it has to use the "
+                              f"one configured overlap rule")
+
+    def test_a_non_default_value_would_actually_change_the_command(self):
+        """The regression the review asked for: substitute a non-default and check it lands."""
+        rendered = self.ALIGN.replace("${params.min_gene_overlap_bp}", "25")
+        self.assertIn("--minOverlap 25", rendered)
+        self.assertNotIn("--minOverlap ${params.min_gene_overlap_bp}", rendered)

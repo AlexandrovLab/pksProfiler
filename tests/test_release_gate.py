@@ -33,6 +33,7 @@ import importlib.util
 import tempfile
 import textwrap
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -425,8 +426,12 @@ class TheRecordedResultCannotBeFaked(unittest.TestCase):
         problems = self.verify(self.build(rows=rows))
         self.assertTrue(any("asserted nothing" in p for p in problems))
 
+    # A waiver has to name the tree its reason describes. HEAD is the only commit for
+    # which nothing inside the digest has changed yet, so it is the one a *current*
+    # waiver cites; the expiry case is exercised separately below.
+    WAIVER_SINCE = "HEAD"
     WAIVER = ("conda cache quota blocks rebuilding one env; the check last passed "
-              "2026-10-22 and nothing it exercises changed since")
+              "and nothing it exercises has changed since")
 
     def skipped_rows(self):
         return [{"check": "tests/assert_required_coverage.py", "status": "pass",
@@ -439,15 +444,21 @@ class TheRecordedResultCannotBeFaked(unittest.TestCase):
         self.assertTrue(any("skip_waiver" in p for p in problems), problems)
 
     def test_a_waived_skip_of_the_mag_check_is_accepted(self):
+        # The digest-scope lookup is stubbed so this asserts the ACCEPTANCE rule rather
+        # than the state of the working tree: with a real `since=HEAD` the answer flips
+        # the moment anyone edits a tracked file, which is correct behaviour but makes a
+        # useless test. Expiry has its own test below, against real history.
         record_text = self.build(
             rows=self.skipped_rows(),
-            skip_waiver=f"tests/check_metagenome_mag_execution.sh: {self.WAIVER}")
-        self.assertEqual(self.verify(record_text), [])
+            skip_waiver=f"tests/check_metagenome_mag_execution.sh: since={self.WAIVER_SINCE} {self.WAIVER}")
+        with unittest.mock.patch.object(record, "digest_scope_changes_since",
+                                        return_value=set()):
+            self.assertEqual(self.verify(record_text), [])
 
     def test_a_flippant_waiver_is_refused(self):
         record_text = self.build(
             rows=self.skipped_rows(),
-            skip_waiver="tests/check_metagenome_mag_execution.sh: because")
+            skip_waiver="tests/check_metagenome_mag_execution.sh: since=HEAD because")
         problems = self.verify(record_text)
         self.assertTrue(any("substantive" in p for p in problems), problems)
 
@@ -457,7 +468,7 @@ class TheRecordedResultCannotBeFaked(unittest.TestCase):
                 {"check": "tests/check_metagenome_mag_execution.sh", "status": "pass",
                  "tests": "25", "seconds": "64", "log": "logs/m.log"}]
         record_text = self.build(
-            rows=rows, skip_waiver=f"tests/assert_required_coverage.py: {self.WAIVER}")
+            rows=rows, skip_waiver=f"tests/assert_required_coverage.py: since={self.WAIVER_SINCE} {self.WAIVER}")
         problems = self.verify(record_text)
         self.assertTrue(any("unit gate" in p for p in problems), problems)
 
@@ -467,9 +478,47 @@ class TheRecordedResultCannotBeFaked(unittest.TestCase):
                  "log": "logs/x.log"} for name in record.REQUIRED_CHECKS]
         record_text = self.build(
             rows=rows,
-            skip_waiver=f"tests/check_metagenome_mag_execution.sh: {self.WAIVER}")
+            skip_waiver=f"tests/check_metagenome_mag_execution.sh: since={self.WAIVER_SINCE} {self.WAIVER}")
         problems = self.verify(record_text)
         self.assertTrue(any("not releasable" in p for p in problems), problems)
+
+    def test_a_waiver_that_names_no_tree_is_refused(self):
+        """Without since=, a rationale can outlive the code it was reasoned about.
+
+        The v1.0.0 record carried a waiver stating that nothing the MAG check exercises
+        had changed since 2026-10-22. By the time it was signed, the tree held a later
+        fix to Modules/pks_mag.nf -- the very module that check exists to exercise, and
+        inside the source digest. The sentence was false and nothing could tell.
+        """
+        record_text = self.build(
+            rows=self.skipped_rows(),
+            skip_waiver=f"tests/check_metagenome_mag_execution.sh: {self.WAIVER}")
+        problems = self.verify(record_text)
+        self.assertTrue(any("which tree it was reasoned against" in p for p in problems),
+                        problems)
+
+    def test_a_waiver_expires_when_the_code_it_covers_has_moved(self):
+        """Pinned at a commit the digest scope has moved past, the waiver is refused."""
+        import subprocess
+        old = subprocess.run(["git", "-C", str(ROOT), "rev-list", "--max-count=1",
+                              "HEAD~25"], capture_output=True, text=True)
+        if old.returncode != 0 or not old.stdout.strip():
+            self.skipTest("not enough history to exercise expiry")
+        record_text = self.build(
+            rows=self.skipped_rows(),
+            skip_waiver=f"tests/check_metagenome_mag_execution.sh: "
+                        f"since={old.stdout.strip()[:12]} {self.WAIVER}")
+        problems = self.verify(record_text)
+        self.assertTrue(any("has expired" in p or "have changed since" in p
+                            for p in problems), problems)
+
+    def test_a_waiver_naming_a_commit_that_does_not_exist_is_refused(self):
+        record_text = self.build(
+            rows=self.skipped_rows(),
+            skip_waiver=f"tests/check_metagenome_mag_execution.sh: "
+                        f"since=deadbeefdead {self.WAIVER}")
+        problems = self.verify(record_text)
+        self.assertTrue(any("not a commit" in p for p in problems), problems)
 
     def test_an_unsigned_record_is_refused(self):
         problems = self.verify(self.build(signed_off=None))

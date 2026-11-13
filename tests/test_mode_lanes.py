@@ -289,7 +289,12 @@ class LongReadLane(unittest.TestCase):
         self.assertIn('"${params.pks_reference_fasta}" "${reads}"', self.ALIGN)
         self.assertIn("-q ${params.pks_align_min_mapq}", self.ALIGN.split("minimap2 -ax ${long_preset}", 1)[1][:400])
         self.assertIn('def featurecounts_long = long_read ? "-L" : ""', self.ALIGN)
-        self.assertIn("--largestOverlap ${featurecounts_long}", self.ALIGN)
+        # featureCounts gets -L for long reads. Asserted on the pieces rather than on one
+        # literal line: --minOverlap now sits between them (review item 12), and a layout
+        # change should not fail a test about long-read behaviour.
+        self.assertIn("--largestOverlap", self.ALIGN)
+        self.assertIn("${featurecounts_long}", self.ALIGN)
+        self.assertIn('def featurecounts_long = long_read ? "-L" : ""', self.ALIGN)
         self.assertIn("minimap2=2.31", (ROOT / "conda_envs/pks_align_env.yml").read_text())
         self.assertIn("static String profilingPreset(Object readType)", PLAN)
 

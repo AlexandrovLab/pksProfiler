@@ -82,9 +82,16 @@ CONDA_CACHE_DIR=/path/to/cache bash tests/check_resume_reference_change.sh
 ```
 
 Both scripts, plus `check_e2e_execution.sh`, `check_malformed_input_execution.sh` and
-`check_mode_execution.sh`, now run in CI on every push to `main`, nightly (F21), **and on
-every `v*` tag** (rc2 review 2.2), with the conda environments cached between runs and the
-outputs kept as build artefacts.
+`check_mode_execution.sh`, run in CI **on manual dispatch only** (Actions -> CI -> Run
+workflow), with the conda environments cached between runs and the outputs kept as build
+artefacts.
+
+They ran on every push to `main`, nightly (F21) and on every `v*` tag (rc2 review 2.2)
+until 2026-11-06, when the job was made dispatch-only because it could not be made to
+pass on a GitHub-hosted runner; `.github/workflows/ci.yml` carries the reasoning on the
+job itself. **So CI does not execute the pipeline for a release tag.** A release's
+execution evidence is the signed record in `LOCAL_EXECUTION_CHECKS.tsv`, produced on TSCC
+and verified by `release-gate` against the tree's source digest.
 
 ## The release gate (rc2 review 2.2 and 2.3)
 

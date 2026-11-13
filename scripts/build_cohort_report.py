@@ -169,7 +169,10 @@ COHORT_INPUTS = {
 # figures/taxa_barplots.pdf, and a run with both kept whichever finished last).
 FIGURE_INPUTS = {
     "figure_circos": "circos.pdf",
-    "figure_contig_validation": "contig_validation.svg",
+    # The PNG, not the PDF published beside it: a PDF cannot be shown inline here (see
+    # the embed below), and a figure the reader must open in another tab is one most
+    # readers will not look at. The PDF stays in figures/ for print and slides.
+    "figure_island_reconstruction": "island_reconstruction.png",
     "figure_taxa_pks_island": "pks_island_taxa_barplots.pdf",
     "figure_taxa_community": "community_taxa_barplots.pdf",
 }
@@ -622,6 +625,12 @@ def figure_panels(records):
             if name.endswith(".svg"):
                 view = (f'<object type="image/svg+xml" data="{esc(href)}" width="100%">'
                         f'<a href="{esc(href)}">{esc(name)}</a></object>')
+            elif name.endswith((".png", ".jpg", ".jpeg", ".webp")):
+                # A raster embeds with a plain <img>, and unlike <object> it needs no
+                # plugin and survives a sandboxed browser.
+                view = (f'<a href="{esc(href)}">'
+                        f'<img src="{esc(href)}" alt="{esc(name)}" '
+                        f'style="width:100%;height:auto"></a>')
             else:
                 # PDFs do not embed reliably, least of all sandboxed.
                 view = (f'<p><a href="{esc(href)}">Open {esc(name)}</a>'

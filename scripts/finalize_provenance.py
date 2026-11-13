@@ -945,6 +945,29 @@ def qc_rollup(cohort_dir, started=None):
             values = [r.get(column) for r in traced]
             totals[column] = sum(int(v) for v in values if v not in (None, "", "NA"))
         rollup["low_score_rescue"] = {"samples": len(traced), "totals": totals}
+    # E1 / Ludmil v3 Tier A item 2: the resolved extraction mode is written per sample and
+    # nothing ever looked at it across the cohort. A cohort holding both rescued and
+    # FLAG4-only samples has two different sensitivities in it, and a prevalence
+    # difference can then be extraction rather than biology.
+    #
+    # What matters is whether the rescue RAN, not which of the five states said so: two
+    # samples that both rescued are equally sensitive whether that was decided by `auto`
+    # or asked for explicitly. So the mixed test is on-versus-off, and the per-state
+    # counts are reported underneath for diagnosis.
+    if rows and "extract_low_score_mode" in rows[0]:
+        modes = [(r.get("extract_low_score_mode") or "").strip() for r in rows]
+        modes = [m for m in modes if m and m != "NA"]
+        if modes:
+            counts = {}
+            for m in modes:
+                counts[m] = counts.get(m, 0) + 1
+            rescued = sum(n for m, n in counts.items() if m.startswith("on"))
+            not_rescued = sum(n for m, n in counts.items() if m.startswith("off"))
+            rollup["extraction_modes"] = {
+                "samples": len(modes), "counts": counts,
+                "rescued": rescued, "not_rescued": not_rescued,
+                "mixed": bool(rescued and not_rescued),
+            }
     if rows and "tier_robustness" in rows[0]:
         tiered = [r.get("tier_robustness") for r in rows if r.get("tier_robustness") not in (None, "", "NA")]
         rollup["tier_robustness"] = {"tiered_samples": len(tiered),
@@ -963,6 +986,24 @@ def render_qc_rollup(rollup):
         lines.append("  that rescued any (per sample: cohort/qc/pks.qc.summary.tsv)")
         for column, label in RESCUE_STAGES:
             lines.append(f"    {label:<38}{rescue['totals'].get(column, 0)}")
+    modes = rollup.get("extraction_modes")
+    if modes:
+        lines += section("LOW-SCORE EXTRACTION MODE (E1)")
+        lines.append(f"  how each of the {modes['samples']} sample(s) resolved; per sample in"
+                     f" cohort/qc/pks.qc.summary.tsv")
+        for mode, n in sorted(modes["counts"].items(), key=lambda kv: -kv[1]):
+            lines.append(f"    {mode:<24}{n}")
+        if modes["mixed"]:
+            lines.append("")
+            lines.append("  *** MIXED EXTRACTION MODE IN ONE COHORT ***")
+            lines.append(f"  {modes['rescued']} sample(s) had low-AS mapped reads rescued and"
+                         f" {modes['not_rescued']} did not.")
+            lines.append("  Those samples did not see the same read pool, so they are not equally")
+            lines.append("  sensitive. Do not read a prevalence difference across this cohort, or")
+            lines.append("  against another cohort, as biology until you know why they differ.")
+            lines.append("  off_auto_no_as_tag is expected for bwa aln/sampe/samse input, which")
+            lines.append("  emits no AS tag; off_auto_not_bwa_mem means another aligner entirely.")
+            lines.append("  Run with --require_low_score_mode true to make this a hard failure.")
     robustness = rollup.get("tier_robustness")
     if robustness:
         lines += section("TIER ROBUSTNESS (V2)")

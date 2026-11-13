@@ -200,7 +200,26 @@ process metabat2Bin {
     ${ToolVersions.record(task, params, 'metabat2')}
     mkdir -p bins
 
+    # v3 review item 15: "no bins" meant three different things and the table recorded
+    # only one of them. An assembly with no contigs, a MetaBAT2 run that legitimately
+    # recovered nothing, and a MetaBAT2 that fell over all produced bin_count 0; the
+    # difference survived in a log line nothing downstream reads. Across a cohort that is
+    # the difference between "30 thin samples" and "30 broken jobs", and answering it
+    # meant opening 30 task logs. binning_status now records which case this was, so the
+    # status table answers it directly.
+    #
+    #   no_contigs            the assembly produced nothing to bin; MetaBAT2 never ran
+    #   no_bins_recovered     MetaBAT2 ran and found no bin worth calling. EXPECTED, not
+    #                         a failure: below its 200 kb --minClsSize floor every contig
+    #                         is swept into the unbinned pool instead, which is the right
+    #                         answer for a thin sample. U1's unbinned lane still checks
+    #                         that pool for island evidence.
+    #   bins_recovered        at least one real bin.<N>.fa
+    #
+    # A genuine MetaBAT2 failure is still a task failure -- any exit code other than 1
+    # re-raises -- so it never reaches this table wearing a status at all.
     CONTIG_COUNT=\$(grep -c '^>' "${contigs}" || true)
+    BINNING_STATUS=""
     if [[ "\$CONTIG_COUNT" -gt 0 ]]; then
         metabat2 -i ${contigs} -a ${depth} -o bins/bin -t ${task.cpus} --unbinned || {
             rc=\$?
@@ -212,12 +231,24 @@ process metabat2Bin {
             fi
         }
     else
+        # Short-circuit: nothing was assembled, so there is nothing to bin. Said
+        # explicitly here rather than inferred downstream from an absent bin.
         echo "Assembly produced no contigs; skipping MetaBAT2" >&2
+        BINNING_STATUS=no_contigs
     fi
 
     BIN_COUNT=\$(find bins -maxdepth 1 -type f -name 'bin.[0-9]*.fa' | wc -l)
-    printf "sample\tcontig_count\tbin_count\n" > "${sampleID}.assembly_binning.tsv"
-    printf "%s\t%s\t%s\n" "${sampleID}" "\$CONTIG_COUNT" "\$BIN_COUNT" \
+    if [[ -z "\$BINNING_STATUS" ]]; then
+        if [[ "\$BIN_COUNT" -gt 0 ]]; then
+            BINNING_STATUS=bins_recovered
+        else
+            BINNING_STATUS=no_bins_recovered
+        fi
+    fi
+    echo "binning status for ${sampleID}: \$BINNING_STATUS (contigs \$CONTIG_COUNT, bins \$BIN_COUNT)" >&2
+
+    printf "sample\tcontig_count\tbin_count\tbinning_status\n" > "${sampleID}.assembly_binning.tsv"
+    printf "%s\t%s\t%s\t%s\n" "${sampleID}" "\$CONTIG_COUNT" "\$BIN_COUNT" "\$BINNING_STATUS" \
         >> "${sampleID}.assembly_binning.tsv"
     """
 }
@@ -688,12 +719,19 @@ process magSampleStatus {
     publishDir { "${params.sample_dir}/${sampleID}/genomes" }, mode: 'copy', saveAs: { fn -> fn - "${sampleID}." }
 
     input:
-    tuple val(sampleID), val(contig_count), val(bin_count), val(pks_positive_bins)
+    tuple val(sampleID), val(contig_count), val(bin_count), val(binning_status),
+          val(pks_positive_bins)
 
     output:
     path "${sampleID}.mag_status.tsv", emit: status
 
     script:
+    // `status` stays exactly what it was -- derived from the counts, and the column
+    // every existing consumer reads. v3 item 15 adds `binning_status` beside it:
+    // the same question answered by the step that actually did the binning, rather
+    // than inferred downstream. They should always agree, so a disagreement means the
+    // counts and the binner have diverged, which is worth seeing rather than smoothing
+    // over -- hence two columns, not one replacing the other.
     def outcome = contig_count == 0
         ? "no_contigs"
         : bin_count == 0
@@ -703,10 +741,11 @@ process magSampleStatus {
                 : "pks_positive_bins"
     """
     set -euo pipefail
-    printf "sample\\tstatus\\tcontig_count\\tbin_count\\tpks_positive_bin_count\\n" \
+    printf "sample\\tstatus\\tbinning_status\\tcontig_count\\tbin_count\\tpks_positive_bin_count\\n" \
         > "${sampleID}.mag_status.tsv"
-    printf "%s\\t%s\\t%s\\t%s\\t%s\\n" \
-        "${sampleID}" "${outcome}" "${contig_count}" "${bin_count}" "${pks_positive_bins}" \
+    printf "%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n" \
+        "${sampleID}" "${outcome}" "${binning_status}" "${contig_count}" "${bin_count}" \
+        "${pks_positive_bins}" \
         >> "${sampleID}.mag_status.tsv"
     """
 }
@@ -774,9 +813,12 @@ workflow pksMAG {
             tuple(sampleID, count_text.toInteger())
         }
 
+    // v3 item 15: a sample whose assembly produced nothing never reaches metabat2Bin at
+    // all, so it carries its binning status from here. Same vocabulary as the one the
+    // process writes, so the two routes into mag_status.tsv cannot drift apart.
     no_contig_counts_ch = assembly_contig_counts_ch
         .filter { _sampleID, contig_count -> contig_count == 0 }
-        .map { sampleID, _contig_count -> tuple(sampleID, 0, 0) }
+        .map { sampleID, _contig_count -> tuple(sampleID, 0, 0, 'no_contigs') }
 
     nonempty_contigs_ch = megahitAssemble.out.contigs
         .join(assembly_contig_counts_ch, by: 0)
@@ -939,12 +981,16 @@ workflow pksMAG {
                 error "Malformed assembly/binning status for ${sampleID}: ${status_file}"
             }
             def fields = lines[1].split("\\t", -1)
-            if (fields.size() != 3 ||
+            // v3 item 15 added binning_status as a fourth column; it is validated here
+            // rather than passed through, so an unrecognised value fails the run instead
+            // of reaching mag_status.tsv as a status nothing knows how to read.
+            if (fields.size() != 4 ||
                 !(fields[1] ==~ /^[0-9]+$/) ||
-                !(fields[2] ==~ /^[0-9]+$/)) {
+                !(fields[2] ==~ /^[0-9]+$/) ||
+                !(fields[3] in ['no_contigs', 'no_bins_recovered', 'bins_recovered'])) {
                 error "Invalid assembly/binning counts for ${sampleID}: ${lines[1]}"
             }
-            tuple(sampleID, fields[1].toInteger(), fields[2].toInteger())
+            tuple(sampleID, fields[1].toInteger(), fields[2].toInteger(), fields[3])
         }
 
     assembly_binning_counts_ch = no_contig_counts_ch
@@ -971,8 +1017,8 @@ workflow pksMAG {
 
     mag_status_input_ch = assembly_binning_counts_ch
         .join(pks_positive_bin_counts_ch, by: 0, remainder: true)
-        .map { sampleID, contig_count, bin_count, pks_positive_bins ->
-            tuple(sampleID, contig_count, bin_count, pks_positive_bins ?: 0)
+        .map { sampleID, contig_count, bin_count, binning_status, pks_positive_bins ->
+            tuple(sampleID, contig_count, bin_count, binning_status, pks_positive_bins ?: 0)
         }
 
     magSampleStatus(mag_status_input_ch)

@@ -21,6 +21,34 @@ different sets. This prints, explicitly, the denominator of every figure it repo
 many samples carry each column at all -- so the two numbers can be compared on the same
 footing instead of being quoted side by side.
 
+WHAT THIS RESULT IS, AND WHAT IT IS NOT (v3 review item 9)
+----------------------------------------------------------
+The collapsed tiers it reconciles are computed by applying the RAW thresholds -- 5 / 30 /
+100 reads -- to counts that collapsing has necessarily made smaller. That comparison is
+deliberately unfair, and the review accepts it as "a valid conservative stress test": a
+tier that survives an unfairly strict recount is genuinely robust.
+
+It is NOT an estimate of what an independently calibrated fragment-based tier system
+would do. Such a system would set its own thresholds on positives and negatives, and
+they would be LOWER than the raw ones, because every fragment count is at most its read
+count. So this over-reports instability relative to a fair fragment system, never under-
+reports it. Read every figure here as an UPPER BOUND on how much the tier cascade could
+move, not as a count of samples a fragment-based system would reclassify.
+
+Two things follow, and both matter when quoting these numbers:
+
+  * Nothing here changes any sample's tier. The primary tier stays on raw reads by
+    explicit decision (classify_tumor_pks_evidence.py, "the tier stays on raw reads"),
+    and `tier_robustness` is a reported diagnostic column that no call is gated on.
+    A sample flagged `unstable` is still whatever tier its raw counts earned.
+  * Retention-scaled thresholds -- rescaling 5/30/100 by the measured fragment retention
+    rate -- would be a fairer comparison, but as a SENSITIVITY ANALYSIS beside this
+    result, not as a replacement for it. Deliberately not added: it is a second number
+    with its own calibration assumptions, and the conservative bound is the one that
+    supports the claim being made. If fragment-based tiers are ever to be claimed rather
+    than stress-tested, calibrate them independently on positives and negatives, or with
+    an explicit equivalence design.
+
 PRIVACY: reads the cohort master summary, which is derived from protected data, and writes
 ONLY pooled counts -- no sample identifier, no row. Run it yourself.
 

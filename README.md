@@ -155,8 +155,13 @@ All three MAG databases are required when `--enable_mags true`. The download hel
 | Seven-locus *E. coli* strain typing | On with MAG analysis; disable using `--enable_strain_typing false` | Recovered genome bins; not WGS contigs |
 | Island-read taxonomy | `--pks_taxa true` | Short reads with alignment profiling |
 | Whole-community taxonomy | `--pks_community_taxa true` | Short reads with the balanced prefilter |
-| Locus-specificity challenge | `--pks_locus_specificity true` | Short-read WGS/metagenomes with alignment profiling |
-| Candidate-organism comparison | `--pks_carrier_attribution true` | All four short-read sample modes with alignment profiling |
+| Locus-specificity challenge **(experimental)** | `--pks_locus_specificity true` | Short-read WGS/metagenomes with alignment profiling |
+| Candidate-organism comparison **(experimental)** | `--pks_carrier_attribution true` | All four short-read sample modes with alignment profiling |
+
+**Experimental lanes.** `--pks_locus_specificity` (V8a) and `--pks_carrier_attribution`
+(V8b) are off by default and their thresholds are uncalibrated placeholders. Read their
+verdicts as a prompt to investigate, not as results to report, and do not use one to
+overturn a tier. See [docs/running/specificity.md](docs/running/specificity.md).
 
 <details>
 <summary><strong>Metagenome genome binning: databases, outputs, and interpretation</strong></summary>
@@ -218,7 +223,36 @@ Explore a synthetic WGS cohort before running the pipeline. This example illustr
 
 [HTML source](examples/results/cohort_report/pks_cohort_report.html) · [Report table (TSV)](examples/results/cohort_report/pks_cohort_report.tsv) · [QC table](examples/results/cohort_report/pks.qc.summary.tsv)
 
-In a completed run, open `results/cohort/pks_cohort_report.html`. Where targeted WGS assembly produced plots, its **contigs** links open `by_sample/<sample>/figures/contig_validation.svg`: the IHE3034 reference gene track, aligned MEGAHIT/metaSPAdes contigs, and raw read depth across the *pks* region. Keep the report with its `by_sample` output tree, because figure panels use relative file links. The bundled synthetic example shows the cohort layout; it does not include every run-specific plot.
+In a completed run, open `results/cohort/pks_cohort_report.html`. Keep it with its `by_sample` tree — figure panels use relative links.
+
+Each sample gets `figures/island_reconstruction.pdf` beside `circos.pdf`: genes, the contigs that rebuild the island, and read depth, on one axis.
+
+<details>
+<summary><strong>WGS</strong> — metaSPAdes vs MEGAHIT; agreement is the evidence</summary>
+
+![clb genes as strand-aware arrows above metaSPAdes and MEGAHIT contigs, above read depth, on one coordinate axis](assets/island_reconstruction_wgs_example.png)
+
+Drawn automatically. Contigs carry length and identity; row labels give contig count and island share. Filtered at ≥90% identity, MAPQ ≥20.
+
+</details>
+
+<details>
+<summary><strong>Metagenome</strong> — one row per bin, unbinned pool last in grey</summary>
+
+![clb genes above contigs grouped by bin, unbinned pool in grey as the last row, above read depth](assets/island_reconstruction_metagenome_example.png)
+
+Island sequence in a bin points to a carrier; in the unbinned pool it shows presence only. The MAG lane is optional, so run this one by hand:
+
+```bash
+python3 scripts/plot_island_reconstruction.py --mode metagenome \
+    --sample-dir results/by_sample/<sample> \
+    --gff ref/annotations/IHE3034.clbA-clbS.gff \
+    --out island_reconstruction.pdf --also png
+```
+
+</details>
+
+Both examples use synthetic data. Full description: [docs/output.md](docs/output.md).
 
 | Start here | What to look for |
 |---|---|
@@ -297,7 +331,7 @@ Nextflow creates the task-specific environments from [`conda_envs/`](conda_envs/
 | `prefilter_env.yml` | python 3.11.9, krakenuniq 1.0.4, diamond 2.2.8 |
 | `prokka_env.yml` | prokka 1.15.6, blast 2.16.0, barrnap 1.10.6, aragorn 1.2.41, hmmer 3.4, infernal 1.1.5, minced 0.4.2 |
 | `samtools_env.yml` | python 3.10.22, samtools 1.24, htslib 1.24 |
-| `targeted_alignment_env.yml` | minimap2 2.31, python 3.11.9 |
+| `targeted_alignment_env.yml` | minimap2 2.31, python 3.11.9, matplotlib-base 3.10.3 |
 | `targeted_recruit_env.yml` | python 3.11.9, bowtie2 2.5.5 |
 | `targeted_spades_env.yml` | python 3.11.9, spades 4.3.0 |
 

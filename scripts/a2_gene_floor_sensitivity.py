@@ -7,6 +7,10 @@ rc2 review item A2 (Ludmil, 15 Oct):
     positive report how many qualifying genes rest on exactly one read; focus on the +20
     newly positive.
 
+Two outcomes are reported separately at floor 2, not merged: a sample that stops being
+positive at all, and one that drops a tier but stays positive. Merging them overstates how
+much a cohort rests on single-read genes.
+
 `clb_genes_detected` counts a clb gene as present at >= 1 assigned read
 (scripts/classify_tumor_pks_evidence.py), and the gene count is one of the three criteria
 every tier requires. So a gene carried by a single read can be what lifts a sample over a
@@ -41,6 +45,8 @@ TIERS = [("extensive_island", 100, 10, 0.15),
          ("broad_island", 30, 8, 0.075),
          ("multi_gene", 5, 3, 0.01)]
 POSITIVE = {t[0] for t in TIERS}
+# TIERS is strongest-first, so a larger index is a weaker call.
+TIER_RANK = {name: i for i, (name, *_ ) in enumerate(TIERS)}
 FLOORS = (1, 2, 3)
 
 
@@ -131,7 +137,7 @@ def main():
             notes.append(f"{label}: no samples; nothing to report")
             continue
         for floor in FLOORS:
-            tally, single_dependent, genes_on_one = {}, 0, 0
+            tally, lost_positivity, demoted, genes_on_one = {}, 0, 0, 0
             for s in members:
                 row = master[s]
                 reads = num(row.get("pks_reads"))
@@ -143,10 +149,21 @@ def main():
                 if floor == 1:
                     ones = sum(1 for v in vals if v == 1)
                     genes_on_one += ones
-                    # Would dropping its single-read genes cost this sample its tier?
+                    # What does dropping its single-read genes actually cost this sample?
+                    #
+                    # These are two different things and were previously counted as one
+                    # (Ludmil's v3 review, item 8). A sample moving
+                    # extensive_island -> broad_island is still positive and still a
+                    # confident call; a sample moving multi_gene -> localized_indeterminate
+                    # has stopped being positive at all. Reporting them together overstates
+                    # how much the cohort rests on single-read genes. A3 already keeps this
+                    # distinction; A2 now does too.
                     if tier in POSITIVE and ones:
-                        if tier_for(reads, sum(1 for v in vals if v >= 2), breadth) != tier:
-                            single_dependent += 1
+                        at_two = tier_for(reads, sum(1 for v in vals if v >= 2), breadth)
+                        if at_two not in POSITIVE:
+                            lost_positivity += 1
+                        elif TIER_RANK[at_two] > TIER_RANK[tier]:
+                            demoted += 1
             positives = sum(n for t, n in tally.items() if t in POSITIVE)
             for tier in ["extensive_island", "broad_island", "multi_gene",
                          "localized_indeterminate", "negative"]:
@@ -156,8 +173,10 @@ def main():
                              f"{100*positives/len(members):.1f}"])
             if floor == 1:
                 out_rows.append([label, 1, "genes_resting_on_exactly_one_read", genes_on_one, ""])
-                out_rows.append([label, 1, "positives_that_lose_their_tier_at_floor_2",
-                                 single_dependent, f"{100*single_dependent/max(1,positives):.1f}"])
+                out_rows.append([label, 1, "positives_that_LOSE_POSITIVITY_at_floor_2",
+                                 lost_positivity, f"{100*lost_positivity/max(1,positives):.1f}"])
+                out_rows.append([label, 1, "positives_DEMOTED_but_still_positive_at_floor_2",
+                                 demoted, f"{100*demoted/max(1,positives):.1f}"])
 
     with open(a.out, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh, delimiter="\t")
@@ -172,7 +191,8 @@ def main():
     print()
     for label, floor, metric, n, pct in out_rows:
         if metric in ("ANY_POSITIVE", "genes_resting_on_exactly_one_read",
-                      "positives_that_lose_their_tier_at_floor_2"):
+                      "positives_that_LOSE_POSITIVITY_at_floor_2",
+                      "positives_DEMOTED_but_still_positive_at_floor_2"):
             print(f"  {label:<34} floor>={floor}  {metric:<42} {n:>6} {pct:>6}")
     for n in notes:
         print(f"  NOTE {n}")

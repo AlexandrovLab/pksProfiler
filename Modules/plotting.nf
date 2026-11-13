@@ -116,10 +116,19 @@ process masterQCSummary {
     # F16: the version and path of each tool this task runs; lib/ToolVersions.groovy
     ${ToolVersions.record(task, params, 'python3:python')}
 
+    # Ludmil v3 Tier A item 2. Without the flag the script warns on a mixed cohort and
+    # carries on; with it, a cohort whose samples did not all resolve to the same
+    # low-score extraction behaviour is refused.
+    REQUIRE_UNIFORM=""
+    if [[ "${params.require_low_score_mode}" == "true" ]]; then
+        REQUIRE_UNIFORM="--require-uniform-low-score-mode"
+    fi
+
     python3 "${qc_script}" \
         --inputs-file "${fragment_list}" \
         --expected-samples "${expected_samples}" \
         --expected-stages "${expected_stages}" \
+        \$REQUIRE_UNIFORM \
         --output pks.qc.summary.tsv
     """
 }

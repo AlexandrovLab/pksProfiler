@@ -59,7 +59,14 @@ READ_EVIDENCE_FIELDS = ["sample", "mode", "read_evidence", "pks_reads", "clb_gen
                         "island_breadth_1x", "island_breadth_2x", "island_breadth_3x"]
 # Ludmil, 26 Sep mode memo section 5: for metagenomes the primary quantity is pks reads per
 # million host-depleted reads (stool cohorts differ greatly in depth); the raw count stays.
-METAGENOME_FIELDS = READ_EVIDENCE_FIELDS + ["host_depleted_reads", "pks_reads_per_million"]
+# v3 review item 7: host_depleted_reads is "after the pangenome pass" when that optional
+# stage ran and "after T2T+phiX" when it did not, so the per-million denominator does not
+# say which stage produced it and rates from differently configured runs are not
+# self-describing. host_depleted_stage records the stage beside the count. The depletion
+# reference digests are per-run rather than per-sample and stay where they are: RUN_REPORT
+# and the F15 dep_digest lines in every task script.
+METAGENOME_FIELDS = READ_EVIDENCE_FIELDS + ["host_depleted_reads", "host_depleted_stage",
+                                            "pks_reads_per_million"]
 # V2 robustness (decision A, 1 Oct): the tier stays on raw reads (read_evidence, pks_reads).
 # Beside it, the same evidence counted three other ways by
 # compute_fragment_support_variants.py, and the tier each count would imply with the same
@@ -186,10 +193,10 @@ def main():
         raise SystemExit("--rna-transcript-min-reads must be at least 1")
     if a.mode == "metagenome" and not a.depletion_qc:
         raise SystemExit("--mode metagenome needs --depletion-qc for pks_reads_per_million")
-    depleted = depleted_reads(a.depletion_qc) if a.depletion_qc else None
+    depleted, depleted_stage = depleted_reads(a.depletion_qc) if a.depletion_qc else (None, None)
     row = evidence_row(a.mode, a.sample, reads, genes, (b1, b2, b3), thresholds,
                        no_tiers=a.no_tiers, rna_library_type=a.rna_library_type,
-                       depleted=depleted,
+                       depleted=depleted, depleted_stage=depleted_stage,
                        transcripts=(detected_genes(a.counts, a.rna_transcript_min_reads)
                                     if a.mode == "rna" else "NA"),
                        residual=(residual_human(a.residual_human_qc)
@@ -255,14 +262,22 @@ def robustness(row, variants_path):
     return out
 
 
+# The depletion stage each QC metric reports, in the order map_reads.nf runs them, last
+# stage first: the final survivor count is whichever of these the run actually produced.
+# v3 item 7: the stage travels with the count so the per-million denominator is
+# self-describing and rates from differently configured runs are comparable on their face.
+DEPLETION_STAGES = (("reads_after_pangenome", "pangenome"),
+                    ("reads_after_t2t_phix", "t2t_phix"))
+
+
 def depleted_reads(path):
-    """The final host-depleted read count from a depletion QC fragment: after the
-    pangenome pass when it ran, otherwise after T2T + phiX."""
+    """(count, stage) for the final host-depleted read count from a depletion QC
+    fragment: after the pangenome pass when it ran, otherwise after T2T + phiX."""
     metrics = qc_metrics(path)
-    for metric in ("reads_after_pangenome", "reads_after_t2t_phix"):
+    for metric, stage in DEPLETION_STAGES:
         value = metrics.get(metric)
         if value not in (None, "", "NA"):
-            return int(value)
+            return int(value), stage
     raise SystemExit(f"{path} has neither reads_after_pangenome nor reads_after_t2t_phix")
 
 
@@ -288,7 +303,8 @@ def evidence_outcome(row):
 
 
 def evidence_row(mode, sample, reads, genes, breadth, thresholds, no_tiers=False,
-                 rna_library_type="unknown", depleted=None, transcripts="NA",
+                 rna_library_type="unknown", depleted=None, depleted_stage=None,
+                 transcripts="NA",
                  residual=("NA", "NA")):
     """One output row in `mode`'s schema. Only wgs (without no_tiers) is ever tiered."""
     b1, b2, b3 = (f"{value:.6f}" for value in breadth)
@@ -300,6 +316,7 @@ def evidence_row(mode, sample, reads, genes, breadth, thresholds, no_tiers=False
                    island_breadth_1x=b1, island_breadth_2x=b2, island_breadth_3x=b3)
         if mode == "metagenome":
             row.update(host_depleted_reads=depleted if depleted is not None else "NA",
+                       host_depleted_stage=depleted_stage or "NA",
                        pks_reads_per_million=reads_per_million(reads, depleted))
         return row
     if mode == "wes":

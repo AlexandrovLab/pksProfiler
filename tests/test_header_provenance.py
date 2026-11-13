@@ -195,5 +195,69 @@ class Wiring(unittest.TestCase):
         self.assertIn("input_header_summary.tsv", docs)
 
 
+
+class UnconfirmedIsTwoDifferentThings(unittest.TestCase):
+    """Ludmil's v3 review, Tier A item 1.
+
+    low_score_decision used to send every non-`yes` bwa_mem to off_auto_not_bwa_mem. That
+    lumped together an input we know cannot be rescued with one we simply cannot read, and
+    the second silently lowers sensitivity. C1 showed the second never occurred in the TCGA
+    cohorts -- every file carries a CL -- but the code path was live.
+    """
+
+    PG_SAMPE = ('@PG\tID:bwa\tPN:bwa\tVN:0.7.15\t'
+                'CL:bwa sampe -r @RG\\tID:x ref.fa a.sai b.sai a.fq b.fq\n')
+    PG_NO_CL = '@PG\tID:bwa\tPN:bwa\tVN:0.7.15\n'
+    PG_MEM = '@PG\tID:bwa\tPN:bwa\tVN:0.7.15\tCL:bwa mem -T 0 ref.fa a.fq b.fq\n'
+    PG_STAR = '@PG\tID:STAR\tPN:STAR\tVN:2.7.5c\tCL:STAR --runMode alignReads\n'
+
+    def test_sampe_is_not_mem_and_is_not_the_same_as_an_unreadable_header(self):
+        self.assertEqual(hp.bwa_mem_evidence(self.PG_SAMPE)[0], "not_mem")
+        self.assertEqual(hp.bwa_mem_evidence(self.PG_NO_CL)[0], "no_cl")
+
+    def test_mem_and_a_non_bwa_aligner_are_unchanged(self):
+        self.assertEqual(hp.bwa_mem_evidence(self.PG_MEM)[0], "yes")
+        self.assertEqual(hp.bwa_mem_evidence(self.PG_STAR)[0], "no")
+
+    def test_sampe_resolves_to_its_own_off_state_and_the_run_continues(self):
+        # 17 of 1,304 TCGA WES samples are this. They are correctly declined -- sampe
+        # emits no AS tag (tests/check_bwa_sampe_tags.sh) -- so the run must not fail.
+        self.assertEqual(hp.low_score_decision("auto", "not_mem"), "off_auto_no_as_tag")
+
+    def test_a_missing_command_line_refuses_rather_than_guessing(self):
+        with self.assertRaises(ValueError) as caught:
+            hp.low_score_decision("auto", "no_cl")
+        msg = str(caught.exception)
+        self.assertIn("--extract_low_score_mapped", msg,
+                      "the error has to say how to resolve it")
+        self.assertIn("sensitivity", msg,
+                      "and why guessing off is not safe")
+
+    def test_an_explicit_request_still_wins_over_an_unreadable_header(self):
+        # The escape hatch the error points at must actually work.
+        self.assertEqual(hp.low_score_decision("on", "no_cl"), "on_requested")
+        self.assertEqual(hp.low_score_decision("off", "no_cl"), "off_requested")
+
+    def test_a_genuinely_different_aligner_is_still_off_auto_not_bwa_mem(self):
+        # TCGA RNA: 701/701 STAR. Unchanged behaviour, and distinct from the sampe state.
+        self.assertEqual(hp.low_score_decision("auto", "no"), "off_auto_not_bwa_mem")
+
+    def test_every_state_the_decision_can_return_is_declared(self):
+        for bwa_mem in ("yes", "not_mem", "no"):
+            self.assertIn(hp.low_score_decision("auto", bwa_mem), hp.LOW_SCORE_STATES)
+        for request in ("on", "off"):
+            self.assertIn(hp.low_score_decision(request, "no"), hp.LOW_SCORE_STATES)
+
+    def test_each_state_has_a_reason_a_person_can_read(self):
+        for bwa_mem, state in (("not_mem", "off_auto_no_as_tag"),
+                               ("no", "off_auto_not_bwa_mem"),
+                               ("yes", "on_auto_bwa_mem")):
+            with self.subTest(bwa_mem=bwa_mem):
+                reason = hp.low_score_reason(state, bwa_mem, "NA", 30)
+                self.assertTrue(reason.strip())
+                self.assertIn(state, reason)
+        self.assertIn("no AS tag", hp.low_score_reason("off_auto_no_as_tag", "not_mem", "NA", 30))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -267,3 +267,82 @@ class ItIsDocumented(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CohortExtractionModeUniformity(unittest.TestCase):
+    """Ludmil's v3 review, Tier A item 2.
+
+    extract_low_score_mode is written per sample and nothing compared it across the
+    cohort, so a run could hold rescued and FLAG4-only samples side by side in silence.
+    Those samples saw different read pools; a prevalence difference between them can be
+    extraction rather than biology. C1 found this live in TCGA WES: 1,287 rescued and 17
+    not, because the 17 are bwa sampe.
+    """
+
+    SCRIPT = ROOT / "scripts" / "build_qc_summary.py"
+
+    def _qc(self, tmp, modes):
+        path = Path(tmp) / "pks.qc.summary.tsv"
+        with path.open("w", newline="") as fh:
+            w = csv.writer(fh, delimiter="\t")
+            w.writerow(["sample", "extract_low_score_mode", "terminal_state"])
+            for i, m in enumerate(modes):
+                w.writerow([f"S{i:03d}", m, "completed"])
+        return path
+
+    def _check(self, modes, required):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("bqs", self.SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._qc(tmp, modes)
+            return mod.check_uniform_low_score_mode(path, required)
+
+    def test_a_uniform_cohort_passes_quietly(self):
+        self.assertIsNone(self._check(["on_auto_bwa_mem"] * 40, required=True))
+
+    def test_auto_and_requested_on_are_not_a_mix(self):
+        # Both rescued, so equally sensitive; which switch said so does not matter.
+        self.assertIsNone(self._check(["on_auto_bwa_mem"] * 30 + ["on_requested"] * 10,
+                                      required=True))
+
+    def test_a_mixed_cohort_is_refused_when_required(self):
+        with self.assertRaises(SystemExit) as caught:
+            self._check(["on_auto_bwa_mem"] * 1287 + ["off_auto_no_as_tag"] * 17,
+                        required=True)
+        message = str(caught.exception)
+        self.assertIn("1287", message)
+        self.assertIn("17", message)
+        self.assertIn("--extract_low_score_mapped", message,
+                      "the error must say how to resolve it")
+
+    def test_a_mixed_cohort_only_warns_by_default(self):
+        # A mix is legitimate when the inputs genuinely differ, so the default carries on.
+        self.assertIsNone(self._check(["on_auto_bwa_mem"] * 1287 + ["off_auto_no_as_tag"] * 17,
+                                      required=False))
+
+    def test_a_cohort_with_no_extraction_column_is_not_an_error(self):
+        # FASTQ-only cohorts never extract, so there is nothing to compare.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "pks.qc.summary.tsv"
+            with path.open("w", newline="") as fh:
+                w = csv.writer(fh, delimiter="\t")
+                w.writerow(["sample", "terminal_state"])
+                w.writerow(["S000", "completed"])
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("bqs", self.SCRIPT)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            self.assertIsNone(mod.check_uniform_low_score_mode(path, True))
+
+    def test_the_workflow_declares_the_parameter_and_passes_it_through(self):
+        main_nf = (ROOT / "main.nf").read_text()
+        self.assertIn("params.require_low_score_mode", main_nf)
+        plotting = (ROOT / "Modules" / "plotting.nf").read_text()
+        self.assertIn("--require-uniform-low-score-mode", plotting)
+
+    def test_the_run_report_warns_on_a_mixed_cohort(self):
+        prov = (ROOT / "scripts" / "finalize_provenance.py").read_text()
+        self.assertIn("MIXED EXTRACTION MODE IN ONE COHORT", prov)
+        self.assertIn("extraction_modes", prov)
