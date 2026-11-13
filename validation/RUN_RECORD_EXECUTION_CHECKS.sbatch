@@ -31,7 +31,7 @@ set -uo pipefail
 # (ascat's libcrypto), which breaks /usr/bin/python3's hashlib. Re-exec clean.
 if [[ "${RECORD_CLEAN_ENV:-}" != "1" ]]; then
     exec env -i \
-        RECORD_CLEAN_ENV=1 \
+        RECORD_CLEAN_ENV=1 REPO="${REPO:-}" \
         HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" \
         PATH=/usr/local/bin:/usr/bin:/bin \
         TERM="${TERM:-dumb}" \
@@ -39,7 +39,10 @@ if [[ "${RECORD_CLEAN_ENV:-}" != "1" ]]; then
         bash "$0" "$@"
 fi
 
-REPO=/tscc/lustre/restricted/alexandrov-ddn/users/amabbasi/pksProfiler/Tool/latest/.worktrees/rc4
+# Override with REPO=<path> sbatch ... to record a different worktree. The release
+# record is digest-bound, so after merging to main it must be regenerated in the
+# worktree that has main checked out, not here.
+REPO=${REPO:-/tscc/lustre/restricted/alexandrov-ddn/users/amabbasi/pksProfiler/Tool/latest/.worktrees/rc4}
 CONDA_BASE=/tscc/projects/ps-lalexandrov/amabbasi/anaconda3
 
 # shellcheck disable=SC1091
