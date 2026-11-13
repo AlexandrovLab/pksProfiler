@@ -5,16 +5,16 @@
 #
 # Produced by tests/record_local_execution_checks.sh. Do not hand-edit.
 #
-# commit: 25a21b38984c65398c68d87f82a4b5cfc858f537
-# source_digest: ec2a184fefb81c0e1aa23259f19332a684102cda67a775de38f219fd9421f1a6
+# commit: e7cb5f0a9b032518bce9b5a5e82a33d52b758131
+# source_digest: 4b76425a6571b76bcd939b120bb065af65cde0f3027457a60ad67f961f6bf152
 # recorded_on: 2026-11-13
 # recorded_by: ammalabbasi <amabbasi@ucsd.edu>
-# host: tscc-13-2
-# signed_off: ammalabbasi <amabbasi@ucsd.edu> ran these on tscc-13-2 and confirms the results above
+# host: tscc-1-26
+# signed_off: ammalabbasi <amabbasi@ucsd.edu> ran these on tscc-1-26 and confirms the results above
 #
 # DB_ROOT=/tscc/projects/ps-lalexandrov/shared/CMPipeline_nextflow/dbs
 # CONDA_CACHE_DIR=/tscc/lustre/restricted/alexandrov-ddn/users/amabbasi/pksProfiler/conda_cache
 #
 check	status	tests	duration_s	log
-tests/assert_required_coverage.py	pass	1494	130	.local_execution_logs/assert_required_coverage.log
-tests/check_metagenome_mag_execution.sh	pass	25	336	.local_execution_logs/check_metagenome_mag_execution.log
+tests/assert_required_coverage.py	pass	1494	94	.local_execution_logs/assert_required_coverage.log
+tests/check_metagenome_mag_execution.sh	pass	25	185	.local_execution_logs/check_metagenome_mag_execution.log
