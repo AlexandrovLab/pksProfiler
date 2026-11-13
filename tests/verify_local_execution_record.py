@@ -64,23 +64,64 @@ SOURCE_PATHS = ("main.nf", "nextflow.config", "lib", "Modules", "scripts", "conf
 SOURCE_EXCLUDE = {"tests/LOCAL_EXECUTION_CHECKS.tsv"}
 
 
+def tracked_source_files(root=ROOT):
+    """Paths git tracks under SOURCE_PATHS, or None if git cannot answer.
+
+    None means "no git here" -- a release tarball, or an export without .git -- and the
+    caller falls back to walking the filesystem. In a pristine export the two agree,
+    because everything present there is tracked.
+    """
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z", "--"] + list(SOURCE_PATHS),
+            capture_output=True, text=True)
+    except OSError:
+        return None
+    if done.returncode != 0:
+        return None
+    return [name for name in done.stdout.split("\0") if name]
+
+
 def source_digest(root=ROOT):
-    """sha256 over `<relative path>\\t<sha256 of content>` for every source file, sorted."""
+    """sha256 over `<relative path>\\t<sha256 of content>` for every source file, sorted.
+
+    Only files git TRACKS are digested. The digest pins "the source being released", and
+    a file git was told to ignore is by definition not part of the release: it exists on
+    one machine and not on the next, so hashing it makes the digest a property of the
+    checkout rather than of the code.
+
+    That is not hypothetical. The v1.0.0 record was first rejected by the release gate
+    because this function walked the filesystem: `scripts/run_mag_smoke.sbatch`, ignored
+    at .gitignore:37, was present on the recording host and absent on the runner, so the
+    same commit digested two different ways and the gate reported "something under
+    main.nf / lib / Modules / ... has changed" when nothing had. .gitignore also covers
+    **/*.log, **/logs/, **/work/, **/RESULTS/ and *.bak, every one of which can land
+    inside SOURCE_PATHS, so a stray Modules/foo.nf.bak would have done the same thing.
+    An earlier patch special-cased __pycache__; that treated the symptom.
+
+    A tracked file missing from disk is skipped rather than guessed at. The digest then
+    legitimately disagrees with a complete checkout, which is the gate doing its job.
+    """
     entries = []
-    for name in SOURCE_PATHS:
-        path = root / name
-        if path.is_file():
-            candidates = [path]
-        elif path.is_dir():
-            candidates = sorted(p for p in path.rglob("*") if p.is_file())
-        else:
+    tracked = tracked_source_files(root)
+    if tracked is not None:
+        candidates = [root / name for name in tracked]
+    else:
+        candidates = []
+        for name in SOURCE_PATHS:
+            path = root / name
+            if path.is_file():
+                candidates.append(path)
+            elif path.is_dir():
+                candidates.extend(sorted(p for p in path.rglob("*") if p.is_file()))
+    for candidate in candidates:
+        if not candidate.is_file():
             continue
-        for candidate in candidates:
-            relative = candidate.relative_to(root).as_posix()
-            if relative in SOURCE_EXCLUDE or "/__pycache__/" in f"/{relative}":
-                continue
-            digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
-            entries.append(f"{relative}\t{digest}")
+        relative = candidate.relative_to(root).as_posix()
+        if relative in SOURCE_EXCLUDE or "/__pycache__/" in f"/{relative}":
+            continue
+        digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
+        entries.append(f"{relative}\t{digest}")
     return hashlib.sha256("\n".join(sorted(entries)).encode()).hexdigest()
 
 # What the record must cover, and why it cannot be on the runner instead.

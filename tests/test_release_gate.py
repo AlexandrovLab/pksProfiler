@@ -30,6 +30,8 @@ The point of the last two is that these two scripts are the release gate. If the
 satisfied by a run that did not happen, the gate is decoration.
 """
 import importlib.util
+import shutil
+import subprocess
 import tempfile
 import textwrap
 import unittest
@@ -562,6 +564,84 @@ class TheSourceDigestCoversWhatChangesARun(unittest.TestCase):
             before = record.source_digest(root)
             (root / "tests" / "LOCAL_EXECUTION_CHECKS.tsv").write_text("two\n")
             self.assertEqual(before, record.source_digest(root))
+
+
+class TheSourceDigestIsAPropertyOfTheCodeNotOfTheCheckout(unittest.TestCase):
+    """The v1.0.0 release gate rejected a correct record over this.
+
+    source_digest() used to walk the filesystem, so any file merely PRESENT under
+    SOURCE_PATHS was hashed. scripts/run_mag_smoke.sbatch, ignored at .gitignore:37, was
+    present on the recording host and absent on the GitHub runner, so one commit digested
+    two ways and the gate reported that the source had changed when it had not. .gitignore
+    also covers **/*.log, **/logs/, **/work/, **/RESULTS/ and *.bak, so a stray
+    Modules/foo.nf.bak would reproduce it. The digest now covers the TRACKED set.
+    """
+
+    def repo(self, root):
+        """A real git repo, because git is what the digest now asks."""
+        run = lambda *a: subprocess.run(["git", "-C", str(root), *a],
+                                        capture_output=True, text=True, check=True)
+        run("init", "-q")
+        run("config", "user.email", "t@example.com")
+        run("config", "user.name", "t")
+        return run
+
+    def tree(self, root):
+        (root / "Modules").mkdir()
+        (root / "scripts").mkdir()
+        (root / "main.nf").write_text("workflow {}\n")
+        (root / "Modules" / "a.nf").write_text("process A {}\n")
+        (root / ".gitignore").write_text("scripts/scratch.sbatch\n*.bak\n")
+
+    def test_an_ignored_file_does_not_move_the_digest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.tree(root)
+            run = self.repo(root)
+            run("add", "-A")
+            run("commit", "-qm", "base")
+            before = record.source_digest(root)
+            (root / "scripts" / "scratch.sbatch").write_text("#!/bin/bash\n")
+            (root / "Modules" / "a.nf.bak").write_text("process A { old }\n")
+            self.assertEqual(before, record.source_digest(root),
+                             "a gitignored file must not change what the release digests")
+
+    def test_a_tracked_file_still_moves_the_digest(self):
+        """The fix must not buy quiet by making the gate blind."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.tree(root)
+            run = self.repo(root)
+            run("add", "-A")
+            run("commit", "-qm", "base")
+            before = record.source_digest(root)
+            (root / "Modules" / "a.nf").write_text("process A { label 'x' }\n")
+            self.assertNotEqual(before, record.source_digest(root))
+
+    def test_a_checkout_and_an_export_of_one_tree_agree(self):
+        """With .git and without it must give the same answer -- the bug, stated directly.
+
+        A release tarball has no .git, so the digest falls back to the filesystem walk.
+        In a pristine export everything present is tracked, so the two must coincide; if
+        they ever diverge, the gate is comparing a checkout against a tarball again.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.tree(root)
+            run = self.repo(root)
+            run("add", "-A")
+            run("commit", "-qm", "base")
+            with_git = record.source_digest(root)
+            shutil.rmtree(root / ".git")
+            self.assertEqual(with_git, record.source_digest(root))
+
+    def test_it_falls_back_when_git_cannot_answer(self):
+        """No git binary, or no repo, must degrade to the walk rather than crash."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.tree(root)
+            self.assertIsNone(record.tracked_source_files(root))
+            self.assertRegex(record.source_digest(root), r"^[0-9a-f]{64}$")
 
 
 if __name__ == "__main__":
