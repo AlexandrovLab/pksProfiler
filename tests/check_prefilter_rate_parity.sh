@@ -76,7 +76,10 @@ cat > "$work/local.config" <<'EOF'
 executor {
     name   = 'local'
     cpus   = 32
-    memory = '32 GB'
+    // 200 GB, not the 32 GB the mode-execution harness uses: that one never runs
+    // krakenPrefilter, which asks for 64 GB in conf/base.config and needs room to
+    // memory-map a 544 GB krakenuniq database on top of it.
+    memory = '200 GB'
 }
 process {
     withLabel:extract_reads     { cpus = 1 }
